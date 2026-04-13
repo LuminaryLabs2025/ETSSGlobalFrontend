@@ -1,16 +1,14 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   User,
   Mail,
-  Phone,
   Shield,
   Building2,
   Key,
   Bell,
-  BellOff,
   MessageSquare,
   Eye,
   EyeOff,
@@ -19,11 +17,11 @@ import {
   ArrowLeft,
   Lock,
   Save,
-  CheckCircle2,
   AlertCircle,
   Clock,
 } from "lucide-react";
-import { currentUser } from "@/lib/mock-data";
+import { useAuthStore } from "@/store/auth.store";
+import { toast } from "sonner";
 
 // ─── Password Policy ───
 const PASSWORD_RULES = [
@@ -33,19 +31,6 @@ const PASSWORD_RULES = [
   { label: "One number", test: (p: string) => /\d/.test(p) },
   { label: "One special character", test: (p: string) => /[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(p) },
 ];
-
-// ─── Toast Notification ───
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <div className="fixed right-6 top-20 z-50 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3.5 shadow-lg animate-in slide-in-from-right">
-      <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-      <p className="text-sm font-medium text-emerald-800">{message}</p>
-      <button onClick={onClose} className="ml-2 rounded-md p-0.5 text-emerald-400 hover:text-emerald-600">
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
 
 // ─── Section Wrapper ───
 function Section({
@@ -105,10 +90,21 @@ function Toggle({
 // ─── Main Profile Page ───
 export function ProfilePage() {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+
+  const userFullName = user ? `${user.first_name} ${user.last_name}` : "";
+  const userInitials = user
+    ? `${user.first_name[0]}${user.last_name[0]}`
+    : "--";
+  const userRole = user?.user_type?.name ?? "User";
+  const userEmail = user?.email ?? "";
+  const userAccountType = user?.account_type ?? "";
+  const userStatus = user?.status ?? "";
+  const userCompany = user?.company_id ?? "N/A";
+  const userCreatedAt = user?.created_at ?? "";
 
   // Personal info state
-  const [fullName, setFullName] = useState(currentUser.name);
-  const [phone, setPhone] = useState(currentUser.phone);
+  const [fullName, setFullName] = useState(userFullName);
   const [personalDirty, setPersonalDirty] = useState(false);
 
   // Password state
@@ -121,12 +117,11 @@ export function ProfilePage() {
   const [passwordSaving, setPasswordSaving] = useState(false);
 
   // Notification state
-  const [smsEnabled, setSmsEnabled] = useState(currentUser.notifications.sms);
-  const [emailEnabled, setEmailEnabled] = useState(currentUser.notifications.email);
+  const [smsEnabled, setSmsEnabled] = useState(true);
+  const [emailEnabled, setEmailEnabled] = useState(true);
   const [notifDirty, setNotifDirty] = useState(false);
 
   // Feedback
-  const [toast, setToast] = useState<string | null>(null);
   const [profileSaving, setProfileSaving] = useState(false);
   const [notifSaving, setNotifSaving] = useState(false);
 
@@ -134,15 +129,9 @@ export function ProfilePage() {
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({});
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 4000);
-  }, []);
-
   // ─── Personal Info Handlers ───
   const handlePersonalChange = (field: "name" | "phone", value: string) => {
     if (field === "name") setFullName(value);
-    else setPhone(value);
     setPersonalDirty(true);
     setProfileErrors((prev) => ({ ...prev, [field]: "" }));
   };
@@ -150,8 +139,6 @@ export function ProfilePage() {
   const validateProfile = () => {
     const errors: Record<string, string> = {};
     if (!fullName.trim()) errors.name = "Full name is required";
-    if (!phone.trim()) errors.phone = "Phone number is required";
-    else if (!/^\+?\d[\d\s-]{8,}$/.test(phone.trim())) errors.phone = "Enter a valid phone number";
     setProfileErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -162,7 +149,7 @@ export function ProfilePage() {
     setTimeout(() => {
       setProfileSaving(false);
       setPersonalDirty(false);
-      showToast("Profile information successfully updated");
+      toast.success("Profile information successfully updated");
     }, 800);
   };
 
@@ -189,7 +176,7 @@ export function ProfilePage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      showToast("Password successfully updated. You will be redirected to login.");
+      toast.success("Password successfully updated. You will be redirected to login.");
       setTimeout(() => router.push("/"), 2500);
     }, 1000);
   };
@@ -206,16 +193,15 @@ export function ProfilePage() {
     setTimeout(() => {
       setNotifSaving(false);
       setNotifDirty(false);
-      showToast("Notification preferences successfully updated");
+      toast.success("Notification preferences successfully updated");
     }, 600);
   };
 
   // ─── Cancel All ───
   const handleCancel = () => {
-    setFullName(currentUser.name);
-    setPhone(currentUser.phone);
-    setSmsEnabled(currentUser.notifications.sms);
-    setEmailEnabled(currentUser.notifications.email);
+    setFullName(userFullName);
+    setSmsEnabled(true);
+    setEmailEnabled(true);
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
@@ -225,47 +211,42 @@ export function ProfilePage() {
     setPasswordErrors({});
   };
 
-  const lastChanged = new Date(currentUser.lastPasswordChange).toLocaleDateString("en-NG", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  const lastChanged = "N/A";
 
   return (
     <div className="p-6 space-y-5">
-      {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-
       {/* ─── Header Banner ─── */}
       <div className="rounded-2xl bg-[#0f1e2e] p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600/20 text-xl font-bold text-emerald-400">
-              {currentUser.name.split(" ").map((n) => n[0]).join("")}
+              {userInitials}
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white">{currentUser.name}</h1>
-              <p className="text-xs text-gray-400">{currentUser.email}</p>
+              <h1 className="text-xl font-bold text-white">{userFullName}</h1>
+              <p className="text-xs text-gray-400">{userEmail}</p>
               <div className="mt-1.5 flex items-center gap-2">
                 <span className="rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
-                  {currentUser.role}
+                  {userRole}
                 </span>
                 <span className="rounded-full bg-blue-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                  {currentUser.accountType} Account
+                  {userAccountType} Account
                 </span>
                 <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
                   <span className="relative flex h-1.5 w-1.5">
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                     <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
                   </span>
-                  {currentUser.accountStatus}
+                  {userStatus}
                 </span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <Clock className="h-3.5 w-3.5" />
-            Member since {new Date(currentUser.createdAt).toLocaleDateString("en-NG", { month: "long", year: "numeric" })}
+            {userCreatedAt
+              ? `Member since ${new Date(userCreatedAt).toLocaleDateString("en-NG", { month: "long", year: "numeric" })}`
+              : "Member"}
           </div>
         </div>
       </div>
@@ -308,38 +289,13 @@ export function ProfilePage() {
                 <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
                   type="email"
-                  value={currentUser.email}
+                  value={userEmail}
                   disabled
                   className="w-full rounded-lg border border-gray-200 bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-500 cursor-not-allowed"
                 />
                 <Lock className="absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-300" />
               </div>
               <p className="mt-1 text-[11px] text-gray-400">Email cannot be changed. Contact support for assistance.</p>
-            </div>
-
-            {/* Phone */}
-            <div>
-              <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                Phone Number
-              </label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input
-                  type="tel"
-                  value={phone}
-                  onChange={(e) => handlePersonalChange("phone", e.target.value)}
-                  className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                    profileErrors.phone
-                      ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                      : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                  }`}
-                />
-              </div>
-              {profileErrors.phone && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                  <AlertCircle className="h-3 w-3" /> {profileErrors.phone}
-                </p>
-              )}
             </div>
 
             {/* Role & Company */}
@@ -350,7 +306,7 @@ export function ProfilePage() {
                   <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
-                    value={currentUser.role}
+                    value={userRole}
                     disabled
                     className="w-full rounded-lg border border-gray-200 bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-500 cursor-not-allowed"
                   />
@@ -362,7 +318,7 @@ export function ProfilePage() {
                   <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
-                    value={currentUser.company}
+                    value={userCompany}
                     disabled
                     className="w-full rounded-lg border border-gray-200 bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-500 cursor-not-allowed"
                   />
@@ -375,7 +331,7 @@ export function ProfilePage() {
               <div>
                 <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">Account Type</label>
                 <div className="rounded-lg border border-gray-200 bg-gray-100 px-3 py-2.5 text-sm text-gray-500">
-                  {currentUser.accountType}
+                  {userAccountType}
                 </div>
               </div>
               <div>
@@ -385,7 +341,7 @@ export function ProfilePage() {
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
                   </span>
-                  <span className="text-emerald-700 font-medium">{currentUser.accountStatus}</span>
+                  <span className="text-emerald-700 font-medium">{userStatus}</span>
                 </div>
               </div>
             </div>
@@ -638,7 +594,9 @@ export function ProfilePage() {
                 <span className="text-xs text-gray-600">Account created</span>
               </div>
               <span className="text-xs font-medium text-gray-900">
-                {new Date(currentUser.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}
+                {userCreatedAt
+                  ? new Date(userCreatedAt).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })
+                  : "N/A"}
               </span>
             </div>
             <p className="pt-2 text-center text-[11px] text-gray-400">
