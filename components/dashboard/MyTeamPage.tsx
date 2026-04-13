@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -27,88 +27,90 @@ import {
   MoreHorizontal,
   Building2,
   Briefcase,
+  Loader2,
 } from "lucide-react";
+import { useTeamMembers } from "@/hooks/team/useTeamMembers";
+import { useTeamSummary } from "@/hooks/team/useTeamSummary";
 import {
-  teamMembers as initialTeamMembers,
-  type TeamMember,
-  type TeamUserType,
-  type TeamAccountType,
-  type TeamStatus,
-  type TeamDepartment,
-} from "@/lib/mock-data";
+  useDisableTeamMember,
+  useEnableTeamMember,
+  useArchiveTeamMember,
+  useResendTeamInvite,
+} from "@/hooks/team/useTeamActions";
+import { toast } from "sonner";
+import type { PlatformUser } from "@/types/users.types";
+import type { TeamSummaryResponse } from "@/types/team.types";
 
 // ─── Filter Options ───
-const USER_TYPES: ("All" | TeamUserType)[] = [
-  "All",
-  "ETSS-Nigeria SuperAdmin",
-  "Customer Service Personnel",
-  "Traffic Manager",
-  "Gate Ops Personnel",
-  "Road Marshall",
-];
-const ACCOUNT_TYPES: ("All" | TeamAccountType)[] = ["All", "Primary", "Sub-Account"];
-const STATUSES: ("All" | TeamStatus)[] = ["All", "Active", "Inactive", "Awaiting Activation"];
-const DEPARTMENTS: ("All" | TeamDepartment)[] = ["All", "SuperAdmin", "Operations", "Customer Service"];
-const PAGE_SIZE = 10;
+const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
+const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_CONFIRMATION", "ARCHIVED"];
+const PAGE_SIZE = 20;
+
+/** Format API enum values for display (e.g. SUB_ACCOUNT → Sub Account) */
+function formatLabel(value: string) {
+  if (value === "All") return "All";
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ─── Status Badge ───
-function StatusBadge({ status }: { status: TeamStatus }) {
-  const config: Record<TeamStatus, string> = {
-    Active: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    Inactive: "bg-red-50 text-red-700 border-red-200",
-    "Awaiting Activation": "bg-amber-50 text-amber-700 border-amber-200",
+function StatusBadge({ status }: { status: string }) {
+  const config: Record<string, string> = {
+    ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    INACTIVE: "bg-red-50 text-red-700 border-red-200",
+    AWAITING_CONFIRMATION: "bg-amber-50 text-amber-700 border-amber-200",
+    ARCHIVED: "bg-gray-50 text-gray-700 border-gray-200",
   };
-  const icons: Record<TeamStatus, React.ElementType> = {
-    Active: CheckCircle2,
-    Inactive: XCircle,
-    "Awaiting Activation": AlertCircle,
+  const icons: Record<string, React.ElementType> = {
+    ACTIVE: CheckCircle2,
+    INACTIVE: XCircle,
+    AWAITING_CONFIRMATION: AlertCircle,
+    ARCHIVED: Archive,
   };
-  const Icon = icons[status];
+  const Icon = icons[status] ?? AlertCircle;
+  const label = formatLabel(status);
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${config[status]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${config[status] ?? "bg-gray-50 text-gray-700 border-gray-200"}`}>
       <Icon className="h-3 w-3" />
-      {status}
+      {label}
     </span>
   );
 }
 
 // ─── User Type Badge ───
-function UserTypeBadge({ type }: { type: TeamUserType }) {
-  const config: Record<TeamUserType, string> = {
+function UserTypeBadge({ type }: { type: string }) {
+  const config: Record<string, string> = {
     "ETSS-Nigeria SuperAdmin": "bg-violet-50 text-violet-700",
+    "Super Admin": "bg-violet-50 text-violet-700",
+    "ETSS Admin": "bg-violet-50 text-violet-700",
     "Customer Service Personnel": "bg-blue-50 text-blue-700",
     "Traffic Manager": "bg-cyan-50 text-cyan-700",
     "Gate Ops Personnel": "bg-amber-50 text-amber-700",
     "Road Marshall": "bg-indigo-50 text-indigo-700",
   };
-  // Short labels for table
-  const shorts: Record<TeamUserType, string> = {
-    "ETSS-Nigeria SuperAdmin": "SuperAdmin",
-    "Customer Service Personnel": "Customer Service",
-    "Traffic Manager": "Traffic Mgr",
-    "Gate Ops Personnel": "Gate Ops",
-    "Road Marshall": "Road Marshall",
-  };
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${config[type]}`}>
-      {shorts[type]}
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${config[type] ?? "bg-gray-100 text-gray-700"}`}>
+      {type}
     </span>
   );
 }
 
-// ─── Department Badge ───
-function DeptBadge({ dept }: { dept: TeamDepartment }) {
-  const config: Record<TeamDepartment, string> = {
-    SuperAdmin: "bg-violet-50 text-violet-600",
-    Operations: "bg-cyan-50 text-cyan-600",
-    "Customer Service": "bg-blue-50 text-blue-600",
-  };
+// ─── Account Type Badge ───
+function AccountBadge({ type }: { type: string }) {
+  const isPrimary = type === "SYSTEM" || type === "PRIMARY";
+  const label = formatLabel(type);
   return (
-    <span className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${config[dept]}`}>
-      {dept}
+    <span
+      className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
+        isPrimary ? "bg-violet-50 text-violet-600" : "bg-gray-100 text-gray-600"
+      }`}
+    >
+      {label}
     </span>
   );
 }
+
 
 // ─── Confirm Dialog ───
 function ConfirmDialog({
@@ -153,41 +155,18 @@ function ConfirmDialog({
   );
 }
 
-// ─── Toast ───
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <div className="fixed right-6 top-20 z-50 flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-5 py-3.5 shadow-lg">
-      <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />
-      <p className="text-sm font-medium text-emerald-800">{message}</p>
-      <button onClick={onClose} className="ml-2 rounded-md p-0.5 text-emerald-400 hover:text-emerald-600">
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
 // ─── Summary Panel ───
-function SummaryPanel({ members }: { members: TeamMember[] }) {
-  const total = members.length;
-  const active = members.filter((m) => m.status === "Active").length;
-  const inactive = members.filter((m) => m.status === "Inactive").length;
-  const awaiting = members.filter((m) => m.status === "Awaiting Activation").length;
-  const deptSuperAdmin = members.filter((m) => m.department === "SuperAdmin").length;
-  const deptOps = members.filter((m) => m.department === "Operations").length;
-  const deptCS = members.filter((m) => m.department === "Customer Service").length;
-
+function SummaryPanel({ summary }: { summary: TeamSummaryResponse | undefined }) {
   const statusCards = [
-    { label: "Total Members", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-400/10" },
-    { label: "Active", value: active, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Inactive", value: inactive, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10" },
-    { label: "Awaiting Activation", value: awaiting, icon: AlertCircle, color: "text-amber-400", bg: "bg-amber-400/10" },
+    { label: "Total Members", value: summary?.total ?? 0, icon: Users, color: "text-blue-400", bg: "bg-blue-400/10" },
+    { label: "Active", value: summary?.active ?? 0, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+    { label: "Inactive", value: summary?.inactive ?? 0, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10" },
+    { label: "Awaiting Activation", value: summary?.awaiting_activation ?? 0, icon: AlertCircle, color: "text-amber-400", bg: "bg-amber-400/10" },
   ];
 
-  const deptCards = [
-    { label: "SuperAdmin", value: deptSuperAdmin, color: "text-violet-400", bg: "bg-violet-400/10", icon: Shield },
-    { label: "Operations", value: deptOps, color: "text-cyan-400", bg: "bg-cyan-400/10", icon: Briefcase },
-    { label: "Customer Service", value: deptCS, color: "text-blue-400", bg: "bg-blue-400/10", icon: Mail },
-  ];
+  const typeCounts = [...(summary?.by_user_type ?? [])]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
 
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
@@ -220,20 +199,19 @@ function SummaryPanel({ members }: { members: TeamMember[] }) {
         ))}
       </div>
 
-      {/* Department Row */}
-      <div className="mt-3 grid grid-cols-3 gap-3">
-        {deptCards.map((card) => (
-          <div key={card.label} className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3 transition-colors hover:bg-white/10">
-            <div className={`rounded-lg p-1.5 ${card.bg}`}>
-              <card.icon className={`h-4 w-4 ${card.color}`} />
+      {/* User Type Breakdown */}
+      {typeCounts.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {typeCounts.map((t) => (
+            <div key={t.user_type} className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3 transition-colors hover:bg-white/10">
+              <div>
+                <p className="text-lg font-bold text-white">{t.count}</p>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500 truncate">{t.user_type}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-lg font-bold text-white">{card.value}</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -243,22 +221,24 @@ function ActionsMenu({
   member,
   onAction,
 }: {
-  member: TeamMember;
-  onAction: (action: string, member: TeamMember) => void;
+  member: PlatformUser;
+  onAction: (action: string, member: PlatformUser) => void;
 }) {
   const [open, setOpen] = useState(false);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [];
 
-  if (member.status === "Active") {
+  if (member.status === "ACTIVE") {
     actions.push({ label: "Disable User", icon: Ban, action: "disable", danger: true });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
-  } else if (member.status === "Inactive") {
+  } else if (member.status === "INACTIVE") {
     actions.push({ label: "Enable User", icon: Power, action: "enable" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
-  } else if (member.status === "Awaiting Activation") {
+  } else if (member.status === "AWAITING_CONFIRMATION") {
     actions.push({ label: "Resend Activation Mail", icon: Send, action: "resend" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
+  } else if (member.status === "ARCHIVED") {
+    actions.push({ label: "Enable User", icon: Power, action: "enable" });
   }
 
   return (
@@ -297,15 +277,25 @@ function ActionsMenu({
 
 // ─── Main Page ───
 export function MyTeamPage() {
-  const [members, setMembers] = useState<TeamMember[]>(initialTeamMembers);
   const [search, setSearch] = useState("");
-  const [userTypeFilter, setUserTypeFilter] = useState<string>("All");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [accountTypeFilter, setAccountTypeFilter] = useState<string>("All");
   const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [deptFilter, setDeptFilter] = useState<string>("All");
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
-  const [toast, setToast] = useState<string | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounce search input
+  useEffect(() => {
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 500);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [search]);
+
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -314,51 +304,41 @@ export function MyTeamPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 4000);
-  }, []);
+  // ─── API Hooks ───
+  const { data: summary } = useTeamSummary();
+  const { data: teamData, isLoading, isError } = useTeamMembers({
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    status: statusFilter !== "All" ? statusFilter : undefined,
+  });
 
-  // ─── Filtering ───
-  const filtered = useMemo(() => {
-    return members.filter((m) => {
-      if (search) {
-        const q = search.toLowerCase();
-        if (!`${m.name} ${m.email}`.toLowerCase().includes(q)) return false;
-      }
-      if (userTypeFilter !== "All" && m.userType !== userTypeFilter) return false;
-      if (accountTypeFilter !== "All" && m.accountType !== accountTypeFilter) return false;
-      if (statusFilter !== "All" && m.status !== statusFilter) return false;
-      if (deptFilter !== "All" && m.department !== deptFilter) return false;
-      return true;
-    });
-  }, [members, search, userTypeFilter, accountTypeFilter, statusFilter, deptFilter]);
+  const disableMember = useDisableTeamMember();
+  const enableMember = useEnableTeamMember();
+  const archiveMember = useArchiveTeamMember();
+  const resendInvite = useResendTeamInvite();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const members = teamData?.data ?? [];
+  const meta = teamData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const currentPage = meta?.page ?? page;
 
   const clearFilters = () => {
     setSearch("");
-    setUserTypeFilter("All");
+    setDebouncedSearch("");
     setAccountTypeFilter("All");
     setStatusFilter("All");
-    setDeptFilter("All");
     setPage(1);
   };
 
   const hasActiveFilters =
     search ||
-    userTypeFilter !== "All" ||
     accountTypeFilter !== "All" ||
-    statusFilter !== "All" ||
-    deptFilter !== "All";
+    statusFilter !== "All";
 
   const activeFilterCount = [
-    userTypeFilter !== "All",
     accountTypeFilter !== "All",
     statusFilter !== "All",
-    deptFilter !== "All",
   ].filter(Boolean).length;
 
   const formatTimestamp = (ts: string) => {
@@ -369,53 +349,54 @@ export function MyTeamPage() {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
     });
   };
 
   // ─── Export ───
-  const handleExport = (format: "csv" | "excel" | "pdf") => {
-    alert(`Exporting ${filtered.length} team members as ${format.toUpperCase()}`);
+  const handleExport = (format: "csv" | "pdf") => {
+    alert(`Exporting team members as ${format.toUpperCase()}`);
   };
 
   // ─── Actions ───
-  const handleAction = (action: string, member: TeamMember) => {
+  const handleAction = (action: string, member: PlatformUser) => {
+    const fullName = `${member.first_name} ${member.last_name}`;
     if (action === "disable") {
       setConfirm({
         title: "Disable User",
-        message: `Are you sure you want to disable ${member.name}? Their access will be revoked immediately.`,
+        message: `Are you sure you want to disable ${fullName}? Their access will be revoked immediately.`,
         confirmLabel: "Disable User",
         danger: true,
         onConfirm: () => {
-          setMembers((prev) =>
-            prev.map((m) => (m.id === member.id ? { ...m, status: "Inactive" as const } : m))
-          );
           setConfirm(null);
-          showToast(`${member.name} has been disabled successfully`);
+          disableMember.mutate(member.id, {
+            onSuccess: () => toast.success(`${fullName} has been disabled successfully`),
+          });
         },
       });
     } else if (action === "enable") {
       setConfirm({
         title: "Enable User",
-        message: `Are you sure you want to enable ${member.name}? Their access will be restored.`,
+        message: `Are you sure you want to enable ${fullName}? Their access will be restored.`,
         confirmLabel: "Enable User",
         onConfirm: () => {
-          setMembers((prev) =>
-            prev.map((m) => (m.id === member.id ? { ...m, status: "Active" as const } : m))
-          );
           setConfirm(null);
-          showToast(`${member.name} has been enabled successfully`);
+          enableMember.mutate(member.id, {
+            onSuccess: () => toast.success(`${fullName} has been enabled successfully`),
+          });
         },
       });
     } else if (action === "archive") {
       setConfirm({
         title: "Archive User",
-        message: `Are you sure you want to archive ${member.name}? Their record will be moved to the archived list.`,
+        message: `Are you sure you want to archive ${fullName}? Their record will be moved to the archived list.`,
         confirmLabel: "Archive User",
         danger: true,
         onConfirm: () => {
-          setMembers((prev) => prev.filter((m) => m.id !== member.id));
           setConfirm(null);
-          showToast(`${member.name} has been archived successfully`);
+          archiveMember.mutate(member.id, {
+            onSuccess: () => toast.success(`${fullName} has been archived successfully`),
+          });
         },
       });
     } else if (action === "resend") {
@@ -425,7 +406,9 @@ export function MyTeamPage() {
         confirmLabel: "Send Email",
         onConfirm: () => {
           setConfirm(null);
-          showToast(`Activation email sent to ${member.email}`);
+          resendInvite.mutate(member.id, {
+            onSuccess: () => toast.success(`Activation email sent to ${member.email}`),
+          });
         },
       });
     }
@@ -433,9 +416,6 @@ export function MyTeamPage() {
 
   return (
     <div className="p-6 space-y-5">
-      {/* Toast */}
-      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-
       {/* Confirm Dialog */}
       {confirm && (
         <ConfirmDialog
@@ -449,7 +429,7 @@ export function MyTeamPage() {
       )}
 
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel members={members} />
+      <SummaryPanel summary={summary} />
 
       {/* ─── Toolbar ─── */}
       <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -461,7 +441,7 @@ export function MyTeamPage() {
               type="text"
               placeholder="Search by name or email..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
             />
           </div>
@@ -495,9 +475,6 @@ export function MyTeamPage() {
               <button onClick={() => handleExport("csv")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                 <FileText className="h-3.5 w-3.5 text-gray-400" /> CSV
               </button>
-              <button onClick={() => handleExport("excel")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <FileText className="h-3.5 w-3.5 text-emerald-500" /> Excel
-              </button>
               <button onClick={() => handleExport("pdf")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
                 <FileText className="h-3.5 w-3.5 text-red-500" /> PDF
               </button>
@@ -508,19 +485,6 @@ export function MyTeamPage() {
         {/* ─── Filter Row ─── */}
         {showFilters && (
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
-            {/* User Type */}
-            <div className="relative">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">User Type</label>
-              <select
-                value={userTypeFilter}
-                onChange={(e) => { setUserTypeFilter(e.target.value); setPage(1); }}
-                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
-              >
-                {USER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
-            </div>
-
             {/* Account Type */}
             <div className="relative">
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Account Type</label>
@@ -529,7 +493,7 @@ export function MyTeamPage() {
                 onChange={(e) => { setAccountTypeFilter(e.target.value); setPage(1); }}
                 className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
               >
-                {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {ACCOUNT_TYPES.map((t) => <option key={t} value={t}>{formatLabel(t)}</option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
             </div>
@@ -542,20 +506,7 @@ export function MyTeamPage() {
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
                 className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
               >
-                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
-            </div>
-
-            {/* Department */}
-            <div className="relative">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Department</label>
-              <select
-                value={deptFilter}
-                onChange={(e) => { setDeptFilter(e.target.value); setPage(1); }}
-                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
-              >
-                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
+                {STATUSES.map((s) => <option key={s} value={s}>{formatLabel(s)}</option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
             </div>
@@ -573,122 +524,136 @@ export function MyTeamPage() {
         )}
       </div>
 
+      {/* ─── Loading / Error ─── */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-6 w-6 animate-spin text-emerald-600" />
+          <span className="ml-2 text-sm text-gray-500">Loading team members…</span>
+        </div>
+      )}
+
+      {isError && (
+        <div className="flex items-center justify-center py-20">
+          <p className="text-sm text-red-500">Failed to load team members. Please try again.</p>
+        </div>
+      )}
+
       {/* ─── Table ─── */}
-      <div className="rounded-xl border border-gray-200 bg-white">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-250">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User Type</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Account</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Department</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Status</th>
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Created</th>
-                <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
-                    <div className="flex flex-col items-center gap-2">
-                      <Users className="h-8 w-8 text-gray-300" />
-                      <p className="text-sm font-medium text-gray-400">No team members match your filters</p>
-                      {hasActiveFilters && (
-                        <button onClick={clearFilters} className="text-xs font-medium text-emerald-600 hover:underline">
-                          Clear all filters
-                        </button>
-                      )}
-                    </div>
-                  </td>
+      {!isLoading && !isError && (
+        <div className="rounded-xl border border-gray-200 bg-white">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-250">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/60">
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User Type</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Account</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Status</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Created</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
                 </tr>
-              ) : (
-                paged.map((member) => (
-                  <tr key={member.id} className="transition-colors hover:bg-gray-50/80">
-                    {/* User */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f1e2e] text-[10px] font-bold text-white">
-                          {member.name.split(" ").map((n) => n[0]).join("")}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-gray-900 truncate">{member.name}</p>
-                          <p className="text-[11px] text-gray-400 truncate">{member.email}</p>
-                        </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {members.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Users className="h-8 w-8 text-gray-300" />
+                        <p className="text-sm font-medium text-gray-400">No team members match your filters</p>
+                        {hasActiveFilters && (
+                          <button onClick={clearFilters} className="text-xs font-medium text-emerald-600 hover:underline">
+                            Clear all filters
+                          </button>
+                        )}
                       </div>
-                    </td>
-                    {/* User Type */}
-                    <td className="px-4 py-3">
-                      <UserTypeBadge type={member.userType} />
-                    </td>
-                    {/* Account Type */}
-                    <td className="px-4 py-3">
-                      <span className="text-xs text-gray-600">{member.accountType}</span>
-                    </td>
-                    {/* Department */}
-                    <td className="px-4 py-3">
-                      <DeptBadge dept={member.department} />
-                    </td>
-                    {/* Status */}
-                    <td className="px-4 py-3">
-                      <StatusBadge status={member.status} />
-                    </td>
-                    {/* Created */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                        <Clock className="h-3 w-3 text-gray-400 shrink-0" />
-                        {formatTimestamp(member.createdAt)}
-                      </div>
-                    </td>
-                    {/* Actions */}
-                    <td className="px-4 py-3 text-center">
-                      <ActionsMenu member={member} onAction={handleAction} />
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : (
+                  members.map((member) => {
+                    const initials = `${member.first_name?.[0] ?? ""}${member.last_name?.[0] ?? ""}`.toUpperCase();
+                    return (
+                      <tr key={member.id} className="transition-colors hover:bg-gray-50/80">
+                        {/* User */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0f1e2e] text-[10px] font-bold text-white">
+                              {initials}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-medium text-gray-900 truncate">{member.first_name} {member.last_name}</p>
+                              <p className="text-[11px] text-gray-400 truncate">{member.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {/* User Type */}
+                        <td className="px-4 py-3">
+                          <UserTypeBadge type={member.user_type?.name ?? "Unknown"} />
+                        </td>
+                        {/* Account Type */}
+                        <td className="px-4 py-3">
+                          <AccountBadge type={member.account_type} />
+                        </td>
+                        {/* Status */}
+                        <td className="px-4 py-3">
+                          <StatusBadge status={member.status} />
+                        </td>
+                        {/* Created */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            <Clock className="h-3 w-3 text-gray-400 shrink-0" />
+                            {formatTimestamp(member.created_at)}
+                          </div>
+                        </td>
+                        {/* Actions */}
+                        <td className="px-4 py-3 text-center">
+                          <ActionsMenu member={member} onAction={handleAction} />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
 
-        {/* ─── Pagination ─── */}
-        <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-          <p className="text-xs text-gray-500">
-            Showing{" "}
-            <span className="font-medium text-gray-700">{filtered.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}</span>
-            –<span className="font-medium text-gray-700">{Math.min(currentPage * PAGE_SIZE, filtered.length)}</span>
-            {" "}of <span className="font-medium text-gray-700">{filtered.length}</span> members
-          </p>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage(Math.max(1, currentPage - 1))}
-              disabled={currentPage <= 1}
-              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+          {/* ─── Pagination ─── */}
+          <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+            <p className="text-xs text-gray-500">
+              Showing{" "}
+              <span className="font-medium text-gray-700">{(meta?.total ?? 0) === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1}</span>
+              –<span className="font-medium text-gray-700">{Math.min(currentPage * PAGE_SIZE, meta?.total ?? 0)}</span>
+              {" "}of <span className="font-medium text-gray-700">{meta?.total ?? 0}</span> members
+            </p>
+            <div className="flex items-center gap-1">
               <button
-                key={p}
-                onClick={() => setPage(p)}
-                className={`h-7 w-7 rounded-lg text-xs font-medium transition-colors ${
-                  p === currentPage ? "bg-emerald-600 text-white" : "text-gray-600 hover:bg-gray-100"
-                }`}
+                onClick={() => setPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage <= 1}
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                {p}
+                <ChevronLeft className="h-4 w-4" />
               </button>
-            ))}
-            <button
-              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
-              disabled={currentPage >= totalPages}
-              className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`h-7 w-7 rounded-lg text-xs font-medium transition-colors ${
+                    p === currentPage ? "bg-emerald-600 text-white" : "text-gray-600 hover:bg-gray-100"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage >= totalPages}
+                className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ─── Access Notice ─── */}
       <div className="flex items-center justify-center gap-2 text-[11px] text-gray-400">
