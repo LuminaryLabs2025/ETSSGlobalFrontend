@@ -21,9 +21,13 @@ export const USERS = {
 
 // ─── Team ───
 export const TEAM = {
-  LIST: "/team",
-  INVITE: "/team/invite",
-  BY_ID: (id: string) => `/team/${id}`,
+  LIST: "/team-members",
+  BY_ID: (id: string) => `/team-members/${id}`,
+  SUMMARY: "/team-members/summary",
+  DISABLE: (id: string) => `/team-members/${id}/disable`,
+  ENABLE: (id: string) => `/team-members/${id}/enable`,
+  ARCHIVE: (id: string) => `/team-members/${id}/archive`,
+  RESEND_INVITE: (id: string) => `/team-members/${id}/resend-invite`,
 } as const;
 
 // ─── Bookings ───

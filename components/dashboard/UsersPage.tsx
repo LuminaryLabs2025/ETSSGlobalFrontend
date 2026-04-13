@@ -42,7 +42,7 @@ import type { PlatformUser, UsersSummaryResponse } from "@/types/users.types";
 
 // ─── Filter Options ───
 const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
-const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_CONFIRMATION", "ARCHIVED"];
+const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_ACTIVATION", "ARCHIVED"];
 
 // Mock user types (replace with API data later)
 const MOCK_USER_TYPES = [
@@ -77,13 +77,13 @@ function StatusBadge({ status }: { status: string }) {
   const config: Record<string, string> = {
     ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
     INACTIVE: "bg-red-50 text-red-700 border-red-200",
-    AWAITING_CONFIRMATION: "bg-amber-50 text-amber-700 border-amber-200",
+    AWAITING_ACTIVATION: "bg-amber-50 text-amber-700 border-amber-200",
     ARCHIVED: "bg-gray-50 text-gray-700 border-gray-200",
   };
   const icons: Record<string, React.ElementType> = {
     ACTIVE: CheckCircle2,
     INACTIVE: XCircle,
-    AWAITING_CONFIRMATION: AlertCircle,
+    AWAITING_ACTIVATION: AlertCircle,
     ARCHIVED: Archive,
   };
   const Icon = icons[status] ?? AlertCircle;
@@ -261,7 +261,7 @@ function ActionsMenu({
   } else if (user.status === "INACTIVE") {
     actions.push({ label: "Enable User", icon: Power, action: "enable" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
-  } else if (user.status === "AWAITING_CONFIRMATION") {
+  } else if (user.status === "AWAITING_ACTIVATION") {
     actions.push({ label: "Resend Activation Mail", icon: Send, action: "resend" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
   } else if (user.status === "ARCHIVED") {
