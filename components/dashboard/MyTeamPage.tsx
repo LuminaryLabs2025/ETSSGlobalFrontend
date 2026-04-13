@@ -38,12 +38,11 @@ import {
   useResendTeamInvite,
 } from "@/hooks/team/useTeamActions";
 import { toast } from "sonner";
-import type { PlatformUser } from "@/types/users.types";
-import type { TeamSummaryResponse } from "@/types/team.types";
+import type { TeamMember, TeamSummaryResponse } from "@/types/team.types";
 
 // ─── Filter Options ───
 const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
-const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_CONFIRMATION", "ARCHIVED"];
+const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_ACTIVATION", "ARCHIVED"];
 const PAGE_SIZE = 20;
 
 /** Format API enum values for display (e.g. SUB_ACCOUNT → Sub Account) */
@@ -59,13 +58,13 @@ function StatusBadge({ status }: { status: string }) {
   const config: Record<string, string> = {
     ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
     INACTIVE: "bg-red-50 text-red-700 border-red-200",
-    AWAITING_CONFIRMATION: "bg-amber-50 text-amber-700 border-amber-200",
+    AWAITING_ACTIVATION: "bg-amber-50 text-amber-700 border-amber-200",
     ARCHIVED: "bg-gray-50 text-gray-700 border-gray-200",
   };
   const icons: Record<string, React.ElementType> = {
     ACTIVE: CheckCircle2,
     INACTIVE: XCircle,
-    AWAITING_CONFIRMATION: AlertCircle,
+    AWAITING_ACTIVATION: AlertCircle,
     ARCHIVED: Archive,
   };
   const Icon = icons[status] ?? AlertCircle;
@@ -221,8 +220,8 @@ function ActionsMenu({
   member,
   onAction,
 }: {
-  member: PlatformUser;
-  onAction: (action: string, member: PlatformUser) => void;
+  member: TeamMember;
+  onAction: (action: string, member: TeamMember) => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -234,7 +233,7 @@ function ActionsMenu({
   } else if (member.status === "INACTIVE") {
     actions.push({ label: "Enable User", icon: Power, action: "enable" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
-  } else if (member.status === "AWAITING_CONFIRMATION") {
+  } else if (member.status === "AWAITING_ACTIVATION") {
     actions.push({ label: "Resend Activation Mail", icon: Send, action: "resend" });
     actions.push({ label: "Archive User", icon: Archive, action: "archive", danger: true });
   } else if (member.status === "ARCHIVED") {
@@ -359,8 +358,8 @@ export function MyTeamPage() {
   };
 
   // ─── Actions ───
-  const handleAction = (action: string, member: PlatformUser) => {
-    const fullName = `${member.first_name} ${member.last_name}`;
+  const handleAction = (action: string, member: TeamMember) => {
+    const fullName = member.name;
     if (action === "disable") {
       setConfirm({
         title: "Disable User",
@@ -548,6 +547,7 @@ export function MyTeamPage() {
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User Type</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Account</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Department</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Status</th>
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Created</th>
                   <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
@@ -556,7 +556,7 @@ export function MyTeamPage() {
               <tbody className="divide-y divide-gray-100">
                 {members.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center">
+                    <td colSpan={7} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Users className="h-8 w-8 text-gray-300" />
                         <p className="text-sm font-medium text-gray-400">No team members match your filters</p>
@@ -570,7 +570,11 @@ export function MyTeamPage() {
                   </tr>
                 ) : (
                   members.map((member) => {
-                    const initials = `${member.first_name?.[0] ?? ""}${member.last_name?.[0] ?? ""}`.toUpperCase();
+                    const initials = member.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase();
                     return (
                       <tr key={member.id} className="transition-colors hover:bg-gray-50/80">
                         {/* User */}
@@ -580,7 +584,7 @@ export function MyTeamPage() {
                               {initials}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-medium text-gray-900 truncate">{member.first_name} {member.last_name}</p>
+                              <p className="text-xs font-medium text-gray-900 truncate">{member.name}</p>
                               <p className="text-[11px] text-gray-400 truncate">{member.email}</p>
                             </div>
                           </div>
@@ -592,6 +596,10 @@ export function MyTeamPage() {
                         {/* Account Type */}
                         <td className="px-4 py-3">
                           <AccountBadge type={member.account_type} />
+                        </td>
+                        {/* Department */}
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-600">{member.department ?? "—"}</span>
                         </td>
                         {/* Status */}
                         <td className="px-4 py-3">

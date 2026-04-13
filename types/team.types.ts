@@ -1,8 +1,26 @@
-import type { PlatformUser, UserTypeSummary } from "./users.types";
+// ─── Team Member User Type ───
+export interface TeamMemberUserType {
+  id: string;
+  name: string;
+}
+
+// ─── Team Member ───
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  user_type: TeamMemberUserType;
+  status: string;
+  account_type: string;
+  company: unknown;
+  department: string | null;
+  created_at: string;
+}
 
 // ─── Team Members List Response ───
 export interface TeamListResponse {
-  data: PlatformUser[];
+  data: TeamMember[];
   meta: {
     total: number;
     page: number;
@@ -30,7 +48,7 @@ export interface TeamSummaryResponse {
   inactive: number;
   awaiting_activation: number;
   archived: number;
-  by_user_type: UserTypeSummary[];
+  by_user_type: { user_type: string; category: string; count: number }[];
 }
 
 // ─── Team Action Response ───
