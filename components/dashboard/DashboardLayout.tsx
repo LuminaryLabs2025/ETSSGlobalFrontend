@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Radio,
@@ -22,7 +23,6 @@ import {
   Ship,
   ChevronLeft,
   ChevronRight,
-  Settings,
   LogOut,
   HelpCircle,
   MessageCircle,
@@ -32,7 +32,8 @@ import {
   Activity,
   UsersRound,
 } from "lucide-react";
-import { currentUser, totalRevenue } from "@/lib/mock-data";
+import { totalRevenue } from "@/lib/mock-data";
+import { useAuthStore } from "@/store/auth.store";
 
 // ─── Sidebar Navigation with icons ───
 const navGroups = [
@@ -78,7 +79,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [expanded, setExpanded] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  const clearAuth = useAuthStore((s) => s.clearAuth);
   const formatter = new Intl.NumberFormat("en-NG");
+
+  const userInitials = user
+    ? `${user.first_name[0]}${user.last_name[0]}`
+    : "--";
+  const userFullName = user
+    ? `${user.first_name} ${user.last_name}`
+    : "User";
+  const userRole = user?.user_type?.name ?? "User";
 
   const sidebarWidth = expanded ? "w-64" : "w-[68px]";
 
@@ -133,7 +145,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               )}
               <div className="space-y-0.5">
                 {group.items.map((item) => {
-                  const active = pathname.includes(item.href);
+                  const active = pathname === item.href;
                   return (
                     <Link
                       key={item.href}
@@ -164,7 +176,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <p className="mt-1 text-[11px] text-gray-400">Need assistance with bookings?</p>
                 <p className="text-[11px] text-gray-400">Contact Support 24/7</p>
               </div>
-              <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-white/5">
+              <button
+                onClick={() => { clearAuth(); router.push("/"); }}
+                className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-white/5"
+              >
                 <LogOut className="h-4 w-4" />
                 Logout
               </button>
@@ -174,7 +189,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <button title="Help Center" className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white">
                 <HelpCircle className="h-4 w-4" />
               </button>
-              <button title="Logout" className="rounded-lg p-2 text-red-400 hover:bg-white/5">
+              <button
+                title="Logout"
+                onClick={() => { clearAuth(); router.push("/"); }}
+                className="rounded-lg p-2 text-red-400 hover:bg-white/5"
+              >
                 <LogOut className="h-4 w-4" />
               </button>
             </div>
@@ -229,11 +248,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               className="flex items-center gap-2.5 rounded-lg border border-gray-200 px-3 py-1.5 transition-colors hover:border-emerald-300 hover:bg-emerald-50"
             >
               <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#0f1e2e] text-[10px] font-bold text-white">
-                {currentUser.name.split(" ").map((n) => n[0]).join("")}
+                {userInitials}
               </div>
               <div className="hidden text-right sm:block">
-                <p className="text-xs font-semibold text-gray-900">{currentUser.name}</p>
-                <p className="text-[10px] text-gray-500">{currentUser.role}</p>
+                <p className="text-xs font-semibold text-gray-900">{userFullName}</p>
+                <p className="text-[10px] text-gray-500">{userRole}</p>
               </div>
             </Link>
           </div>

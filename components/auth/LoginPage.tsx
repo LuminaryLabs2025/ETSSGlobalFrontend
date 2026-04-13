@@ -4,25 +4,19 @@ import { useState } from "react";
 import { Mail, Lock, ArrowRight, ShieldCheck, Eye, EyeOff } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
+import { useLogin } from "@/hooks/auth/useLogin";
 
 export function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+
+  const loginMutation = useLogin();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    // TODO: Integrate with auth API
-    console.log({ email, password, rememberMe });
-     setTimeout(() => {
-      router.push("/dashboard");
-      setIsLoading(false);
-    }, 800);
+    loginMutation.mutate({ email, password });
   };
 
   return (
@@ -50,7 +44,7 @@ export function LoginPage() {
             htmlFor="email"
             className="mb-1.5 block text-sm font-medium text-gray-700"
           >
-            Email or Username
+            Email Address
           </label>
           <div className="relative">
             <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -92,9 +86,9 @@ export function LoginPage() {
               className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
               {showPassword ? (
-                <EyeOff className="h-4 w-4" />
+                <EyeOff className="h-4 w-4 cursor-pointer" />
               ) : (
-                <Eye className="h-4 w-4" />
+                <Eye className="h-4 w-4 cursor-pointer" />
               )}
             </button>
           </div>
@@ -120,11 +114,11 @@ export function LoginPage() {
 
         <button
           type="submit"
-          disabled={isLoading}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60"
+          disabled={loginMutation.isPending}
+          className={`flex h-12 ${loginMutation.isPending ? "cursor-not-allowed" : "cursor-pointer"} w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60`}
         >
-          {isLoading ? "Signing in..." : "Sign In to Portal"}
-          {!isLoading && <ArrowRight className="h-4 w-4" />}
+          {loginMutation.isPending ? "Signing in..." : "Sign In to Portal"}
+          {!loginMutation.isPending && <ArrowRight className="h-4 w-4" />}
         </button>
       </form>
 
