@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Activity,
   Search,
@@ -19,45 +19,54 @@ import {
   AlertCircle,
   Shield,
   Eye,
+  Loader2,
 } from "lucide-react";
-import { activityLogEntries, type ActivityLogEntry } from "@/lib/mock-data";
+import { useActivityLogs } from "@/hooks/activity-log/useActivityLogs";
+import { useActivityLogSummary } from "@/hooks/activity-log/useActivityLogSummary";
+import { useActivityLogDetail } from "@/hooks/activity-log/useActivityLogDetail";
+import type { ActivityLogSummaryResponse } from "@/types/activity-log.types";
 
-const USER_TYPES = ["All", "SuperAdmin", "Admin", "Operator", "Transporter", "Driver", "Terminal", "System"] as const;
-const MODULES = ["All", "Auth", "Bookings", "Trucks", "Drivers", "Terminals", "Penalties & Fines", "e-Revenue", "Users & Team", "Settings"] as const;
-const STATUSES = ["All", "Success", "Failed", "Pending"] as const;
-const PAGE_SIZE = 10;
+const MODULES = ["All", "Authentication", "User Management", "Bookings", "Settings"] as const;
+const STATUSES = ["All", "SUCCESS", "FAILED"] as const;
+const PAGE_SIZE = 20;
+
+/** Format API enum values for display */
+function formatLabel(value: string) {
+  if (value === "All") return "All";
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 // ─── Status Badge ───
-function StatusBadge({ status }: { status: ActivityLogEntry["status"] }) {
-  const config = {
-    Success: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    Failed: "bg-red-50 text-red-700 border-red-200",
-    Pending: "bg-amber-50 text-amber-700 border-amber-200",
+function StatusBadge({ status }: { status: string }) {
+  const config: Record<string, string> = {
+    SUCCESS: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    FAILED: "bg-red-50 text-red-700 border-red-200",
   };
-  const icons = {
-    Success: CheckCircle2,
-    Failed: XCircle,
-    Pending: AlertCircle,
+  const icons: Record<string, React.ElementType> = {
+    SUCCESS: CheckCircle2,
+    FAILED: XCircle,
   };
-  const Icon = icons[status];
+  const Icon = icons[status] ?? AlertCircle;
+  const label = formatLabel(status);
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${config[status]}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${config[status] ?? "bg-gray-50 text-gray-700 border-gray-200"}`}>
       <Icon className="h-3 w-3" />
-      {status}
+      {label}
     </span>
   );
 }
 
 // ─── User Type Badge ───
-function UserTypeBadge({ type }: { type: ActivityLogEntry["userType"] }) {
+function UserTypeBadge({ type }: { type: string | null }) {
+  if (!type) return <span className="text-[11px] text-gray-400">—</span>;
   const config: Record<string, string> = {
-    SuperAdmin: "bg-violet-50 text-violet-700",
-    Admin: "bg-blue-50 text-blue-700",
-    Operator: "bg-cyan-50 text-cyan-700",
-    Transporter: "bg-emerald-50 text-emerald-700",
-    Driver: "bg-amber-50 text-amber-700",
-    Terminal: "bg-indigo-50 text-indigo-700",
-    System: "bg-gray-100 text-gray-600",
+    "Super Admin": "bg-violet-50 text-violet-700",
+    "ETSS Admin": "bg-blue-50 text-blue-700",
+    NPA: "bg-cyan-50 text-cyan-700",
+    "Terminal Operator": "bg-emerald-50 text-emerald-700",
+    "Unknown / system": "bg-gray-100 text-gray-600",
   };
   return (
     <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${config[type] || "bg-gray-100 text-gray-600"}`}>
@@ -67,18 +76,16 @@ function UserTypeBadge({ type }: { type: ActivityLogEntry["userType"] }) {
 }
 
 // ─── Summary Panel ───
-function SummaryPanel({ entries }: { entries: ActivityLogEntry[] }) {
-  const total = entries.length;
-  const success = entries.filter((e) => e.status === "Success").length;
-  const failed = entries.filter((e) => e.status === "Failed").length;
-  const pending = entries.filter((e) => e.status === "Pending").length;
-
+function SummaryPanel({ summary }: { summary: ActivityLogSummaryResponse | undefined }) {
   const cards = [
-    { label: "Total Activities", value: total, icon: Activity, color: "text-blue-400", bg: "bg-blue-400/10" },
-    { label: "Successful", value: success, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Failed", value: failed, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10" },
-    { label: "Pending", value: pending, icon: AlertCircle, color: "text-amber-400", bg: "bg-amber-400/10" },
+    { label: "Total Activities", value: summary?.total_activities ?? 0, icon: Activity, color: "text-blue-400", bg: "bg-blue-400/10" },
+    { label: "Successful", value: summary?.by_status.successful ?? 0, icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+    { label: "Failed", value: summary?.by_status.failed ?? 0, icon: XCircle, color: "text-red-400", bg: "bg-red-400/10" },
   ];
+
+  const moduleCounts = [...(summary?.by_module ?? [])]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
 
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
@@ -95,7 +102,7 @@ function SummaryPanel({ entries }: { entries: ActivityLogEntry[] }) {
           Live
         </span>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {cards.map((card) => (
           <div
             key={card.label}
@@ -113,41 +120,61 @@ function SummaryPanel({ entries }: { entries: ActivityLogEntry[] }) {
           </div>
         ))}
       </div>
+
+      {/* Module Breakdown */}
+      {moduleCounts.length > 0 && (
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {moduleCounts.map((m) => (
+            <div key={m.module} className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3 transition-colors hover:bg-white/10">
+              <div>
+                <p className="text-lg font-bold text-white">{m.count}</p>
+                <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500 truncate">{m.module}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Detail Drawer ───
 function DetailDrawer({
-  entry,
+  entryId,
   onClose,
 }: {
-  entry: ActivityLogEntry;
+  entryId: string;
   onClose: () => void;
 }) {
-  const ts = new Date(entry.timestamp);
-  const formattedDate = ts.toLocaleDateString("en-NG", {
+  const { data: detail, isLoading } = useActivityLogDetail(entryId);
+
+  const ts = detail ? new Date(detail.timestamp) : null;
+  const formattedDate = ts?.toLocaleDateString("en-NG", {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
   });
-  const formattedTime = ts.toLocaleTimeString("en-NG", {
+  const formattedTime = ts?.toLocaleTimeString("en-NG", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: true,
   });
 
-  const fields = [
-    { label: "Activity ID", value: entry.id, icon: FileText },
-    { label: "Timestamp", value: `${formattedDate} at ${formattedTime}`, icon: Clock },
-    { label: "User", value: entry.userName, icon: User },
-    { label: "Email", value: entry.email, icon: User },
-    { label: "Company", value: entry.company, icon: Shield },
-    { label: "Module", value: entry.module, icon: FileText },
-    { label: "IP Address", value: entry.ipAddress, icon: Monitor },
-    { label: "Device", value: entry.device, icon: Monitor },
-  ];
+  const fields = detail
+    ? [
+        { label: "Activity ID", value: detail.id, icon: FileText },
+        { label: "Timestamp", value: `${formattedDate} at ${formattedTime}`, icon: Clock },
+        { label: "Performed By", value: detail.performed_by, icon: User },
+        { label: "Email", value: detail.user_email ?? "—", icon: User },
+        { label: "Company", value: detail.linked_company_name ?? "—", icon: Shield },
+        { label: "Module", value: detail.module_feature, icon: FileText },
+        { label: "Affected Record", value: detail.affected_record, icon: FileText },
+        { label: "IP Address", value: detail.ip_address, icon: Monitor },
+        { label: "User Agent", value: detail.user_agent, icon: Monitor },
+      ]
+    : [];
 
   return (
     <>
@@ -157,7 +184,7 @@ function DetailDrawer({
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
           <div>
             <h2 className="text-sm font-bold text-gray-900">Activity Detail</h2>
-            <p className="text-xs text-gray-500">{entry.id}</p>
+            <p className="text-xs text-gray-500">{entryId}</p>
           </div>
           <button
             onClick={onClose}
@@ -169,37 +196,56 @@ function DetailDrawer({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          {/* Action + Status */}
-          <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Action Performed</p>
-            <p className="mt-1 text-sm font-semibold text-gray-900">{entry.action}</p>
-            <div className="mt-3 flex items-center gap-3">
-              <StatusBadge status={entry.status} />
-              <UserTypeBadge type={entry.userType} />
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-400">Loading details...</p>
             </div>
-          </div>
-
-          {/* Fields */}
-          <div className="space-y-4">
-            {fields.map((f) => (
-              <div key={f.label} className="flex items-start gap-3">
-                <div className="rounded-lg bg-gray-100 p-2">
-                  <f.icon className="h-4 w-4 text-gray-500" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">{f.label}</p>
-                  <p className="mt-0.5 text-sm text-gray-900 break-all">{f.value}</p>
+          ) : detail ? (
+            <>
+              {/* Action + Status */}
+              <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Action Performed</p>
+                <p className="mt-1 text-sm font-semibold text-gray-900">{detail.action_performed}</p>
+                <div className="mt-3 flex items-center gap-3">
+                  <StatusBadge status={detail.status} />
+                  <UserTypeBadge type={detail.user_type_name} />
                 </div>
               </div>
-            ))}
-          </div>
 
-          {/* Details */}
-          {entry.details && (
-            <div className="mt-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Details</p>
-              <p className="mt-1 text-sm text-gray-700 leading-relaxed">{entry.details}</p>
-            </div>
+              {/* Description */}
+              {detail.full_activity_description && (
+                <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wider text-gray-500">Description</p>
+                  <p className="mt-1 text-sm text-gray-700 leading-relaxed">{detail.full_activity_description}</p>
+                </div>
+              )}
+
+              {/* Fields */}
+              <div className="space-y-4">
+                {fields.map((f) => (
+                  <div key={f.label} className="flex items-start gap-3">
+                    <div className="rounded-lg bg-gray-100 p-2">
+                      <f.icon className="h-4 w-4 text-gray-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">{f.label}</p>
+                      <p className="mt-0.5 text-sm text-gray-900 break-all">{f.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Error */}
+              {detail.error_message && (
+                <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wider text-red-500">Error</p>
+                  <p className="mt-1 text-sm text-red-700 leading-relaxed">{detail.error_message}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-12">Failed to load details</p>
           )}
         </div>
 
@@ -217,32 +263,39 @@ function DetailDrawer({
 // ─── Main Page ───
 export function ActivityLogPage() {
   const [search, setSearch] = useState("");
-  const [userTypeFilter, setUserTypeFilter] = useState<string>("All");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [moduleFilter, setModuleFilter] = useState<string>("All");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [page, setPage] = useState(1);
-  const [selectedEntry, setSelectedEntry] = useState<ActivityLogEntry | null>(null);
+  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ─── Filtering & Search ───
-  const filtered = useMemo(() => {
-    return activityLogEntries.filter((entry) => {
-      // Search across name, email, action, module
-      if (search) {
-        const q = search.toLowerCase();
-        const searchable = `${entry.userName} ${entry.email} ${entry.action} ${entry.module} ${entry.company}`.toLowerCase();
-        if (!searchable.includes(q)) return false;
-      }
-      if (userTypeFilter !== "All" && entry.userType !== userTypeFilter) return false;
-      if (moduleFilter !== "All" && entry.module !== moduleFilter) return false;
-      if (statusFilter !== "All" && entry.status !== statusFilter) return false;
-      return true;
-    });
-  }, [search, userTypeFilter, moduleFilter, statusFilter]);
+  // Debounce search input
+  useEffect(() => {
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 500);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, totalPages);
-  const paged = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // ─── API Hooks ───
+  const { data: summary } = useActivityLogSummary();
+  const { data: logsData, isLoading, isError } = useActivityLogs({
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    module: moduleFilter !== "All" ? moduleFilter : undefined,
+    status: statusFilter !== "All" ? statusFilter : undefined,
+  });
+
+  const entries = logsData?.data ?? [];
+  const meta = logsData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const currentPage = meta?.page ?? page;
 
   const formatTimestamp = (ts: string) => {
     const d = new Date(ts);
@@ -252,29 +305,29 @@ export function ActivityLogPage() {
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
     });
   };
 
   const clearFilters = () => {
     setSearch("");
-    setUserTypeFilter("All");
+    setDebouncedSearch("");
     setModuleFilter("All");
     setStatusFilter("All");
     setPage(1);
   };
 
-  const hasActiveFilters = search || userTypeFilter !== "All" || moduleFilter !== "All" || statusFilter !== "All";
+  const hasActiveFilters = search || moduleFilter !== "All" || statusFilter !== "All";
 
   // ─── Export Handlers (stub) ───
-  const handleExport = (format: "csv" | "excel" | "pdf") => {
-    // In a real app, this would trigger a download via API
-    alert(`Exporting ${filtered.length} records as ${format.toUpperCase()}`);
+  const handleExport = (format: "csv" | "pdf") => {
+    alert(`Exporting activity logs as ${format.toUpperCase()}`);
   };
 
   return (
     <div className="p-6 space-y-5">
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel entries={activityLogEntries} />
+      <SummaryPanel summary={summary} />
 
       {/* ─── Toolbar ─── */}
       <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -286,7 +339,7 @@ export function ActivityLogPage() {
               type="text"
               placeholder="Search by name, email, action, module..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm text-gray-900 placeholder-gray-400 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
             />
           </div>
@@ -304,7 +357,7 @@ export function ActivityLogPage() {
             Filters
             {hasActiveFilters && (
               <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-bold text-white">
-                {[userTypeFilter !== "All", moduleFilter !== "All", statusFilter !== "All"].filter(Boolean).length}
+                {[moduleFilter !== "All", statusFilter !== "All"].filter(Boolean).length}
               </span>
             )}
           </button>
@@ -325,13 +378,6 @@ export function ActivityLogPage() {
                 CSV
               </button>
               <button
-                onClick={() => handleExport("excel")}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <FileText className="h-3.5 w-3.5 text-emerald-500" />
-                Excel
-              </button>
-              <button
                 onClick={() => handleExport("pdf")}
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
@@ -345,19 +391,6 @@ export function ActivityLogPage() {
         {/* ─── Filter Row (collapsible) ─── */}
         {showFilters && (
           <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-3">
-            {/* User Type */}
-            <div className="relative">
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">User Type</label>
-              <select
-                value={userTypeFilter}
-                onChange={(e) => { setUserTypeFilter(e.target.value); setPage(1); }}
-                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
-              >
-                {USER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
-            </div>
-
             {/* Module */}
             <div className="relative">
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Module</label>
@@ -379,7 +412,7 @@ export function ActivityLogPage() {
                 onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
                 className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
               >
-                {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {STATUSES.map((s) => <option key={s} value={s}>{formatLabel(s)}</option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
             </div>
@@ -403,7 +436,6 @@ export function ActivityLogPage() {
           <table className="w-full min-w-250">
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">S/No</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">Timestamp</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User</th>
                 <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">User Type</th>
@@ -416,7 +448,25 @@ export function ActivityLogPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading activity logs...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={10} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load activity logs</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : entries.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -431,15 +481,12 @@ export function ActivityLogPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((entry, idx) => {
-                  const serialNo = (currentPage - 1) * PAGE_SIZE + idx + 1;
-                  return (
+                entries.map((entry) => (
                     <tr
                       key={entry.id}
-                      onClick={() => setSelectedEntry(entry)}
+                      onClick={() => setSelectedEntryId(entry.id)}
                       className="cursor-pointer transition-colors hover:bg-gray-50/80"
                     >
-                      <td className="px-4 py-3 text-xs font-medium text-gray-400">{serialNo}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1.5 text-xs text-gray-700">
                           <Clock className="h-3 w-3 text-gray-400 shrink-0" />
@@ -447,37 +494,35 @@ export function ActivityLogPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="text-xs font-medium text-gray-900">{entry.userName}</p>
-                        <p className="text-[11px] text-gray-400">{entry.email}</p>
+                        <p className="text-xs font-medium text-gray-900">{entry.user_name ?? "—"}</p>
+                        <p className="text-[11px] text-gray-400">{entry.user_email ?? "—"}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <UserTypeBadge type={entry.userType} />
+                        <UserTypeBadge type={entry.user_type_name} />
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-600">{entry.company}</td>
-                      <td className="px-4 py-3 text-xs font-medium text-gray-800 max-w-45 truncate">{entry.action}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{entry.linked_company_name ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs font-medium text-gray-800 max-w-45 truncate">{entry.action_performed}</td>
                       <td className="px-4 py-3">
                         <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-600">
-                          {entry.module}
+                          {entry.module_feature}
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        <p className="text-[11px] font-mono text-gray-500">{entry.ipAddress}</p>
-                        <p className="text-[10px] text-gray-400">{entry.device}</p>
+                        <p className="text-[11px] font-mono text-gray-500">{entry.ip_address}</p>
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={entry.status} />
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button
-                          onClick={(e) => { e.stopPropagation(); setSelectedEntry(entry); }}
-                          className="rounded-lg p-1.5 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600"
+                          onClick={(e) => { e.stopPropagation(); setSelectedEntryId(entry.id); }}
+                          className="rounded-lg cursor-pointer p-1.5 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600"
                         >
                           <Eye className="h-4 w-4" />
                         </button>
                       </td>
                     </tr>
-                  );
-                })
+                ))
               )}
             </tbody>
           </table>
@@ -486,13 +531,13 @@ export function ActivityLogPage() {
         {/* ─── Pagination ─── */}
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
-            Showing <span className="font-medium text-gray-700">{((currentPage - 1) * PAGE_SIZE) + 1}</span>
-            –<span className="font-medium text-gray-700">{Math.min(currentPage * PAGE_SIZE, filtered.length)}</span>
-            {" "}of <span className="font-medium text-gray-700">{filtered.length}</span> activities
+            Showing <span className="font-medium text-gray-700">{entries.length > 0 ? (currentPage - 1) * PAGE_SIZE + 1 : 0}</span>
+            –<span className="font-medium text-gray-700">{(currentPage - 1) * PAGE_SIZE + entries.length}</span>
+            {" "}of <span className="font-medium text-gray-700">{meta?.total ?? 0}</span> activities
           </p>
           <div className="flex items-center gap-1">
             <button
-              onClick={() => setPage(Math.max(1, currentPage - 1))}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
               className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             >
@@ -512,7 +557,7 @@ export function ActivityLogPage() {
               </button>
             ))}
             <button
-              onClick={() => setPage(Math.min(totalPages, currentPage + 1))}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
               className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
             >
@@ -529,8 +574,8 @@ export function ActivityLogPage() {
       </div>
 
       {/* ─── Detail Drawer ─── */}
-      {selectedEntry && (
-        <DetailDrawer entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
+      {selectedEntryId && (
+        <DetailDrawer entryId={selectedEntryId} onClose={() => setSelectedEntryId(null)} />
       )}
     </div>
   );
