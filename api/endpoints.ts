@@ -34,5 +34,8 @@ export const BOOKINGS = {
 
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
-  LIST: "/activity-log",
+  LIST: "/activity-logs",
+  SUMMARY: "/activity-logs/summary",
+  BY_ID: (id: string) => `/activity-logs/${id}`,
+  EXPORT: "/activity-logs/export",
 } as const;
