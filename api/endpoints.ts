@@ -23,6 +23,7 @@ export const USERS = {
 // ─── Team ───
 export const TEAM = {
   LIST: "/team-members",
+  CREATE: "/team-members",
   BY_ID: (id: string) => `/team-members/${id}`,
   SUMMARY: "/team-members/summary",
   DISABLE: (id: string) => `/team-members/${id}/disable`,
@@ -43,6 +44,16 @@ export const PROFILE = {
   UPDATE: "/profile",
   CHANGE_PASSWORD: "/profile/change-password",
   NOTIFICATIONS: "/profile/notifications",
+} as const;
+
+// ─── User Types ───
+export const USER_TYPES = {
+  LIST: "/user-types",
+} as const;
+
+// ─── Permissions ───
+export const PERMISSIONS = {
+  MODULES: "/roles-permissions/permission-modules",
 } as const;
 
 // ─── Activity Log ───

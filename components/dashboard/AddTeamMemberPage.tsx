@@ -17,21 +17,12 @@ import {
   Check,
   Lock,
   UserPlus,
+  Loader2,
 } from "lucide-react";
-import {
-  permissionModules,
-  type TeamUserType,
-  type TeamDepartment,
-} from "@/lib/mock-data";
-
-// ─── Constants ───
-const ROLES: { value: TeamUserType; label: string; dept: TeamDepartment }[] = [
-  { value: "ETSS-Nigeria SuperAdmin", label: "ETSS-Nigeria SuperAdmin", dept: "SuperAdmin" },
-  { value: "Customer Service Personnel", label: "Customer Service Personnel", dept: "Customer Service" },
-  { value: "Traffic Manager", label: "Traffic Manager", dept: "Operations" },
-  { value: "Gate Ops Personnel", label: "Gate Ops Personnel", dept: "Operations" },
-  { value: "Road Marshall", label: "Road Marshall", dept: "Operations" },
-];
+import { useUserTypes } from "@/hooks/useUserTypes";
+import { usePermissionModules } from "@/hooks/usePermissions";
+import { useCreateTeamMember } from "@/hooks/team/useTeamActions";
+import type { PermissionModule } from "@/types/permissions.types";
 
 // ─── Toast ───
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
@@ -82,22 +73,20 @@ function Section({
 // ─── Permission Module Accordion ───
 function PermissionGroup({
   module,
-  permissions,
   selected,
   onToggle,
   onToggleAll,
 }: {
-  module: string;
-  permissions: { key: string; label: string; description: string }[];
+  module: PermissionModule;
   selected: Set<string>;
-  onToggle: (key: string) => void;
-  onToggleAll: (keys: string[], checked: boolean) => void;
+  onToggle: (id: string) => void;
+  onToggleAll: (ids: string[], checked: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const allKeys = permissions.map((p) => p.key);
-  const allChecked = allKeys.every((k) => selected.has(k));
-  const someChecked = allKeys.some((k) => selected.has(k));
-  const checkedCount = allKeys.filter((k) => selected.has(k)).length;
+  const allIds = module.permissions.map((p) => p.id);
+  const allChecked = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const someChecked = allIds.some((id) => selected.has(id));
+  const checkedCount = allIds.filter((id) => selected.has(id)).length;
 
   return (
     <div className="rounded-lg border border-gray-200 overflow-hidden">
@@ -113,10 +102,10 @@ function PermissionGroup({
           <ChevronRight
             className={`h-4 w-4 text-gray-400 transition-transform ${open ? "rotate-90" : ""}`}
           />
-          <span className="text-sm font-semibold text-gray-900">{module}</span>
+          <span className="text-sm font-semibold text-gray-900">{module.name}</span>
           {checkedCount > 0 && (
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-              {checkedCount}/{permissions.length}
+              {checkedCount}/{module.permissions.length}
             </span>
           )}
         </div>
@@ -130,7 +119,7 @@ function PermissionGroup({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onToggleAll(allKeys, !allChecked);
+              onToggleAll(allIds, !allChecked);
             }}
             className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
               allChecked
@@ -148,21 +137,21 @@ function PermissionGroup({
       {/* Permission Items */}
       {open && (
         <div className="divide-y divide-gray-100">
-          {permissions.map((perm) => {
-            const checked = selected.has(perm.key);
+          {module.permissions.map((perm) => {
+            const checked = selected.has(perm.id);
             return (
               <div
-                key={perm.key}
+                key={perm.id}
                 role="button"
                 tabIndex={0}
-                onClick={() => onToggle(perm.key)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(perm.key); } }}
+                onClick={() => onToggle(perm.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(perm.id); } }}
                 className="flex cursor-pointer items-center justify-between px-4 py-3 transition-colors hover:bg-gray-50"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <Lock className="h-3.5 w-3.5 shrink-0 text-gray-300" />
                   <div className="min-w-0">
-                    <p className="text-sm text-gray-800">{perm.label}</p>
+                    <p className="text-sm text-gray-800">{perm.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</p>
                     <p className="text-[11px] text-gray-400 truncate">{perm.description}</p>
                   </div>
                 </div>
@@ -188,19 +177,25 @@ function PermissionGroup({
 export function AddTeamMemberPage() {
   const router = useRouter();
 
+  // API hooks
+  const { data: userTypes = [], isLoading: loadingUserTypes } = useUserTypes({ category: "SYSTEM" });
+  const { data: permissionModules = [], isLoading: loadingPermissions } = usePermissionModules();
+  const createTeamMember = useCreateTeamMember();
+
   // Form state
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<TeamUserType | "">("");
-  const [status, setStatus] = useState<"Active" | "Inactive">("Active");
+  const [userTypeId, setUserTypeId] = useState("");
+  const [department, setDepartment] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<Set<string>>(new Set());
 
   // UI state
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  const selectedUserType = userTypes.find((ut) => ut.id === userTypeId);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -208,26 +203,26 @@ export function AddTeamMemberPage() {
   }, []);
 
   // ─── Permission Handlers ───
-  const handleTogglePermission = (key: string) => {
+  const handleTogglePermission = (id: string) => {
     setSelectedPermissions((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
 
-  const handleToggleAll = (keys: string[], checked: boolean) => {
+  const handleToggleAll = (ids: string[], checked: boolean) => {
     setSelectedPermissions((prev) => {
       const next = new Set(prev);
-      keys.forEach((k) => (checked ? next.add(k) : next.delete(k)));
+      ids.forEach((id) => (checked ? next.add(id) : next.delete(id)));
       return next;
     });
   };
 
   const handleSelectAllPermissions = () => {
-    const allKeys = permissionModules.flatMap((m) => m.permissions.map((p) => p.key));
-    setSelectedPermissions(new Set(allKeys));
+    const allIds = permissionModules.flatMap((m) => m.permissions.map((p) => p.id));
+    setSelectedPermissions(new Set(allIds));
   };
 
   const handleClearAllPermissions = () => {
@@ -240,7 +235,7 @@ export function AddTeamMemberPage() {
     if (!fullName.trim()) errs.fullName = "Full name is required";
     if (!email.trim()) errs.email = "Email address is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address";
-    if (!role) errs.role = "Please select a role";
+    if (!userTypeId) errs.role = "Please select a role";
     if (selectedPermissions.size === 0) errs.permissions = "Assign at least one permission";
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -249,12 +244,22 @@ export function AddTeamMemberPage() {
   // ─── Submit ───
   const handleSubmit = () => {
     if (!validate()) return;
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      setSubmitted(true);
-      showToast(`Sub-Account successfully created for ${fullName}`);
-    }, 1000);
+    createTeamMember.mutate(
+      {
+        name: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        user_type_id: userTypeId,
+        permission_ids: Array.from(selectedPermissions),
+        department: department.trim(),
+      },
+      {
+        onSuccess: () => {
+          setSubmitted(true);
+          showToast(`Sub-Account successfully created for ${fullName}`);
+        },
+      }
+    );
   };
 
   // ─── Success State ───
@@ -283,15 +288,11 @@ export function AddTeamMemberPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Role</span>
-                <span className="font-medium text-gray-900">{role}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Status</span>
-                <span className="font-medium text-emerald-700">{status}</span>
+                <span className="font-medium text-gray-900">{selectedUserType?.name ?? "—"}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Permissions</span>
-                <span className="font-medium text-gray-900">{selectedPermissions.size} assigned</span>
+                <span className="font-medium text-gray-900">{selectedPermissions.size} Assigned</span>
               </div>
             </div>
           </div>
@@ -308,8 +309,8 @@ export function AddTeamMemberPage() {
                 setFullName("");
                 setEmail("");
                 setPhone("");
-                setRole("");
-                setStatus("Active");
+                setUserTypeId("");
+                setDepartment("");
                 setSelectedPermissions(new Set());
                 setErrors({});
               }}
@@ -325,6 +326,7 @@ export function AddTeamMemberPage() {
   }
 
   const totalPermissions = permissionModules.reduce((sum, m) => sum + m.permissions.length, 0);
+  const isLoading = loadingUserTypes || loadingPermissions;
 
   return (
     <div className="p-6 space-y-5">
@@ -433,17 +435,18 @@ export function AddTeamMemberPage() {
                   <div className="relative">
                     <Briefcase className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <select
-                      value={role}
-                      onChange={(e) => { setRole(e.target.value as TeamUserType); setErrors((p) => ({ ...p, role: "" })); }}
+                      value={userTypeId}
+                      onChange={(e) => { setUserTypeId(e.target.value); setErrors((p) => ({ ...p, role: "" })); }}
+                      disabled={loadingUserTypes}
                       className={`w-full appearance-none rounded-lg border bg-gray-50 py-2.5 pl-10 pr-8 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
                         errors.role
                           ? "border-red-300 focus:border-red-400 focus:ring-red-100"
                           : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
                       }`}
                     >
-                      <option value="">Select a role...</option>
-                      {ROLES.map((r) => (
-                        <option key={r.value} value={r.value}>{r.label}</option>
+                      <option value="">{loadingUserTypes ? "Loading roles..." : "Select a role..."}</option>
+                      {userTypes.map((ut) => (
+                        <option key={ut.id} value={ut.id}>{ut.name}</option>
                       ))}
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -456,36 +459,20 @@ export function AddTeamMemberPage() {
                 </div>
               </div>
 
-              {/* Status Toggle */}
+              {/* Department */}
               <div>
                 <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                  Initial Status
+                  Department
                 </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setStatus("Active")}
-                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      status === "Active"
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                        : "border-gray-200 text-gray-500 hover:bg-gray-50"
-                    }`}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Active
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setStatus("Inactive")}
-                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      status === "Inactive"
-                        ? "border-red-300 bg-red-50 text-red-700"
-                        : "border-gray-200 text-gray-500 hover:bg-gray-50"
-                    }`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Inactive
-                  </button>
+                <div className="relative">
+                  <Briefcase className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    placeholder="e.g. Operations"
+                    className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                  />
                 </div>
               </div>
             </div>
@@ -526,16 +513,24 @@ export function AddTeamMemberPage() {
 
               {/* Module Accordions */}
               <div className="space-y-2">
-                {permissionModules.map((mod) => (
-                  <PermissionGroup
-                    key={mod.module}
-                    module={mod.module}
-                    permissions={mod.permissions}
-                    selected={selectedPermissions}
-                    onToggle={handleTogglePermission}
-                    onToggleAll={handleToggleAll}
-                  />
-                ))}
+                {loadingPermissions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                    <span className="ml-2 text-sm text-gray-500">Loading permissions...</span>
+                  </div>
+                ) : (
+                  permissionModules
+                    .filter((mod) => mod.permissions.length > 0)
+                    .map((mod) => (
+                      <PermissionGroup
+                        key={mod.id}
+                        module={mod}
+                        selected={selectedPermissions}
+                        onToggle={handleTogglePermission}
+                        onToggleAll={handleToggleAll}
+                      />
+                    ))
+                )}
               </div>
             </div>
           </Section>
@@ -571,12 +566,12 @@ export function AddTeamMemberPage() {
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">Role</span>
-                    <span className="font-medium text-gray-700">{role || "—"}</span>
+                    <span className="font-medium text-gray-700">{selectedUserType?.name || "—"}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">Department</span>
                     <span className="font-medium text-gray-700">
-                      {role ? ROLES.find((r) => r.value === role)?.dept || "—" : "—"}
+                      {department || "—"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
@@ -584,20 +579,9 @@ export function AddTeamMemberPage() {
                     <span className="font-medium text-gray-700">Sub-Account</span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Status</span>
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                      status === "Active"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-red-200 bg-red-50 text-red-700"
-                    }`}>
-                      {status === "Active" ? <CheckCircle2 className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {status}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">Permissions</span>
                     <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
-                      {selectedPermissions.size} assigned
+                      {selectedPermissions.size} Assigned
                     </span>
                   </div>
                 </div>
@@ -612,11 +596,11 @@ export function AddTeamMemberPage() {
                 </div>
                 <div className="px-5 py-4 space-y-2">
                   {permissionModules.map((mod) => {
-                    const count = mod.permissions.filter((p) => selectedPermissions.has(p.key)).length;
+                    const count = mod.permissions.filter((p) => selectedPermissions.has(p.id)).length;
                     if (count === 0) return null;
                     return (
-                      <div key={mod.module} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-600">{mod.module}</span>
+                      <div key={mod.id} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-600">{mod.name}</span>
                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                           {count}/{mod.permissions.length}
                         </span>
@@ -631,15 +615,15 @@ export function AddTeamMemberPage() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={handleSubmit}
-                disabled={saving}
+                disabled={createTeamMember.isPending || isLoading}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? (
+                {createTeamMember.isPending ? (
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 ) : (
                   <UserPlus className="h-4 w-4" />
                 )}
-                {saving ? "Creating..." : "Create Team Member"}
+                {createTeamMember.isPending ? "Creating..." : "Create Team Member"}
               </button>
               <button
                 onClick={() => router.push("/dashboard/team")}

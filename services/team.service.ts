@@ -5,6 +5,7 @@ import type {
   TeamListResponse,
   TeamSummaryResponse,
   TeamActionResponse,
+  CreateTeamMemberPayload,
 } from "@/types/team.types";
 
 export const teamService = {
@@ -12,6 +13,11 @@ export const teamService = {
     const { data } = await apiClient.get<TeamListResponse>(TEAM.LIST, {
       params,
     });
+    return data;
+  },
+
+  create: async (payload: CreateTeamMemberPayload): Promise<TeamActionResponse> => {
+    const { data } = await apiClient.post<TeamActionResponse>(TEAM.CREATE, payload);
     return data;
   },
 

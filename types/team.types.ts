@@ -51,6 +51,16 @@ export interface TeamSummaryResponse {
   by_user_type: { user_type: string; category: string; count: number }[];
 }
 
+// ─── Create Team Member Payload ───
+export interface CreateTeamMemberPayload {
+  name: string;
+  email: string;
+  phone: string;
+  user_type_id: string;
+  permission_ids: string[];
+  department: string;
+}
+
 // ─── Team Action Response ───
 export interface TeamActionResponse {
   message: string;

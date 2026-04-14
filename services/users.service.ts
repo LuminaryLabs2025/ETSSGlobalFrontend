@@ -5,6 +5,7 @@ import type {
   UsersListResponse,
   UsersSummaryResponse,
   UserActionResponse,
+  CreateUserPayload,
 } from "@/types/users.types";
 
 export const usersService = {
@@ -12,6 +13,11 @@ export const usersService = {
     const { data } = await apiClient.get<UsersListResponse>(USERS.LIST, {
       params,
     });
+    return data;
+  },
+
+  create: async (payload: CreateUserPayload): Promise<UserActionResponse> => {
+    const { data } = await apiClient.post<UserActionResponse>(USERS.CREATE, payload);
     return data;
   },
 

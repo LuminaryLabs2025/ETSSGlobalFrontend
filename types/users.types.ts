@@ -75,3 +75,16 @@ export interface UsersSummaryResponse {
 export interface UserActionResponse {
   message: string;
 }
+
+// ─── Create User Payload ───
+export interface CreateUserPayload {
+  user_type_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  password: string;
+  organization_name: string;
+  address: string;
+  extra_fields: Record<string, unknown>;
+}
