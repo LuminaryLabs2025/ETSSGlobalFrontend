@@ -36,7 +36,14 @@ export interface ForgotPasswordRequest {
 
 // ─── Reset Password ───
 export interface ResetPasswordRequest {
+  email: string;
   token: string;
-  password: string;
-  confirmPassword: string;
+  newPassword: string;
+}
+
+// ─── Join Team (Invite Sign-Up) ───
+export interface JoinTeamRequest {
+  email: string;
+  token: string;
+  newPassword: string;
 }

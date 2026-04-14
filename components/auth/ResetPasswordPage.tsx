@@ -4,6 +4,8 @@ import { useState } from "react";
 import { Lock, ArrowRight, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useResetPassword } from "@/hooks/auth/useResetPassword";
 
 const requirements = [
   { label: "At least 8 characters", test: (p: string) => p.length >= 8 },
@@ -14,25 +16,28 @@ const requirements = [
 ];
 
 export function ResetPasswordPage() {
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token") ?? "";
+  const email = searchParams.get("email") ?? "";
+
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isReset, setIsReset] = useState(false);
+  const { mutate: resetPassword, isPending: isLoading } = useResetPassword();
 
   const passwordsMatch = password === confirmPassword && confirmPassword.length > 0;
   const allRequirementsMet = requirements.every((r) => r.test(password));
   const canSubmit = passwordsMatch && allRequirementsMet;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    setIsLoading(true);
-    // TODO: Integrate with reset password API (pass token from URL params)
-    console.log({ password });
-    setIsReset(true);
-    setIsLoading(false);
+    resetPassword(
+      { email, token, newPassword: password },
+      { onSuccess: () => setIsReset(true) }
+    );
   };
 
   return (
