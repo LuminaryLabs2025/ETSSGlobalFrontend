@@ -4,11 +4,11 @@ import { useState } from "react";
 import {
   Mail,
   Lock,
-  User,
   ArrowRight,
   Eye,
   EyeOff,
   ShieldCheck,
+  KeyRound,
 } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import Link from "next/link";
@@ -17,10 +17,10 @@ export function InviteSignUpPage() {
   // In production, extract invite token + pre-filled email from URL params
   const inviteEmail = "j.doe@nigeriaports.gov"; // TODO: from URL searchParams
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showTempPassword, setShowTempPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,8 +28,7 @@ export function InviteSignUpPage() {
   const passwordsMatch =
     password === confirmPassword && confirmPassword.length > 0;
   const canSubmit =
-    firstName.trim() &&
-    lastName.trim() &&
+    temporaryPassword.trim() &&
     password.length >= 8 &&
     passwordsMatch &&
     acceptTerms;
@@ -39,7 +38,7 @@ export function InviteSignUpPage() {
     if (!canSubmit) return;
     setIsLoading(true);
     // TODO: Integrate with invite sign-up API
-    console.log({ firstName, lastName, password, inviteEmail });
+    console.log({ temporaryPassword, password, inviteEmail });
     setIsLoading(false);
   };
 
@@ -75,52 +74,6 @@ export function InviteSignUpPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-        {/* Name Fields */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label
-              htmlFor="firstName"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
-            >
-              First Name
-            </label>
-            <div className="relative">
-              <User className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                id="firstName"
-                type="text"
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                placeholder="John"
-                className="h-12 w-full rounded-lg border border-gray-200 bg-white pl-11 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                required
-                autoComplete="given-name"
-              />
-            </div>
-          </div>
-          <div>
-            <label
-              htmlFor="lastName"
-              className="mb-1.5 block text-sm font-medium text-gray-700"
-            >
-              Last Name
-            </label>
-            <div className="relative">
-              <User className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                id="lastName"
-                type="text"
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                placeholder="Doe"
-                className="h-12 w-full rounded-lg border border-gray-200 bg-white pl-11 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-                required
-                autoComplete="family-name"
-              />
-            </div>
-          </div>
-        </div>
-
         {/* Email (read-only from invite) */}
         <div>
           <label
@@ -144,13 +97,50 @@ export function InviteSignUpPage() {
           </p>
         </div>
 
-        {/* Password */}
+        {/* Temporary Password */}
+        <div>
+          <label
+            htmlFor="temporaryPassword"
+            className="mb-1.5 block text-sm font-medium text-gray-700"
+          >
+            Temporary Password
+          </label>
+          <div className="relative">
+            <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              id="temporaryPassword"
+              type={showTempPassword ? "text" : "password"}
+              value={temporaryPassword}
+              onChange={(e) => setTemporaryPassword(e.target.value)}
+              placeholder="Enter the password sent to your email"
+              className="h-12 w-full rounded-lg border border-gray-200 bg-white pl-11 pr-11 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              required
+              autoComplete="one-time-code"
+            />
+            <button
+              type="button"
+              onClick={() => setShowTempPassword(!showTempPassword)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              {showTempPassword ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            Check your email for the temporary password
+          </p>
+        </div>
+
+        {/* New Password */}
         <div>
           <label
             htmlFor="password"
             className="mb-1.5 block text-sm font-medium text-gray-700"
           >
-            Create Password
+            New Password
           </label>
           <div className="relative">
             <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
