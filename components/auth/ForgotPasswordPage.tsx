@@ -4,19 +4,19 @@ import { useState } from "react";
 import { Mail, ArrowRight, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import Link from "next/link";
+import { useForgotPassword } from "@/hooks/auth/useForgotPassword";
 
 export function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const { mutate: forgotPassword, isPending: isLoading } = useForgotPassword();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    // TODO: Integrate with password reset API
-    console.log({ email });
-    setIsSubmitted(true);
-    setIsLoading(false);
+    forgotPassword(
+      { email },
+      { onSuccess: () => setIsSubmitted(true) }
+    );
   };
 
   return (
@@ -102,10 +102,11 @@ export function ForgotPasswordPage() {
 
           <div className="mt-8 w-full space-y-3">
             <button
-              onClick={() => setIsSubmitted(false)}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+              onClick={() => forgotPassword({ email })}
+              disabled={isLoading}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-60"
             >
-              Resend Email
+              {isLoading ? "Sending..." : "Resend Email"}
             </button>
             <Link
               href="/"

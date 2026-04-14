@@ -8,38 +8,34 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
-  KeyRound,
 } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useJoinTeam } from "@/hooks/auth/useJoinTeam";
 
 export function InviteSignUpPage() {
-  // In production, extract invite token + pre-filled email from URL params
-  const inviteEmail = "j.doe@nigeriaports.gov"; // TODO: from URL searchParams
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token") ?? "";
+  const email = searchParams.get("email") ?? "test@example.com";
 
-  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [showTempPassword, setShowTempPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const { mutate: joinTeam, isPending: isLoading } = useJoinTeam();
 
   const passwordsMatch =
     password === confirmPassword && confirmPassword.length > 0;
   const canSubmit =
-    temporaryPassword.trim() &&
     password.length >= 8 &&
     passwordsMatch &&
     acceptTerms;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSubmit) return;
-    setIsLoading(true);
-    // TODO: Integrate with invite sign-up API
-    console.log({ temporaryPassword, password, inviteEmail });
-    setIsLoading(false);
+    joinTeam({ email, token, newPassword: password });
   };
 
   return (
@@ -69,7 +65,7 @@ export function InviteSignUpPage() {
         <Mail className="h-4 w-4 text-emerald-600" />
         <p className="text-sm text-emerald-800">
           Invite sent to{" "}
-          <span className="font-medium">{inviteEmail}</span>
+          <span className="font-medium">{email}</span>
         </p>
       </div>
 
@@ -87,50 +83,13 @@ export function InviteSignUpPage() {
             <input
               id="email"
               type="email"
-              value={inviteEmail}
+              value={email}
               readOnly
               className="h-12 w-full rounded-lg border border-gray-200 bg-gray-50 pl-11 pr-4 text-sm text-gray-500 cursor-not-allowed"
             />
           </div>
           <p className="mt-1 text-xs text-gray-400">
             Email is pre-filled from your invitation
-          </p>
-        </div>
-
-        {/* Temporary Password */}
-        <div>
-          <label
-            htmlFor="temporaryPassword"
-            className="mb-1.5 block text-sm font-medium text-gray-700"
-          >
-            Temporary Password
-          </label>
-          <div className="relative">
-            <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input
-              id="temporaryPassword"
-              type={showTempPassword ? "text" : "password"}
-              value={temporaryPassword}
-              onChange={(e) => setTemporaryPassword(e.target.value)}
-              placeholder="Enter the password sent to your email"
-              className="h-12 w-full rounded-lg border border-gray-200 bg-white pl-11 pr-11 text-sm text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
-              required
-              autoComplete="one-time-code"
-            />
-            <button
-              type="button"
-              onClick={() => setShowTempPassword(!showTempPassword)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              {showTempPassword ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </button>
-          </div>
-          <p className="mt-1 text-xs text-gray-400">
-            Check your email for the temporary password
           </p>
         </div>
 

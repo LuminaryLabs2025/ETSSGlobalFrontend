@@ -5,6 +5,7 @@ import type {
   LoginResponse,
   ForgotPasswordRequest,
   ResetPasswordRequest,
+  JoinTeamRequest,
 } from "@/types/auth.types";
 
 export const authService = {
@@ -30,5 +31,9 @@ export const authService = {
     payload: ResetPasswordRequest
   ): Promise<void> => {
     await apiClient.post(AUTH.RESET_PASSWORD, payload);
+  },
+
+  joinTeam: async (payload: JoinTeamRequest): Promise<void> => {
+    await apiClient.post(AUTH.JOIN_TEAM, payload);
   },
 };
