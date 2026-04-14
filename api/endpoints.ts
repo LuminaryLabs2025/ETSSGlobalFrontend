@@ -37,6 +37,14 @@ export const BOOKINGS = {
   BY_ID: (id: string) => `/bookings/${id}`,
 } as const;
 
+// ─── Profile ───
+export const PROFILE = {
+  GET: "/profile",
+  UPDATE: "/profile",
+  CHANGE_PASSWORD: "/profile/change-password",
+  NOTIFICATIONS: "/profile/notifications",
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",
