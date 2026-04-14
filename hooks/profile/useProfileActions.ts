@@ -27,7 +27,8 @@ export function useChangePassword() {
     mutationFn: profileService.changePassword,
     onSuccess: () => {
       toast.success(
-        "Password successfully updated. You will be redirected to login."
+        "Password successfully updated. You will be redirected to login.",
+        { position: "bottom-right" },
       );
     },
     onError: (error: AxiosError<ApiError>) => {

@@ -20,14 +20,13 @@ import {
   Ship,
   Landmark,
   Warehouse,
-  Clock,
-  Hash,
-  Globe,
+  Loader2,
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from "lucide-react";
-import {
-  createUserTypeConfigs,
-  type CreateUserType,
-} from "@/lib/mock-data";
+import { useUserTypes } from "@/hooks/useUserTypes";
+import { useCreateUser } from "@/hooks/users/useUserActions";
 
 // ─── Toast ───
 function Toast({ message, onClose }: { message: string; onClose: () => void }) {
@@ -92,69 +91,93 @@ function getCategoryIcon(category: string): React.ElementType {
 export function CreateUserPage() {
   const router = useRouter();
 
+  // API hooks
+  const { data: externalUserTypes = [], isLoading: loadingUserTypes } = useUserTypes({ category: "EXTERNAL" });
+  const createUser = useCreateUser();
+
   // Form state
-  const [userType, setUserType] = useState<CreateUserType | "">("");
+  const [userTypeId, setUserTypeId] = useState("");
   const [orgName, setOrgName] = useState("");
-  const [contactPerson, setContactPerson] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [accountStatus, setAccountStatus] = useState<"Active" | "Inactive">("Active");
-  const [specificFields, setSpecificFields] = useState<Record<string, string>>({});
+  const [extraFields, setExtraFields] = useState<Record<string, unknown>>({});
+
+  const [showPassword, setShowPassword] = useState(false);
 
   // UI state
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const selectedConfig = userType ? createUserTypeConfigs.find((c) => c.value === userType) : null;
+  const generatePassword = useCallback(() => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*";
+    const arr = new Uint32Array(14);
+    crypto.getRandomValues(arr);
+    const pwd = Array.from(arr, (v) => chars[v % chars.length]).join("");
+    setPassword(pwd);
+    setShowPassword(true);
+    setErrors((p) => ({ ...p, password: "" }));
+  }, []);
+
+  const selectedUserType = externalUserTypes.find((ut) => ut.id === userTypeId);
+  const metadataFields = selectedUserType?.metadata?.fields ?? [];
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // Auto-generate username from email
-  const handleEmailChange = (val: string) => {
-    setEmail(val);
-    setErrors((p) => ({ ...p, email: "" }));
-    if (val.includes("@")) {
-      setUsername(val.split("@")[0]);
-    }
-  };
-
-  // Handle user type change — reset specific fields
-  const handleUserTypeChange = (val: CreateUserType) => {
-    setUserType(val);
-    setSpecificFields({});
+  // Handle user type change — reset extra fields
+  const handleUserTypeChange = (id: string) => {
+    setUserTypeId(id);
+    setExtraFields({});
     setErrors((p) => ({ ...p, userType: "" }));
   };
 
-  // Handle specific field change
-  const handleSpecificFieldChange = (key: string, value: string) => {
-    setSpecificFields((prev) => ({ ...prev, [key]: value }));
-    setErrors((p) => ({ ...p, [key]: "" }));
+  // Handle extra field change
+  const handleExtraFieldChange = (name: string, value: unknown) => {
+    setExtraFields((prev) => ({ ...prev, [name]: value }));
+    setErrors((p) => ({ ...p, [name]: "" }));
+  };
+
+  // Handle multi-select toggle
+  const handleMultiSelectToggle = (name: string, value: string) => {
+    setExtraFields((prev) => {
+      const current = (prev[name] as string[]) || [];
+      const next = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+      return { ...prev, [name]: next };
+    });
+    setErrors((p) => ({ ...p, [name]: "" }));
   };
 
   // ─── Validation ───
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!userType) errs.userType = "Please select a user type";
+    if (!userTypeId) errs.userType = "Please select a user type";
     if (!orgName.trim()) errs.orgName = "Organization name is required";
-    if (!contactPerson.trim()) errs.contactPerson = "Contact person name is required";
+    if (!firstName.trim()) errs.firstName = "First name is required";
+    if (!lastName.trim()) errs.lastName = "Last name is required";
     if (!email.trim()) errs.email = "Email address is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address";
     if (!phone.trim()) errs.phone = "Phone number is required";
+    if (!password.trim()) errs.password = "Password is required";
 
-    // Validate specific fields
-    if (selectedConfig) {
-      for (const field of selectedConfig.specificFields) {
-        if (!specificFields[field.key]?.trim()) {
-          errs[field.key] = `${field.label} is required`;
+    // Validate metadata fields
+    for (const field of metadataFields) {
+      if (!field.required || field.autoPopulated) continue;
+      const val = extraFields[field.name];
+      if (field.type === "multi-select") {
+        if (!val || (val as string[]).length === 0) {
+          errs[field.name] = `${field.label} is required`;
         }
+      } else if (!val || (typeof val === "string" && !val.trim())) {
+        errs[field.name] = `${field.label} is required`;
       }
     }
 
@@ -165,27 +188,53 @@ export function CreateUserPage() {
   // ─── Submit ───
   const handleSubmit = () => {
     if (!validate()) return;
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      setSubmitted(true);
-      showToast(`User account successfully created for ${orgName}`);
-    }, 1200);
+
+    // Build extra_fields from metadata, including auto-populated values
+    const builtExtraFields: Record<string, unknown> = { ...extraFields };
+    for (const field of metadataFields) {
+      if (field.autoPopulated && field.autoPopulatedValue) {
+        builtExtraFields[field.name] = field.autoPopulatedValue;
+      }
+      // Convert number fields
+      if (field.type === "number" && builtExtraFields[field.name]) {
+        builtExtraFields[field.name] = Number(builtExtraFields[field.name]);
+      }
+    }
+
+    createUser.mutate(
+      {
+        user_type_id: userTypeId,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        password: password.trim(),
+        organization_name: orgName.trim(),
+        address: address.trim(),
+        extra_fields: builtExtraFields,
+      },
+      {
+        onSuccess: () => {
+          setSubmitted(true);
+          showToast(`User account successfully created for ${orgName}`);
+        },
+      }
+    );
   };
 
   // ─── Reset Form ───
   const resetForm = () => {
     setSubmitted(false);
-    setUserType("");
+    setUserTypeId("");
     setOrgName("");
-    setContactPerson("");
+    setFirstName("");
+    setLastName("");
     setEmail("");
     setPhone("");
     setAddress("");
-    setUsername("");
     setPassword("");
-    setAccountStatus("Active");
-    setSpecificFields({});
+    setShowPassword(false);
+    setExtraFields({});
     setErrors({});
   };
 
@@ -199,7 +248,7 @@ export function CreateUserPage() {
           </div>
           <h2 className="text-lg font-bold text-gray-900">User Account Created</h2>
           <p className="mt-2 text-sm text-gray-600">
-            A new <span className="font-semibold">{userType}</span> account has been created for{" "}
+            A new <span className="font-semibold">{selectedUserType?.name ?? ""}</span> account has been created for{" "}
             <span className="font-semibold">{orgName}</span>. An automated email with login credentials and
             onboarding instructions has been sent to <span className="font-semibold">{email}</span>.
           </p>
@@ -211,11 +260,11 @@ export function CreateUserPage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Contact Person</span>
-                <span className="font-medium text-gray-900">{contactPerson}</span>
+                <span className="font-medium text-gray-900">{firstName} {lastName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">User Type</span>
-                <span className="font-medium text-gray-900">{userType}</span>
+                <span className="font-medium text-gray-900">{selectedUserType?.name ?? ""}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Email</span>
@@ -224,10 +273,6 @@ export function CreateUserPage() {
               <div className="flex justify-between">
                 <span className="text-gray-500">Account Type</span>
                 <span className="font-medium text-gray-900">Primary</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Status</span>
-                <span className="font-medium text-emerald-700">{accountStatus}</span>
               </div>
             </div>
           </div>
@@ -285,18 +330,19 @@ export function CreateUserPage() {
               <div className="relative">
                 <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <select
-                  value={userType}
-                  onChange={(e) => handleUserTypeChange(e.target.value as CreateUserType)}
+                  value={userTypeId}
+                  onChange={(e) => handleUserTypeChange(e.target.value)}
+                  disabled={loadingUserTypes}
                   className={`w-full appearance-none rounded-lg border bg-gray-50 py-2.5 pl-10 pr-8 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
                     errors.userType
                       ? "border-red-300 focus:border-red-400 focus:ring-red-100"
                       : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
                   }`}
                 >
-                  <option value="">Select a user type...</option>
-                  {createUserTypeConfigs.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
+                  <option value="">{loadingUserTypes ? "Loading user types..." : "Select a user type..."}</option>
+                  {externalUserTypes.map((ut) => (
+                    <option key={ut.id} value={ut.id}>
+                      {ut.name}
                     </option>
                   ))}
                 </select>
@@ -309,18 +355,20 @@ export function CreateUserPage() {
               )}
 
               {/* Selected type indicator */}
-              {selectedConfig && (
+              {selectedUserType && (
                 <div className="mt-3 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                   {(() => {
-                    const CatIcon = getCategoryIcon(selectedConfig.category);
+                    const CatIcon = getCategoryIcon(selectedUserType.category);
                     return <CatIcon className="h-4 w-4 text-emerald-600" />;
                   })()}
                   <span className="text-xs font-medium text-emerald-700">
-                    Category: {selectedConfig.category}
+                    Category: {selectedUserType.category}
                   </span>
-                  <span className="text-xs text-emerald-500">
-                    — {selectedConfig.specificFields.length} additional fields
-                  </span>
+                  {metadataFields.length > 0 && (
+                    <span className="text-xs text-emerald-500">
+                      — {metadataFields.filter((f) => !f.autoPopulated).length} additional fields
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -355,30 +403,56 @@ export function CreateUserPage() {
                 )}
               </div>
 
-              {/* Contact Person */}
-              <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                  Contact Person Name <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    value={contactPerson}
-                    onChange={(e) => { setContactPerson(e.target.value); setErrors((p) => ({ ...p, contactPerson: "" })); }}
-                    placeholder="e.g. Chen Wei"
-                    className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                      errors.contactPerson
-                        ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                        : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                    }`}
-                  />
+              {/* First Name + Last Name */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    First Name <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => { setFirstName(e.target.value); setErrors((p) => ({ ...p, firstName: "" })); }}
+                      placeholder="e.g. Ayo"
+                      className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                        errors.firstName
+                          ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                          : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                      }`}
+                    />
+                  </div>
+                  {errors.firstName && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <AlertCircle className="h-3 w-3" /> {errors.firstName}
+                    </p>
+                  )}
                 </div>
-                {errors.contactPerson && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                    <AlertCircle className="h-3 w-3" /> {errors.contactPerson}
-                  </p>
-                )}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    Last Name <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => { setLastName(e.target.value); setErrors((p) => ({ ...p, lastName: "" })); }}
+                      placeholder="e.g. Moses"
+                      className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                        errors.lastName
+                          ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                          : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                      }`}
+                    />
+                  </div>
+                  {errors.lastName && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <AlertCircle className="h-3 w-3" /> {errors.lastName}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Email + Phone */}
@@ -392,7 +466,7 @@ export function CreateUserPage() {
                     <input
                       type="email"
                       value={email}
-                      onChange={(e) => handleEmailChange(e.target.value)}
+                      onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: "" })); }}
                       placeholder="e.g. admin@company.com"
                       className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
                         errors.email
@@ -450,129 +524,176 @@ export function CreateUserPage() {
                 </div>
               </div>
 
-              {/* Username + Password */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                    Username
-                  </label>
-                  <div className="relative">
-                    <Hash className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Auto-generated from email"
-                      className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] text-gray-400">Auto-generated from email if left blank</p>
-                </div>
-                <div>
-                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Auto-generated if left blank"
-                      className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-                    />
-                  </div>
-                  <p className="mt-1 text-[10px] text-gray-400">Auto-generated and sent via email if left blank</p>
-                </div>
-              </div>
-
-              {/* Account Status */}
+              {/* Password */}
               <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                  Account Status
-                </label>
-                <div className="flex items-center gap-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    Password <span className="text-red-400">*</span>
+                  </label>
                   <button
                     type="button"
-                    onClick={() => setAccountStatus("Active")}
-                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      accountStatus === "Active"
-                        ? "border-emerald-300 bg-emerald-50 text-emerald-700"
-                        : "border-gray-200 text-gray-500 hover:bg-gray-50"
-                    }`}
+                    onClick={generatePassword}
+                    className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    Active
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAccountStatus("Inactive")}
-                    className={`flex items-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                      accountStatus === "Inactive"
-                        ? "border-red-300 bg-red-50 text-red-700"
-                        : "border-gray-200 text-gray-500 hover:bg-gray-50"
-                    }`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Inactive
+                    <RefreshCw className="h-3 w-3" />
+                    Generate
                   </button>
                 </div>
+                <div className="relative">
+                  <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: "" })); }}
+                    placeholder="Enter or generate a password"
+                    className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                      errors.password
+                        ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                        : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                    <AlertCircle className="h-3 w-3" /> {errors.password}
+                  </p>
+                )}
               </div>
             </div>
           </Section>
 
-          {/* Step 3: Type-Specific Fields (Dynamic) */}
-          {selectedConfig && (
+          {/* Step 3: Type-Specific Fields (Dynamic from metadata) */}
+          {selectedUserType && metadataFields.length > 0 && (
             <Section
-              title={`${selectedConfig.label} Details`}
-              description={`Additional fields specific to ${selectedConfig.category} accounts`}
-              icon={getCategoryIcon(selectedConfig.category)}
+              title={`${selectedUserType.name} Details`}
+              description={`Additional fields specific to ${selectedUserType.name} accounts`}
+              icon={getCategoryIcon(selectedUserType.category)}
               step={3}
             >
               <div className="space-y-4">
-                {selectedConfig.specificFields.map((field) => (
-                  <div key={field.key}>
-                    <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                      {field.label} <span className="text-red-400">*</span>
-                    </label>
-                    {field.type === "select" && field.options ? (
-                      <div className="relative">
-                        <select
-                          value={specificFields[field.key] || ""}
-                          onChange={(e) => handleSpecificFieldChange(field.key, e.target.value)}
-                          className={`w-full appearance-none rounded-lg border bg-gray-50 py-2.5 pl-3 pr-8 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                            errors[field.key]
-                              ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                              : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                          }`}
-                        >
-                          <option value="">{field.placeholder}</option>
-                          {field.options.map((opt) => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                {metadataFields.map((field) => {
+                  // Skip auto-populated fields (they are set automatically on submit)
+                  if (field.autoPopulated) {
+                    return (
+                      <div key={field.name}>
+                        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                          {field.label}
+                        </label>
+                        <input
+                          type="text"
+                          value={field.autoPopulatedValue ?? ""}
+                          disabled
+                          className="w-full rounded-lg border border-gray-200 bg-gray-100 py-2.5 px-3 text-sm text-gray-500 cursor-not-allowed"
+                        />
+                        <p className="mt-1 text-[10px] text-gray-400">Auto-populated</p>
                       </div>
-                    ) : (
+                    );
+                  }
+
+                  if (field.type === "multi-select" && field.options) {
+                    const selectedValues = (extraFields[field.name] as string[]) || [];
+                    return (
+                      <div key={field.name}>
+                        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                          {field.label} {field.required && <span className="text-red-400">*</span>}
+                        </label>
+                        <div className={`rounded-lg border p-3 space-y-2 ${
+                          errors[field.name] ? "border-red-300" : "border-gray-200"
+                        }`}>
+                          {field.options.map((opt) => {
+                            const isSelected = selectedValues.includes(opt.value);
+                            return (
+                              <label
+                                key={opt.value}
+                                className="flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-gray-50"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleMultiSelectToggle(field.name, opt.value)}
+                                  className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span className="text-sm text-gray-700">{opt.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        {selectedValues.length > 0 && (
+                          <p className="mt-1 text-[10px] text-gray-400">{selectedValues.length} selected</p>
+                        )}
+                        {errors[field.name] && (
+                          <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                            <AlertCircle className="h-3 w-3" /> {errors[field.name]}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  if (field.type === "select" && field.options) {
+                    return (
+                      <div key={field.name}>
+                        <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                          {field.label} {field.required && <span className="text-red-400">*</span>}
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={(extraFields[field.name] as string) || ""}
+                            onChange={(e) => handleExtraFieldChange(field.name, e.target.value)}
+                            className={`w-full appearance-none rounded-lg border bg-gray-50 py-2.5 pl-3 pr-8 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                              errors[field.name]
+                                ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                                : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                            }`}
+                          >
+                            <option value="">{field.placeholder || `Select ${field.label}...`}</option>
+                            {field.options.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        </div>
+                        {errors[field.name] && (
+                          <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                            <AlertCircle className="h-3 w-3" /> {errors[field.name]}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Default: string, number, text
+                  return (
+                    <div key={field.name}>
+                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                        {field.label} {field.required && <span className="text-red-400">*</span>}
+                      </label>
                       <input
                         type={field.type === "number" ? "number" : "text"}
-                        value={specificFields[field.key] || ""}
-                        onChange={(e) => handleSpecificFieldChange(field.key, e.target.value)}
-                        placeholder={field.placeholder}
+                        value={(extraFields[field.name] as string) || ""}
+                        onChange={(e) => handleExtraFieldChange(field.name, e.target.value)}
+                        placeholder={field.placeholder || `Enter ${field.label}`}
                         className={`w-full rounded-lg border bg-gray-50 py-2.5 px-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                          errors[field.key]
+                          errors[field.name]
                             ? "border-red-300 focus:border-red-400 focus:ring-red-100"
                             : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
                         }`}
                       />
-                    )}
-                    {errors[field.key] && (
-                      <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                        <AlertCircle className="h-3 w-3" /> {errors[field.key]}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                      {errors[field.name] && (
+                        <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                          <AlertCircle className="h-3 w-3" /> {errors[field.name]}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Section>
           )}
@@ -596,7 +717,7 @@ export function CreateUserPage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">{orgName || "Organization Name"}</p>
-                    <p className="text-xs text-gray-400 truncate">{contactPerson || "Contact Person"}</p>
+                    <p className="text-xs text-gray-400 truncate">{firstName || lastName ? `${firstName} ${lastName}`.trim() : "Contact Person"}</p>
                   </div>
                 </div>
 
@@ -604,12 +725,12 @@ export function CreateUserPage() {
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">User Type</span>
-                    <span className="font-medium text-gray-700">{userType || "—"}</span>
+                    <span className="font-medium text-gray-700">{selectedUserType?.name || "—"}</span>
                   </div>
-                  {selectedConfig && (
+                  {selectedUserType && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-500">Category</span>
-                      <span className="font-medium text-gray-700">{selectedConfig.category}</span>
+                      <span className="font-medium text-gray-700">{selectedUserType.category}</span>
                     </div>
                   )}
                   <div className="flex items-center justify-between text-xs">
@@ -624,39 +745,32 @@ export function CreateUserPage() {
                     <span className="text-gray-500">Account Type</span>
                     <span className="font-medium text-gray-700">Primary</span>
                   </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Username</span>
-                    <span className="font-medium text-gray-700">{username || "Auto-generated"}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500">Status</span>
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                      accountStatus === "Active"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-red-200 bg-red-50 text-red-700"
-                    }`}>
-                      {accountStatus === "Active" ? <CheckCircle2 className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                      {accountStatus}
-                    </span>
-                  </div>
                 </div>
               </div>
             </div>
 
             {/* Type-Specific Summary */}
-            {selectedConfig && Object.keys(specificFields).some((k) => specificFields[k]) && (
+            {selectedUserType && metadataFields.length > 0 && Object.keys(extraFields).some((k) => {
+              const val = extraFields[k];
+              return Array.isArray(val) ? val.length > 0 : !!val;
+            }) && (
               <div className="rounded-xl border border-gray-200 bg-white">
                 <div className="border-b border-gray-100 px-5 py-3">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">{selectedConfig.label} Details</h3>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">{selectedUserType.name} Details</h3>
                 </div>
                 <div className="px-5 py-4 space-y-2">
-                  {selectedConfig.specificFields.map((field) => {
-                    const val = specificFields[field.key];
-                    if (!val) return null;
+                  {metadataFields.filter((f) => !f.autoPopulated).map((field) => {
+                    const val = extraFields[field.name];
+                    if (!val || (Array.isArray(val) && val.length === 0)) return null;
+                    const displayVal = Array.isArray(val)
+                      ? (val as string[]).map((v) => field.options?.find((o) => o.value === v)?.label ?? v).join(", ")
+                      : field.type === "select" && field.options
+                        ? field.options.find((o) => o.value === val)?.label ?? String(val)
+                        : String(val);
                     return (
-                      <div key={field.key} className="flex items-center justify-between text-xs">
+                      <div key={field.name} className="flex items-center justify-between text-xs">
                         <span className="text-gray-500">{field.label}</span>
-                        <span className="font-medium text-gray-700 truncate ml-4 text-right">{val}</span>
+                        <span className="font-medium text-gray-700 truncate ml-4 text-right">{displayVal}</span>
                       </div>
                     );
                   })}
@@ -668,15 +782,15 @@ export function CreateUserPage() {
             <div className="flex flex-col gap-2">
               <button
                 onClick={handleSubmit}
-                disabled={saving}
+                disabled={createUser.isPending || loadingUserTypes}
                 className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? (
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                {createUser.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <UserPlus className="h-4 w-4" />
                 )}
-                {saving ? "Creating Account..." : "Create User Account"}
+                {createUser.isPending ? "Creating Account..." : "Create User Account"}
               </button>
               <button
                 onClick={() => router.push("/dashboard/users")}

@@ -4,6 +4,20 @@ import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
 import { AxiosError } from "axios";
 
+export function useCreateTeamMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: teamService.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["team-members"] });
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to create team member");
+    },
+  });
+}
+
 export function useDisableTeamMember() {
   const queryClient = useQueryClient();
 

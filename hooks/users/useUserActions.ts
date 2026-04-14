@@ -4,6 +4,20 @@ import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
 import { AxiosError } from "axios";
 
+export function useCreateUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: usersService.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to create user");
+    },
+  });
+}
+
 export function useDisableUser() {
   const queryClient = useQueryClient();
 

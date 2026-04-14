@@ -33,7 +33,7 @@ export default function RootLayout({
         <QueryProvider>
           {children}
         </QueryProvider>
-        <Toaster position="top-right" richColors closeButton />
+        <Toaster richColors closeButton />
       </body>
     </html>
   );
