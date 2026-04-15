@@ -10,6 +10,16 @@ export interface UserTypeDetail {
   updated_at: string;
 }
 
+// Company details associated with a user
+export interface UserCompany {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Platform User ───
 export interface PlatformUser {
   id: string;
@@ -23,7 +33,7 @@ export interface PlatformUser {
   user_type_id: string;
   user_type: UserTypeDetail;
   company_id: string | null;
-  company: unknown;
+  company: UserCompany | null;
   extra_fields: unknown;
   invited_by: string | null;
   created_at: string;

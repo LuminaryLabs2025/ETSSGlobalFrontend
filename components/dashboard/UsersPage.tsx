@@ -647,7 +647,7 @@ export function UsersPage() {
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <Building2 className="h-3 w-3 shrink-0 text-gray-400" />
-                        <p className="text-xs text-gray-700 truncate max-w-40">{user.company_id ?? "—"}</p>
+                        <p className="text-xs text-gray-700 truncate max-w-40">{user.company?.name ?? "—"}</p>
                       </div>
                     </td>
 
