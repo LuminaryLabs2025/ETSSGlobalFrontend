@@ -24,7 +24,6 @@ export interface ProfileResponse {
 
 // ─── Update Profile ───
 export interface UpdateProfileRequest {
-  name: string;
   address: string;
 }
 
