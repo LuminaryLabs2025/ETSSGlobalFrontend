@@ -22,6 +22,7 @@ export interface User {
   last_name: string;
   is_super_admin: boolean;
   account_type: string;
+  two_factor_enabled: boolean;
   status: string;
   user_type: UserType;
   company_id: string | null;
@@ -46,4 +47,25 @@ export interface JoinTeamRequest {
   email: string;
   token: string;
   newPassword: string;
+}
+
+// ─── Two Factor Authentication ───
+export type OtpMethod = "email" | "sms" | "authenticator";
+
+export interface VerifyOtpRequest {
+  otp: string;
+  method: OtpMethod;
+}
+
+export interface VerifyOtpResponse {
+  access_token: string;
+  user: User;
+}
+
+export interface ResendOtpRequest {
+  method: OtpMethod;
+}
+
+export interface ResendOtpResponse {
+  message: string;
 }
