@@ -6,6 +6,8 @@ export const AUTH = {
   RESET_PASSWORD: "/auth/reset-password",
   REFRESH_TOKEN: "/auth/refresh-token",
   JOIN_TEAM: "/auth/join-invite/complete", // For accepting team invites
+  VERIFY_OTP: "/auth/verify-otp",
+  RESEND_OTP: "/auth/resend-otp",
 } as const;
 
 // ─── Users ───
