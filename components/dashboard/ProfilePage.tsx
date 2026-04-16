@@ -166,28 +166,24 @@ export function ProfilePage() {
   };
 
   // Personal info editable state
-  const [editName, setEditName] = useState("");
   const [editAddress, setEditAddress] = useState("");
   const [personalDirty, setPersonalDirty] = useState(false);
 
   useEffect(() => {
     if (personal) {
-      setEditName(personal.fullName);
       setEditAddress(personal.address ?? "");
       setPersonalDirty(false);
     }
   }, [personal]);
 
-  const handlePersonalFieldChange = (field: "name" | "address", value: string) => {
-    if (field === "name") setEditName(value);
-    else setEditAddress(value);
+  const handleAddressChange = (value: string) => {
+    setEditAddress(value);
     setPersonalDirty(true);
   };
 
   const handleSaveProfile = () => {
-    if (!editName.trim()) return;
     updateProfile(
-      { name: editName, address: editAddress },
+      { address: editAddress },
       { onSuccess: () => setPersonalDirty(false) }
     );
   };
@@ -424,9 +420,9 @@ export function ProfilePage() {
                   <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
-                    value={editName}
-                    onChange={(e) => handlePersonalFieldChange("name", e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                    value={fullName}
+                    disabled
+                    className="w-full rounded-lg border border-gray-200 bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-500 cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -458,7 +454,7 @@ export function ProfilePage() {
                   <MapPin className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   <textarea
                     value={editAddress}
-                    onChange={(e) => handlePersonalFieldChange("address", e.target.value)}
+                    onChange={(e) => handleAddressChange(e.target.value)}
                     rows={2}
                     placeholder="Enter your address"
                     className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors resize-none focus:bg-white focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
@@ -499,7 +495,7 @@ export function ProfilePage() {
                 <div>
                   <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">Account Type</label>
                   <div className="rounded-lg border border-gray-200 bg-gray-100 px-3 py-2.5 text-sm text-gray-500">
-                    {userAccountType}
+                    {userAccountType === "SUB_ACCOUNT" ? "Sub Account" : userAccountType || "N/A"}
                   </div>
                 </div>
                 <div>
@@ -518,7 +514,7 @@ export function ProfilePage() {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   onClick={handleSaveProfile}
-                  disabled={!personalDirty || profileSaving || !editName.trim()}
+                  disabled={!personalDirty || profileSaving}
                   className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {profileSaving ? (
