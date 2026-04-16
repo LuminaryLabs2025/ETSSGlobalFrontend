@@ -6,10 +6,8 @@ import type {
   ForgotPasswordRequest,
   ResetPasswordRequest,
   JoinTeamRequest,
-  VerifyOtpRequest,
-  VerifyOtpResponse,
-  ResendOtpRequest,
-  ResendOtpResponse,
+  Verify2FARequest,
+  Verify2FAResponse,
 } from "@/types/auth.types";
 
 export const authService = {
@@ -21,19 +19,11 @@ export const authService = {
     return data;
   },
 
-  verifyOtp: async (
-    payload: VerifyOtpRequest
-  ): Promise<VerifyOtpResponse> => {
-    const { data } = await apiClient.post<VerifyOtpResponse>(
-      AUTH.VERIFY_OTP,
-      payload
-    );
-    return data;
-  },
-
-  resendOtp: async (payload: ResendOtpRequest): Promise<ResendOtpResponse> => {
-    const { data } = await apiClient.post<ResendOtpResponse>(
-      AUTH.RESEND_OTP,
+  verify2FA: async (
+    payload: Verify2FARequest
+  ): Promise<Verify2FAResponse> => {
+    const { data } = await apiClient.post<Verify2FAResponse>(
+      AUTH.VERIFY_2FA,
       payload
     );
     return data;

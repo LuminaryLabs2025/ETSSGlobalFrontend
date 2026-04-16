@@ -5,6 +5,9 @@ import type {
   UpdateProfileRequest,
   ChangePasswordRequest,
   UpdateNotificationsRequest,
+  TwoFactorSetupResponse,
+  TwoFactorVerifyRequest,
+  TwoFactorMethodRequest,
 } from "@/types/profile.types";
 
 export const profileService = {
@@ -25,5 +28,20 @@ export const profileService = {
     payload: UpdateNotificationsRequest
   ): Promise<void> => {
     await apiClient.patch(PROFILE.NOTIFICATIONS, payload);
+  },
+
+  setup2FA: async (): Promise<TwoFactorSetupResponse> => {
+    const { data } = await apiClient.post<TwoFactorSetupResponse>(
+      PROFILE.TWO_FACTOR_SETUP
+    );
+    return data;
+  },
+
+  verify2FA: async (payload: TwoFactorVerifyRequest): Promise<void> => {
+    await apiClient.post(PROFILE.TWO_FACTOR_VERIFY, payload);
+  },
+
+  change2FAMethod: async (payload: TwoFactorMethodRequest): Promise<void> => {
+    await apiClient.patch(PROFILE.TWO_FACTOR_METHOD, payload);
   },
 };

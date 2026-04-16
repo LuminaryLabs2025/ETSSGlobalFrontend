@@ -12,6 +12,7 @@ export interface ProfileResponse {
   securityAudit: {
     passwordLastChanged: string | null;
     twoFactorAuthentication: boolean;
+    twoFactorMethod: "EMAIL" | "SMS" | "AUTHENTICATOR" | null;
     accountCreated: string;
   };
   notifications: {
@@ -37,4 +38,18 @@ export interface ChangePasswordRequest {
 export interface UpdateNotificationsRequest {
   emailNotifications: boolean;
   smsNotifications: boolean;
+}
+
+// ─── Two-Factor Authentication ───
+export interface TwoFactorSetupResponse {
+  qrCode: string;
+  secret: string;
+}
+
+export interface TwoFactorVerifyRequest {
+  token: string;
+}
+
+export interface TwoFactorMethodRequest {
+  method: "EMAIL" | "AUTHENTICATOR";
 }

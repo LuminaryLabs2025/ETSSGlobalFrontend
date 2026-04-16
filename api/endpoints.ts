@@ -6,8 +6,7 @@ export const AUTH = {
   RESET_PASSWORD: "/auth/reset-password",
   REFRESH_TOKEN: "/auth/refresh-token",
   JOIN_TEAM: "/auth/join-invite/complete", // For accepting team invites
-  VERIFY_OTP: "/auth/verify-otp",
-  RESEND_OTP: "/auth/resend-otp",
+  VERIFY_2FA: "/auth/login/verify-2fa",
 } as const;
 
 // ─── Users ───
@@ -46,6 +45,9 @@ export const PROFILE = {
   UPDATE: "/profile",
   CHANGE_PASSWORD: "/profile/change-password",
   NOTIFICATIONS: "/profile/notifications",
+  TWO_FACTOR_SETUP: "/profile/2fa/setup",
+  TWO_FACTOR_VERIFY: "/profile/2fa/verify",
+  TWO_FACTOR_METHOD: "/profile/2fa/method",
 } as const;
 
 // ─── User Types ───
