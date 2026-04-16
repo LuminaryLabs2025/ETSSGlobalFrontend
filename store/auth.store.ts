@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { User } from "@/types/auth.types";
+import type { User, TwoFactorMethod } from "@/types/auth.types";
 
 interface AuthState {
   user: User | null;
@@ -9,12 +9,12 @@ interface AuthState {
   hasHydrated: boolean;
   // 2FA state
   pending2FA: boolean;
-  userIdPending2FA: string | null;
-  loginEmail: string | null;
+  temporaryToken: string | null;
+  twoFactorMethod: TwoFactorMethod | null;
   setAuth: (user: User, accessToken: string) => void;
   clearAuth: () => void;
   setHasHydrated: (v: boolean) => void;
-  setPending2FA: (userId: string, email: string) => void;
+  setPending2FA: (temporaryToken: string, method: TwoFactorMethod) => void;
   clearPending2FA: () => void;
 }
 
@@ -26,22 +26,22 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       hasHydrated: false,
       pending2FA: false,
-      userIdPending2FA: null,
-      loginEmail: null,
+      temporaryToken: null,
+      twoFactorMethod: null,
 
       setAuth: (user, accessToken) =>
-        set({ user, accessToken, isAuthenticated: true, pending2FA: false, userIdPending2FA: null, loginEmail: null }),
+        set({ user, accessToken, isAuthenticated: true, pending2FA: false, temporaryToken: null, twoFactorMethod: null }),
 
       clearAuth: () =>
-        set({ user: null, accessToken: null, isAuthenticated: false, pending2FA: false, userIdPending2FA: null, loginEmail: null }),
+        set({ user: null, accessToken: null, isAuthenticated: false, pending2FA: false, temporaryToken: null, twoFactorMethod: null }),
 
       setHasHydrated: (v) => set({ hasHydrated: v }),
 
-      setPending2FA: (userId, email) =>
-        set({ pending2FA: true, userIdPending2FA: userId, loginEmail: email }),
+      setPending2FA: (temporaryToken, method) =>
+        set({ pending2FA: true, temporaryToken, twoFactorMethod: method }),
 
       clearPending2FA: () =>
-        set({ pending2FA: false, userIdPending2FA: null, loginEmail: null }),
+        set({ pending2FA: false, temporaryToken: null, twoFactorMethod: null }),
     }),
     {
       name: "auth-storage",

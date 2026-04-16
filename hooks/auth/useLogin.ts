@@ -8,26 +8,17 @@ import type { ApiError } from "@/types/api.types";
 
 export function useLogin() {
   const router = useRouter();
-  const setAuth = useAuthStore((s) => s.setAuth);
   const setPending2FA = useAuthStore((s) => s.setPending2FA);
 
   return useMutation({
     mutationFn: authService.login,
     onSuccess: (response) => {
-      const { user, access_token } = response;
+      const { temporary_token, message, two_factor_method } = response;
 
-      // Check if 2FA is enabled
-      if (user.two_factor_enabled) {
-        // Store temporary auth data for 2FA verification
-        setPending2FA(user.id, user.email);
-        toast.info("Please verify your identity with two-factor authentication");
-        router.push("/two-factor");
-      } else {
-        // Complete the login without 2FA
-        setAuth(user, access_token);
-        toast.success(`Welcome back, ${user.first_name}`);
-        router.push("/dashboard");
-      }
+      // Store temporary token and method for 2FA verification
+      setPending2FA(temporary_token, two_factor_method);
+      toast.info(message || "2FA verification required");
+      router.push("/two-factor");
     },
     onError: (error: AxiosError<ApiError>) => {
       const message =

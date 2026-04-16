@@ -1,34 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
-  Mail,
-  MessageSquare,
-  Smartphone,
   ArrowRight,
-  RotateCcw,
   AlertCircle,
 } from "lucide-react";
 import { AuthLayout } from "./AuthLayout";
 import { useVerifyOtp } from "@/hooks/auth/useVerifyOtp";
-import { useResendOtp } from "@/hooks/auth/useResendOtp";
 import { useAuthStore } from "@/store/auth.store";
 import { useRouter } from "next/navigation";
-import type { OtpMethod } from "@/types/auth.types";
+import type { TwoFactorMethod } from "@/types/auth.types";
+
+const methodConfig: Record<TwoFactorMethod, { description: string; inputHint: string }> = {
+  EMAIL: {
+    description: "A verification code has been sent to your email address.",
+    inputHint: "Enter the 6-digit code sent to your email",
+  },
+  SMS: {
+    description: "A verification code has been sent to your phone via SMS.",
+    inputHint: "Enter the 6-digit code sent to your phone",
+  },
+  AUTHENTICATOR: {
+    description: "Open your authenticator app to get the verification code.",
+    inputHint: "Enter the 6-digit code from your authenticator app",
+  },
+};
 
 export function TwoFactorPage() {
   const router = useRouter();
   const [otp, setOtp] = useState("");
-  const [method, setMethod] = useState<OtpMethod>("email");
+  const hasSubmitted = useRef(false);
   
-  const loginEmail = useAuthStore((s) => s.loginEmail);
   const pending2FA = useAuthStore((s) => s.pending2FA);
+  const twoFactorMethod = useAuthStore((s) => s.twoFactorMethod);
 
   const verifyMutation = useVerifyOtp();
-  const resendMutation = useResendOtp();
 
-  // Redirect if not in pending 2FA state
-  if (!pending2FA) {
+  // Redirect if not in pending 2FA state (skip if user already submitted verification)
+  if (!pending2FA && !hasSubmitted.current) {
     router.push("/");
     return null;
   }
@@ -37,25 +46,12 @@ export function TwoFactorPage() {
     e.preventDefault();
     if (otp.trim().length === 0) return;
     
-    verifyMutation.mutate({ otp, method });
+    hasSubmitted.current = true;
+    verifyMutation.mutate(otp);
   };
 
-  const handleResend = () => {
-    resendMutation.mutate(method);
-  };
-
-  const methods: { value: OtpMethod; label: string; icon: React.ReactNode }[] =
-    [
-      { value: "email", label: "Email", icon: <Mail className="h-5 w-5" /> },
-      { value: "sms", label: "SMS", icon: <MessageSquare className="h-5 w-5" /> },
-      {
-        value: "authenticator",
-        label: "Authenticator App",
-        icon: <Smartphone className="h-5 w-5" />,
-      },
-    ];
-
-  const isLoading = verifyMutation.isPending || resendMutation.isPending;
+  const isLoading = verifyMutation.isPending;
+  const config = methodConfig[twoFactorMethod ?? "EMAIL"];
 
   return (
     <AuthLayout
@@ -77,53 +73,11 @@ export function TwoFactorPage() {
             Verify Your Identity
           </h1>
           <p className="mt-1.5 text-sm text-gray-500">
-            We've sent a verification code to{" "}
-            <span className="font-medium text-gray-700">{loginEmail}</span>
+            {config.description}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Method Selection */}
-          <div>
-            <label className="mb-3 block text-sm font-medium text-gray-700">
-              Verification Method
-            </label>
-            <div className="grid grid-cols-3 gap-3">
-              {methods.map((m) => (
-                <button
-                  key={m.value}
-                  type="button"
-                  onClick={() => setMethod(m.value)}
-                  disabled={isLoading}
-                  className={`flex flex-col items-center justify-center gap-2 rounded-lg border-2 px-3 py-4 transition-all ${
-                    method === m.value
-                      ? "border-emerald-500 bg-emerald-50"
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                  <span
-                    className={`${
-                      method === m.value
-                        ? "text-emerald-600"
-                        : "text-gray-400"
-                    }`}
-                  >
-                    {m.icon}
-                  </span>
-                  <span
-                    className={`text-xs font-medium ${
-                      method === m.value
-                        ? "text-emerald-600"
-                        : "text-gray-600"
-                    }`}
-                  >
-                    {m.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* OTP Input */}
           <div>
             <label
@@ -144,9 +98,7 @@ export function TwoFactorPage() {
               required
             />
             <p className="mt-1.5 text-xs text-gray-500">
-              {method === "authenticator"
-                ? "Enter the 6-digit code from your authenticator app"
-                : `Enter the code we sent to your ${method}`}
+              {config.inputHint}
             </p>
           </div>
 
@@ -168,26 +120,10 @@ export function TwoFactorPage() {
             className="group relative h-12 w-full rounded-lg bg-emerald-600 font-medium text-white transition-all hover:bg-emerald-700 hover:shadow-lg disabled:bg-gray-300 disabled:cursor-not-allowed disabled:shadow-none"
           >
             <span className="flex items-center justify-center gap-2">
-              Verify and Continue
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              {isLoading ? "Verifying..." : "Verify and Continue"}
+              {!isLoading && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />}
             </span>
           </button>
-
-          {/* Resend Code */}
-          <div className="border-t border-gray-200 pt-5">
-            <p className="text-center text-sm text-gray-600">
-              Didn't receive a code?
-            </p>
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={isLoading}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 font-medium text-gray-700 transition-all hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Resend Code
-            </button>
-          </div>
         </form>
       </div>
     </AuthLayout>

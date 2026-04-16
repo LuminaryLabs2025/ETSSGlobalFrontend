@@ -22,6 +22,8 @@ import {
   Loader2,
   Camera,
   MapPin,
+  Smartphone,
+  Copy,
 } from "lucide-react";
 import { useProfile } from "@/hooks/profile/useProfile";
 import {
@@ -29,6 +31,11 @@ import {
   useChangePassword,
   useUpdateNotifications,
 } from "@/hooks/profile/useProfileActions";
+import {
+  useSetup2FA,
+  useVerify2FA,
+  useChange2FAMethod,
+} from "@/hooks/profile/useTwoFactor";
 
 // ─── Password Policy ───
 const PASSWORD_RULES = [
@@ -110,6 +117,9 @@ export function ProfilePage() {
   const { mutate: updateProfile, isPending: profileSaving } = useUpdateProfile();
   const { mutate: changePassword, isPending: passwordSaving } = useChangePassword();
   const { mutate: updateNotifications, isPending: notifSaving } = useUpdateNotifications();
+  const setup2FAMutation = useSetup2FA();
+  const verify2FAMutation = useVerify2FA();
+  const change2FAMethodMutation = useChange2FAMethod();
 
   const [activeTab, setActiveTab] = useState<ProfileTab>("personal");
 
@@ -143,8 +153,6 @@ export function ProfilePage() {
         year: "numeric",
       })
     : "Never";
-
-  const twoFaEnabled = security?.twoFactorAuthentication ?? false;
 
   // Avatar state (for future API upload)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -198,6 +206,13 @@ export function ProfilePage() {
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [notifDirty, setNotifDirty] = useState(false);
 
+  // 2FA state
+  const [showAuthSetup, setShowAuthSetup] = useState(false);
+  const [verifyCode, setVerifyCode] = useState("");
+  const [secretCopied, setSecretCopied] = useState(false);
+
+  const currentMethod = security?.twoFactorMethod ?? "EMAIL";
+
   // Sync notification toggles when profile data loads
   useEffect(() => {
     if (notifications) {
@@ -243,6 +258,44 @@ export function ProfilePage() {
     if (type === "sms") setSmsEnabled(value);
     else setEmailEnabled(value);
     setNotifDirty(true);
+  };
+
+  // ─── 2FA Handlers ───
+  const handleSetupAuthenticator = () => {
+    setup2FAMutation.mutate(undefined, {
+      onSuccess: () => {
+        setShowAuthSetup(true);
+        setVerifyCode("");
+        setSecretCopied(false);
+      },
+    });
+  };
+
+  const handleVerifyAuthenticator = () => {
+    if (verifyCode.length !== 6) return;
+    verify2FAMutation.mutate(
+      { token: verifyCode },
+      {
+        onSuccess: () => {
+          setShowAuthSetup(false);
+          setVerifyCode("");
+        },
+      }
+    );
+  };
+
+  const handleSwitchToEmail = () => {
+    change2FAMethodMutation.mutate({ method: "EMAIL" }, {
+      onSuccess: () => setShowAuthSetup(false),
+    });
+  };
+
+  const handleCopySecret = () => {
+    if (setup2FAMutation.data?.secret) {
+      navigator.clipboard.writeText(setup2FAMutation.data.secret);
+      setSecretCopied(true);
+      setTimeout(() => setSecretCopied(false), 2000);
+    }
   };
 
   const handleSaveNotifications = () => {
@@ -305,7 +358,7 @@ export function ProfilePage() {
                   {userRole}
                 </span>
                 <span className="rounded-full bg-blue-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                  {userAccountType}
+                  {userAccountType === "SUB_ACCOUNT" ? "Sub Account" : userAccountType}
                 </span>
                 <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">
                   <span className="relative flex h-1.5 w-1.5">
@@ -480,41 +533,183 @@ export function ProfilePage() {
           </Section>
 
           {/* ─── Security & Audit Info ─── */}
-          <Section title="Security & Audit" description="Account security information" icon={Shield}>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <div className="flex items-center gap-2">
-                  <Lock className="h-4 w-4 text-gray-400" />
-                  <span className="text-xs text-gray-600">Password last changed</span>
+          <Section title="Security & Audit" description="Account security and two-factor settings" icon={Shield}>
+            <div className="space-y-4">
+              {/* Password & Account Info */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex items-center gap-2">
+                    <Lock className="h-4 w-4 text-gray-400" />
+                    <span className="text-xs text-gray-600">Password last changed</span>
+                  </div>
+                  <span className="text-xs font-medium text-gray-900">{lastChanged}</span>
                 </div>
-                <span className="text-xs font-medium text-gray-900">{lastChanged}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <div className="flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-gray-400" />
-                  <span className="text-xs text-gray-600">Two-factor authentication</span>
+                <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-gray-400" />
+                    <span className="text-xs text-gray-600">Account created</span>
+                  </div>
+                  <span className="text-xs font-medium text-gray-900">
+                    {userCreatedAt
+                      ? new Date(userCreatedAt).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })
+                      : "N/A"}
+                  </span>
                 </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                    twoFaEnabled
-                      ? "bg-emerald-50 text-emerald-700"
-                      : "bg-amber-50 text-amber-700"
-                  }`}
-                >
-                  {twoFaEnabled ? "Enabled" : "Not Enabled"}
-                </span>
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 p-3">
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-gray-400" />
-                  <span className="text-xs text-gray-600">Account created</span>
+
+              {/* 2FA Section */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Two-Factor Authentication</h3>
+                    <p className="text-xs text-gray-500">2FA is always enabled for your security</p>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">
+                    Enabled
+                  </span>
                 </div>
-                <span className="text-xs font-medium text-gray-900">
-                  {userCreatedAt
-                    ? new Date(userCreatedAt).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })
-                    : "N/A"}
-                </span>
+
+                {/* Current Method */}
+                <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {currentMethod === "AUTHENTICATOR" ? (
+                        <Smartphone className="h-4 w-4 text-emerald-600" />
+                      ) : (
+                        <Mail className="h-4 w-4 text-emerald-600" />
+                      )}
+                      <div>
+                        <span className="text-xs font-medium text-gray-900">
+                          Current method:{" "}
+                          {currentMethod === "AUTHENTICATOR" ? "Authenticator App" : "Email"}
+                        </span>
+                        <p className="text-[11px] text-gray-500">
+                          {currentMethod === "AUTHENTICATOR"
+                            ? "Codes generated by your authenticator app"
+                            : "Verification codes sent to your email"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Method Switch Buttons */}
+                {!showAuthSetup && (
+                  <div className="space-y-2">
+                    {currentMethod === "EMAIL" ? (
+                      <button
+                        onClick={handleSetupAuthenticator}
+                        disabled={setup2FAMutation.isPending}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {setup2FAMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Smartphone className="h-4 w-4" />
+                        )}
+                        {setup2FAMutation.isPending ? "Setting up..." : "Switch to Authenticator App"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleSwitchToEmail}
+                        disabled={change2FAMethodMutation.isPending}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {change2FAMethodMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Mail className="h-4 w-4" />
+                        )}
+                        {change2FAMethodMutation.isPending ? "Switching..." : "Switch to Email"}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Authenticator Setup Flow */}
+                {showAuthSetup && setup2FAMutation.data && (
+                  <div className="space-y-4 rounded-lg border border-emerald-200 bg-emerald-50/50 p-4">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-900">Set Up Authenticator App</h4>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        Scan the QR code with your Google Authenticator or similar app
+                      </p>
+                    </div>
+
+                    {/* QR Code */}
+                    <div className="flex justify-center rounded-lg bg-white p-4">
+                      <img
+                        src={setup2FAMutation.data.qrCode}
+                        alt="2FA QR Code"
+                        className="h-40 w-40"
+                      />
+                    </div>
+
+                    {/* Secret Key */}
+                    <div>
+                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                        Or enter this secret key manually
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-mono text-gray-800 break-all">
+                          {setup2FAMutation.data.secret}
+                        </code>
+                        <button
+                          onClick={handleCopySecret}
+                          className="shrink-0 rounded-lg border border-gray-200 bg-white p-2 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                          title="Copy secret"
+                        >
+                          {secretCopied ? (
+                            <Check className="h-4 w-4 text-emerald-600" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Verify Code Input */}
+                    <div>
+                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                        Enter code from app to verify
+                      </label>
+                      <input
+                        type="text"
+                        value={verifyCode}
+                        onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        placeholder="000000"
+                        maxLength={6}
+                        disabled={verify2FAMutation.isPending}
+                        className="h-10 w-full rounded-lg border border-gray-200 bg-white px-4 text-center text-lg tracking-widest text-gray-900 placeholder:text-gray-400 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-gray-50 disabled:text-gray-400"
+                      />
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setShowAuthSetup(false)}
+                        disabled={verify2FAMutation.isPending}
+                        className="flex-1 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleVerifyAuthenticator}
+                        disabled={verifyCode.length !== 6 || verify2FAMutation.isPending}
+                        className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {verify2FAMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Check className="h-4 w-4" />
+                        )}
+                        {verify2FAMutation.isPending ? "Verifying..." : "Verify & Enable"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+
               <p className="pt-2 text-center text-[11px] text-gray-400">
                 All profile updates, password changes, and notification preference changes are logged in the Activity Log.
               </p>

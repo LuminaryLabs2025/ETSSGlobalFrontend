@@ -4,9 +4,12 @@ export interface LoginRequest {
   password: string;
 }
 
+export type TwoFactorMethod = "EMAIL" | "SMS" | "AUTHENTICATOR";
+
 export interface LoginResponse {
-  access_token: string;
-  user: User;
+  temporary_token: string;
+  message: string;
+  two_factor_method: TwoFactorMethod;
 }
 
 // ─── User (auth context) ───
@@ -50,22 +53,13 @@ export interface JoinTeamRequest {
 }
 
 // ─── Two Factor Authentication ───
-export type OtpMethod = "email" | "sms" | "authenticator";
-
-export interface VerifyOtpRequest {
-  otp: string;
-  method: OtpMethod;
+export interface Verify2FARequest {
+  temporary_token: string;
+  code: string;
 }
 
-export interface VerifyOtpResponse {
+export interface Verify2FAResponse {
   access_token: string;
+  refresh_token: string;
   user: User;
-}
-
-export interface ResendOtpRequest {
-  method: OtpMethod;
-}
-
-export interface ResendOtpResponse {
-  message: string;
 }
