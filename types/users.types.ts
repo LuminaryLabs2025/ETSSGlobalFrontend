@@ -93,7 +93,6 @@ export interface CreateUserPayload {
   last_name: string;
   email: string;
   phone: string;
-  password: string;
   organization_name: string;
   address: string;
   extra_fields: Record<string, unknown>;
