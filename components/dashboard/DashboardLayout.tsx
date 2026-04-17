@@ -31,6 +31,7 @@ import {
   X,
   Activity,
   UsersRound,
+  Settings,
 } from "lucide-react";
 import { totalRevenue } from "@/lib/mock-data";
 import { useAuthStore } from "@/store/auth.store";
@@ -71,6 +72,7 @@ const navGroups = [
       { label: "Users", icon: Users, href: "/dashboard/users" },
       { label: "My Team", icon: UsersRound, href: "/dashboard/team" },
       { label: "Activity Log", icon: Activity, href: "/dashboard/activity-log" },
+      { label: "App Options", icon: Settings, href: "/dashboard/app-options" },
     ],
   },
 ];

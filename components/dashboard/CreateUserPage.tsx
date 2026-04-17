@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -21,9 +21,6 @@ import {
   Landmark,
   Warehouse,
   Loader2,
-  RefreshCw,
-  Eye,
-  EyeOff,
 } from "lucide-react";
 import { useUserTypes } from "@/hooks/useUserTypes";
 import { useCreateUser } from "@/hooks/users/useUserActions";
@@ -103,28 +100,25 @@ export function CreateUserPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
-  const [password, setPassword] = useState("");
   const [extraFields, setExtraFields] = useState<Record<string, unknown>>({});
 
-  const [showPassword, setShowPassword] = useState(false);
+  const [sameAsOrgName, setSameAsOrgName] = useState(false);
 
   // UI state
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  const generatePassword = useCallback(() => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*";
-    const arr = new Uint32Array(14);
-    crypto.getRandomValues(arr);
-    const pwd = Array.from(arr, (v) => chars[v % chars.length]).join("");
-    setPassword(pwd);
-    setShowPassword(true);
-    setErrors((p) => ({ ...p, password: "" }));
-  }, []);
-
   const selectedUserType = externalUserTypes.find((ut) => ut.id === userTypeId);
   const metadataFields = selectedUserType?.metadata?.fields ?? [];
+  const bondedTerminalFieldName = metadataFields.find((f) => f.label === "Name of Bonded Terminal")?.name;
+
+  // Sync "Name of Bonded Terminal" with orgName when checkbox is checked
+  useEffect(() => {
+    if (sameAsOrgName && bondedTerminalFieldName) {
+      setExtraFields((prev) => ({ ...prev, [bondedTerminalFieldName]: orgName }));
+    }
+  }, [sameAsOrgName, orgName, bondedTerminalFieldName]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -135,6 +129,7 @@ export function CreateUserPage() {
   const handleUserTypeChange = (id: string) => {
     setUserTypeId(id);
     setExtraFields({});
+    setSameAsOrgName(false);
     setErrors((p) => ({ ...p, userType: "" }));
   };
 
@@ -166,7 +161,6 @@ export function CreateUserPage() {
     if (!email.trim()) errs.email = "Email address is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address";
     if (!phone.trim()) errs.phone = "Phone number is required";
-    if (!password.trim()) errs.password = "Password is required";
 
     // Validate metadata fields
     for (const field of metadataFields) {
@@ -208,7 +202,6 @@ export function CreateUserPage() {
         last_name: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        password: password.trim(),
         organization_name: orgName.trim(),
         address: address.trim(),
         extra_fields: builtExtraFields,
@@ -232,8 +225,7 @@ export function CreateUserPage() {
     setEmail("");
     setPhone("");
     setAddress("");
-    setPassword("");
-    setShowPassword(false);
+    setSameAsOrgName(false);
     setExtraFields({});
     setErrors({});
   };
@@ -524,48 +516,6 @@ export function CreateUserPage() {
                 </div>
               </div>
 
-              {/* Password */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                    Password <span className="text-red-400">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={generatePassword}
-                    className="flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:text-emerald-700 transition-colors"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    Generate
-                  </button>
-                </div>
-                <div className="relative">
-                  <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: "" })); }}
-                    placeholder="Enter or generate a password"
-                    className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                      errors.password
-                        ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                        : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                    }`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-                {errors.password && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                    <AlertCircle className="h-3 w-3" /> {errors.password}
-                  </p>
-                )}
-              </div>
             </div>
           </Section>
 
@@ -670,21 +620,44 @@ export function CreateUserPage() {
                   }
 
                   // Default: string, number, text
+                  const isBondedTerminalName = field.name === bondedTerminalFieldName;
                   return (
                     <div key={field.name}>
-                      <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                        {field.label} {field.required && <span className="text-red-400">*</span>}
-                      </label>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                          {field.label} {field.required && <span className="text-red-400">*</span>}
+                        </label>
+                        {isBondedTerminalName && (
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={sameAsOrgName}
+                              onChange={(e) => {
+                                setSameAsOrgName(e.target.checked);
+                                if (e.target.checked) {
+                                  handleExtraFieldChange(field.name, orgName);
+                                }
+                              }}
+                              className="h-3.5 w-3.5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span className="text-[11px] text-gray-500">Same as Organization Name</span>
+                          </label>
+                        )}
+                      </div>
                       <input
                         type={field.type === "number" ? "number" : "text"}
                         value={(extraFields[field.name] as string) || ""}
-                        onChange={(e) => handleExtraFieldChange(field.name, e.target.value)}
+                        onChange={(e) => {
+                          handleExtraFieldChange(field.name, e.target.value);
+                          if (isBondedTerminalName) setSameAsOrgName(false);
+                        }}
+                        disabled={isBondedTerminalName && sameAsOrgName}
                         placeholder={field.placeholder || `Enter ${field.label}`}
                         className={`w-full rounded-lg border bg-gray-50 py-2.5 px-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
                           errors[field.name]
                             ? "border-red-300 focus:border-red-400 focus:ring-red-100"
                             : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                        }`}
+                        } ${isBondedTerminalName && sameAsOrgName ? "bg-gray-100 text-gray-500 cursor-not-allowed" : ""}`}
                       />
                       {errors[field.name] && (
                         <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
