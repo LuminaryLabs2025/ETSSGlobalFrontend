@@ -7,7 +7,8 @@ export interface TeamMemberUserType {
 // ─── Team Member ───
 export interface TeamMember {
   id: string;
-  name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string | null;
   user_type: TeamMemberUserType;
@@ -53,7 +54,8 @@ export interface TeamSummaryResponse {
 
 // ─── Create Team Member Payload ───
 export interface CreateTeamMemberPayload {
-  name: string;
+  first_name: string;
+  last_name: string;
   email: string;
   phone: string;
   user_type_id: string;
