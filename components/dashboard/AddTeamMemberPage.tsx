@@ -183,7 +183,8 @@ export function AddTeamMemberPage() {
   const createTeamMember = useCreateTeamMember();
 
   // Form state
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [userTypeId, setUserTypeId] = useState("");
@@ -232,9 +233,11 @@ export function AddTeamMemberPage() {
   // ─── Validation ───
   const validate = () => {
     const errs: Record<string, string> = {};
-    if (!fullName.trim()) errs.fullName = "Full name is required";
+    if (!firstName.trim()) errs.firstName = "First name is required";
+    if (!lastName.trim()) errs.lastName = "Last name is required";
     if (!email.trim()) errs.email = "Email address is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errs.email = "Enter a valid email address";
+    if (!phone.trim()) errs.phone = "Phone number is required";
     if (!userTypeId) errs.role = "Please select a role";
     if (selectedPermissions.size === 0) errs.permissions = "Assign at least one permission";
     setErrors(errs);
@@ -246,7 +249,8 @@ export function AddTeamMemberPage() {
     if (!validate()) return;
     createTeamMember.mutate(
       {
-        name: fullName.trim(),
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
         user_type_id: userTypeId,
@@ -256,7 +260,7 @@ export function AddTeamMemberPage() {
       {
         onSuccess: () => {
           setSubmitted(true);
-          showToast(`Sub-Account successfully created for ${fullName}`);
+          showToast(`Sub-Account successfully created for ${firstName} ${lastName}`);
         },
       }
     );
@@ -272,7 +276,7 @@ export function AddTeamMemberPage() {
           </div>
           <h2 className="text-lg font-bold text-gray-900">Team Member Created</h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sub-Account successfully created for <span className="font-semibold">{fullName}</span>.
+            Sub-Account successfully created for <span className="font-semibold">{firstName} {lastName}</span>.
             An activation email has been sent to <span className="font-semibold">{email}</span> with
             login instructions.
           </p>
@@ -280,7 +284,7 @@ export function AddTeamMemberPage() {
             <div className="space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-gray-500">Name</span>
-                <span className="font-medium text-gray-900">{fullName}</span>
+                <span className="font-medium text-gray-900">{firstName} {lastName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Email</span>
@@ -306,7 +310,8 @@ export function AddTeamMemberPage() {
             <button
               onClick={() => {
                 setSubmitted(false);
-                setFullName("");
+                setFirstName("");
+                setLastName("");
                 setEmail("");
                 setPhone("");
                 setUserTypeId("");
@@ -356,30 +361,56 @@ export function AddTeamMemberPage() {
           {/* Step 1: Personal Information */}
           <Section title="Personal Information" description="Basic details for the new team member" icon={User} step={1}>
             <div className="space-y-4">
-              {/* Full Name */}
-              <div>
-                <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                  Full Name <span className="text-red-400">*</span>
-                </label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => { setFullName(e.target.value); setErrors((p) => ({ ...p, fullName: "" })); }}
-                    placeholder="e.g. Ngozi Adebayo"
-                    className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
-                      errors.fullName
-                        ? "border-red-300 focus:border-red-400 focus:ring-red-100"
-                        : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
-                    }`}
-                  />
+              {/* First Name & Last Name */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    First Name <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => { setFirstName(e.target.value); setErrors((p) => ({ ...p, firstName: "" })); }}
+                      placeholder="e.g. Ngozi"
+                      className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                        errors.firstName
+                          ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                          : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                      }`}
+                    />
+                  </div>
+                  {errors.firstName && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <AlertCircle className="h-3 w-3" /> {errors.firstName}
+                    </p>
+                  )}
                 </div>
-                {errors.fullName && (
-                  <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-                    <AlertCircle className="h-3 w-3" /> {errors.fullName}
-                  </p>
-                )}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    Last Name <span className="text-red-400">*</span>
+                  </label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => { setLastName(e.target.value); setErrors((p) => ({ ...p, lastName: "" })); }}
+                      placeholder="e.g. Adebayo"
+                      className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                        errors.lastName
+                          ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                          : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                      }`}
+                    />
+                  </div>
+                  {errors.lastName && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <AlertCircle className="h-3 w-3" /> {errors.lastName}
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Email */}
@@ -413,18 +444,27 @@ export function AddTeamMemberPage() {
                 {/* Phone */}
                 <div>
                   <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                    Phone Number
+                    Phone Number <span className="text-red-400">*</span>
                   </label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                     <input
                       type="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) => { setPhone(e.target.value); setErrors((p) => ({ ...p, phone: "" })); }}
                       placeholder="+234 800 000 0000"
-                      className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                      className={`w-full rounded-lg border bg-gray-50 py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition-colors focus:bg-white focus:ring-2 ${
+                        errors.phone
+                          ? "border-red-300 focus:border-red-400 focus:ring-red-100"
+                          : "border-gray-200 focus:border-emerald-300 focus:ring-emerald-100"
+                      }`}
                     />
                   </div>
+                  {errors.phone && (
+                    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
+                      <AlertCircle className="h-3 w-3" /> {errors.phone}
+                    </p>
+                  )}
                 </div>
 
                 {/* Role */}
@@ -548,12 +588,12 @@ export function AddTeamMemberPage() {
                 {/* Avatar + Name */}
                 <div className="flex items-center gap-3 mb-4">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0f1e2e] text-sm font-bold text-white">
-                    {fullName
-                      ? fullName.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                    {firstName || lastName
+                      ? `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase()
                       : "?"}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{fullName || "New Team Member"}</p>
+                    <p className="text-sm font-semibold text-gray-900 truncate">{firstName || lastName ? `${firstName} ${lastName}`.trim() : "New Team Member"}</p>
                     <p className="text-xs text-gray-400 truncate">{email || "email@example.com"}</p>
                   </div>
                 </div>

@@ -359,7 +359,7 @@ export function MyTeamPage() {
 
   // ─── Actions ───
   const handleAction = (action: string, member: TeamMember) => {
-    const fullName = member.name;
+    const fullName = member.first_name && member.last_name ? `${member.first_name} ${member.last_name}` : member.email;
     if (action === "disable") {
       setConfirm({
         title: "Disable User",
@@ -570,11 +570,7 @@ export function MyTeamPage() {
                   </tr>
                 ) : (
                   members.map((member) => {
-                    const initials = member.name
-                      .split(" ")
-                      .map((n) => n[0])
-                      .join("")
-                      .toUpperCase();
+                    const initials = `${member.first_name?.charAt(0) ?? ""}${member.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?";
                     return (
                       <tr key={member.id} className="transition-colors hover:bg-gray-50/80">
                         {/* User */}
@@ -584,7 +580,7 @@ export function MyTeamPage() {
                               {initials}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-medium text-gray-900 truncate">{member.name}</p>
+                              <p className="text-xs font-medium text-gray-900 truncate">{member?.first_name || 'N/A'} {member?.last_name || 'N/A'}</p>
                               <p className="text-[11px] text-gray-400 truncate">{member.email}</p>
                             </div>
                           </div>
