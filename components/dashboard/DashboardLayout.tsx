@@ -49,7 +49,7 @@ const navGroups = [
     title: "Operations",
     items: [
       { label: "Bookings", icon: BookOpen, href: "/dashboard/bookings/all" },
-      { label: "Trucks", icon: Truck, href: "/dashboard/trucks/verified" },
+      { label: "Trucks", icon: Truck, href: "/dashboard/trucks" },
       { label: "Drivers", icon: Users, href: "/dashboard/drivers/verified" },
       { label: "Companies", icon: Building2, href: "/dashboard/companies" },
     ],
@@ -58,9 +58,9 @@ const navGroups = [
     title: "Infrastructure",
     items: [
       { label: "Ports", icon: MapPin, href: "/dashboard/ports" },
-      { label: "Terminals", icon: Landmark, href: "/dashboard/terminals/port" },
-      { label: "Transit Parks", icon: ParkingCircle, href: "/dashboard/transit/pregatin-empties" },
-      { label: "Facilities", icon: Warehouse, href: "/dashboard/facilities/bonded" },
+      { label: "Terminals", icon: Landmark, href: "/dashboard/terminals" },
+      { label: "Transit Parks", icon: ParkingCircle, href: "/dashboard/transit-parks" },
+      { label: "Facilities", icon: Warehouse, href: "/dashboard/facilities" },
     ],
   },
   {
@@ -204,7 +204,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ─── Main Area ─── */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
         {/* ─── Top Bar ─── */}
         <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-4 lg:px-6">
           <div className="flex items-center gap-4">
@@ -261,7 +261,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* ─── Page Content ─── */}
-        <main className="flex-1">{children}</main>
+        <main className="min-w-0 flex-1">{children}</main>
 
         {/* ─── Sticky Footer Bar ─── */}
         <footer className="sticky bottom-0 z-20 flex items-center justify-between border-t border-gray-200 bg-white px-6 py-2.5">
