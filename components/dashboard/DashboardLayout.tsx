@@ -50,7 +50,7 @@ const navGroups = [
     items: [
       { label: "Bookings", icon: BookOpen, href: "/dashboard/bookings/all" },
       { label: "Trucks", icon: Truck, href: "/dashboard/trucks" },
-      { label: "Drivers", icon: Users, href: "/dashboard/drivers/verified" },
+      { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
       { label: "Companies", icon: Building2, href: "/dashboard/companies" },
     ],
   },
@@ -68,7 +68,7 @@ const navGroups = [
     items: [
       { label: "Utility Tickets", icon: Ticket, href: "/dashboard/utility-tickets" },
       { label: "TEPs", icon: FileCheck, href: "/dashboard/teps" },
-      { label: "Penalties & Fines", icon: Gavel, href: "/dashboard/penalties/database" },
+      { label: "Penalties & Fines", icon: Gavel, href: "/dashboard/penalties" },
       { label: "Users", icon: Users, href: "/dashboard/users" },
       { label: "My Team", icon: UsersRound, href: "/dashboard/team" },
       { label: "Activity Log", icon: Activity, href: "/dashboard/activity-log" },
