@@ -71,6 +71,18 @@ export const TERMINALS = {
   UNARCHIVE: (id: string) => `/terminals/${id}/unarchive`,
 } as const;
 
+// ─── Transit Parks ───
+export const TRANSIT_PARKS = {
+  LIST: "/transit-parks",
+  SUMMARY: "/transit-parks/summary",
+  BY_ID: (id: string) => `/transit-parks/${id}`,
+  ENABLE: (id: string) => `/transit-parks/${id}/enable`,
+  DISABLE: (id: string) => `/transit-parks/${id}/disable`,
+  ARCHIVE: (id: string) => `/transit-parks/${id}/archive`,
+  UNARCHIVE: (id: string) => `/transit-parks/${id}/unarchive`,
+  STATUS: (id: string) => `/transit-parks/${id}/status`,
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",

@@ -1,30 +1,46 @@
-// ─── Facility Type ───
-export type FacilityType = "PREGATE" | "EPT";
+// ─── Transit Park Type ───
+export type TransitParkType = "PREGATE" | "EPT";
 
 // ─── Operational Status ───
-export type FacilityStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type TransitParkStatus = "ACTIVE" | "INACTIVE";
 
-// ─── Transit Facility (Pregate or EPT) ───
-export interface TransitFacility {
+// ─── Location ───
+export type TransitParkLocation = "APAPA" | "TINCAN" | string;
+
+// ─── Transit Park Record ───
+export interface TransitPark {
   id: string;
   name: string;
-  facility_type: FacilityType;
-  code: string;
+  transit_park_type: TransitParkType;
+  transit_park_code: string;
+  location: TransitParkLocation;
   address: string;
-  hourly_truck_handling_capacity: number;
-  approved_bays: number;
-  operational_status: FacilityStatus;
+  approved_truck_capacity: number;
+  approved_truck_exits_per_hour: number;
+  bay_capacity: number;
+  status: TransitParkStatus;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
-// ─── Summary Stats (per-tab) ───
-export interface TransitFacilitySummary {
+// ─── Display status (includes archived) ───
+export type TransitParkDisplayStatus = TransitParkStatus | "ARCHIVED";
+
+export function getTransitParkDisplayStatus(park: TransitPark): TransitParkDisplayStatus {
+  if (park.archived_at) return "ARCHIVED";
+  return park.status;
+}
+
+// ─── Summary Stats ───
+export interface TransitParksSummaryResponse {
   total: number;
   enabled: number;
   disabled: number;
-  avg_hourly_handling_capacity: number;
+  avg_truck_exits_per_hour: number;
   total_bay_capacity: number;
+  pregates: number;
+  export_processing_terminals: number;
 }
 
 // ─── Chart Data Point ───
@@ -34,12 +50,58 @@ export interface FacilityChartDataPoint {
   live_booking_count: number;
 }
 
-// ─── List Params (for future API) ───
-export interface TransitFacilitiesListParams {
+// ─── List Params ───
+export interface TransitParksListParams {
   page?: number;
   limit?: number;
   search?: string;
-  operational_status?: FacilityStatus | "All";
-  sort_by?: string;
-  sort_dir?: "asc" | "desc";
+  status?: string;
+  type?: TransitParkType;
+  location?: string;
+  include_archived?: boolean;
+}
+
+// ─── List Response ───
+export interface TransitParksListResponse {
+  data: TransitPark[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+// ─── Update Payload ───
+export interface UpdateTransitParkPayload {
+  name: string;
+  transit_park_type: TransitParkType;
+  location: TransitParkLocation;
+  address: string;
+  approved_truck_capacity: number;
+  approved_truck_exits_per_hour: number;
+  bay_capacity: number;
+  status: TransitParkStatus;
+}
+
+// ─── Action Response ───
+export interface TransitParkActionResponse {
+  message: string;
+}
+
+export function toUpdatePayload(
+  park: TransitPark,
+  overrides: Partial<UpdateTransitParkPayload> = {}
+): UpdateTransitParkPayload {
+  return {
+    name: park.name,
+    transit_park_type: park.transit_park_type,
+    location: park.location,
+    address: park.address,
+    approved_truck_capacity: park.approved_truck_capacity,
+    approved_truck_exits_per_hour: park.approved_truck_exits_per_hour,
+    bay_capacity: park.bay_capacity,
+    status: park.status,
+    ...overrides,
+  };
 }
