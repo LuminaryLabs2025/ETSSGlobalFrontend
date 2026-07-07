@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Landmark,
   Search,
@@ -22,15 +22,13 @@ import {
   MapPin,
   Truck,
   Timer,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   Plus,
   FileText,
   AlertCircle,
   Anchor,
   Warehouse,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -41,16 +39,25 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  ReferenceLine,
 } from "recharts";
 import { toast } from "sonner";
 import {
-  MOCK_TERMINALS,
-  terminalsSummary,
   portTerminalChartData,
   nonPortTerminalChartData,
 } from "@/lib/terminals-mock-data";
-import type { Terminal, TerminalStatus, TerminalType } from "@/types/terminals.types";
+import type {
+  Terminal,
+  TerminalDisplayStatus,
+  TerminalsSummaryResponse,
+} from "@/types/terminals.types";
+import { getTerminalDisplayStatus } from "@/types/terminals.types";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
+import { useTerminalsSummary } from "@/hooks/terminals/useTerminalsSummary";
+import {
+  useEnableTerminal,
+  useDisableTerminal,
+  useArchiveTerminal,
+} from "@/hooks/terminals/useTerminalActions";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -67,17 +74,6 @@ const STATUSES = [
   { value: "INACTIVE", label: "Inactive" },
   { value: "ARCHIVED", label: "Archived" },
 ];
-
-const SORT_FIELDS = [
-  { value: "terminal_name", label: "Terminal Name" },
-  { value: "terminal_type", label: "Terminal Type" },
-  { value: "operational_status", label: "Status" },
-  { value: "location", label: "Location" },
-  { value: "approved_daily_truck_capacity", label: "Daily Capacity" },
-  { value: "hourly_truck_handling_capacity", label: "Hourly Capacity" },
-] as const;
-
-type SortField = typeof SORT_FIELDS[number]["value"];
 
 const TOGGLEABLE_COLUMNS = [
   { key: "terminal_type", label: "Terminal Type" },
@@ -105,8 +101,8 @@ function formatTimestamp(ts: string) {
 }
 
 // ─── Status Badge ───
-function StatusBadge({ status }: { status: TerminalStatus }) {
-  const config: Record<TerminalStatus, { cls: string; Icon: React.ElementType; label: string }> = {
+function StatusBadge({ status }: { status: TerminalDisplayStatus }) {
+  const config: Record<TerminalDisplayStatus, { cls: string; Icon: React.ElementType; label: string }> = {
     ACTIVE:   { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: CheckCircle2, label: "Active" },
     INACTIVE: { cls: "bg-red-50 text-red-700 border-red-200",             Icon: XCircle,     label: "Inactive" },
     ARCHIVED: { cls: "bg-gray-50 text-gray-500 border-gray-200",           Icon: Archive,     label: "Archived" },
@@ -121,7 +117,7 @@ function StatusBadge({ status }: { status: TerminalStatus }) {
 }
 
 // ─── Terminal Type Badge ───
-function TypeBadge({ type }: { type: TerminalType }) {
+function TypeBadge({ type }: { type: Terminal["terminal_type"] }) {
   if (type === "PORT_TERMINAL") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
@@ -136,14 +132,6 @@ function TypeBadge({ type }: { type: TerminalType }) {
       Non-Port Terminal
     </span>
   );
-}
-
-// ─── Sort Icon ───
-function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" }) {
-  if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-  return sortDir === "asc"
-    ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-    : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
 }
 
 // ─── Confirm Dialog ───
@@ -211,7 +199,7 @@ function TerminalDetailDrawer({
               }
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">{terminal.terminal_name}</h2>
+              <h2 className="text-sm font-bold text-white">{terminal.name}</h2>
               <p className="text-[11px] font-mono text-emerald-400">{terminal.terminal_code}</p>
             </div>
           </div>
@@ -227,11 +215,11 @@ function TerminalDetailDrawer({
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {/* Status + Type */}
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={terminal.operational_status} />
+            <StatusBadge status={getTerminalDisplayStatus(terminal)} />
             <TypeBadge type={terminal.terminal_type} />
-            {terminal.port_zone && (
+            {terminal.location && (
               <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
-                {terminal.port_zone === "APAPA" ? "Apapa Zone" : terminal.port_zone === "TINCAN" ? "Tincan Zone" : "Other Zone"}
+                {terminal.location === "APAPA" ? "Apapa Zone" : terminal.location === "TINCAN" ? "Tincan Zone" : terminal.location}
               </span>
             )}
           </div>
@@ -258,7 +246,7 @@ function TerminalDetailDrawer({
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Hourly TAT</p>
               </div>
               <p className="text-2xl font-bold text-gray-900">
-                {terminal.hourly_truck_handling_capacity.toLocaleString()}
+                {terminal.approved_trucks_per_hour.toLocaleString()}
               </p>
               <p className="mt-0.5 text-[11px] text-gray-400">trucks / hour</p>
             </div>
@@ -272,11 +260,12 @@ function TerminalDetailDrawer({
             <div className="divide-y divide-gray-50">
               {[
                 { label: "Terminal ID", value: terminal.id, mono: true },
-                { label: "Terminal Name", value: terminal.terminal_name },
+                { label: "Terminal Name", value: terminal.name },
                 { label: "Terminal Code", value: terminal.terminal_code, mono: true },
                 { label: "Terminal Type", value: terminal.terminal_type === "PORT_TERMINAL" ? "Port Terminal" : "Non-Port Terminal" },
-                { label: "Location / Address", value: terminal.location },
-                ...(terminal.port_zone ? [{ label: "Port Zone", value: terminal.port_zone === "APAPA" ? "Apapa" : terminal.port_zone === "TINCAN" ? "Tincan Island" : "Other" }] : []),
+                { label: "Location", value: terminal.location },
+                { label: "Address", value: terminal.address },
+                { label: "Booking Status", value: terminal.booking_status },
               ].map(({ label, value, mono }) => (
                 <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
                   <p className="shrink-0 text-xs text-gray-500">{label}</p>
@@ -388,18 +377,20 @@ function ActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
 
+  const displayStatus = getTerminalDisplayStatus(terminal);
+
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
     { label: "View Details", icon: Eye, action: "view" },
     { label: "Edit Terminal", icon: Edit2, action: "edit" },
   ];
 
-  if (terminal.operational_status === "ACTIVE") {
+  if (displayStatus === "ACTIVE") {
     actions.push({ label: "Disable Terminal", icon: Ban, action: "disable", danger: true });
     actions.push({ label: "Archive Terminal", icon: Archive, action: "archive", danger: true });
-  } else if (terminal.operational_status === "INACTIVE") {
+  } else if (displayStatus === "INACTIVE") {
     actions.push({ label: "Enable Terminal", icon: Power, action: "enable" });
     actions.push({ label: "Archive Terminal", icon: Archive, action: "archive", danger: true });
-  } else if (terminal.operational_status === "ARCHIVED") {
+  } else if (displayStatus === "ARCHIVED") {
     actions.push({ label: "Enable Terminal", icon: Power, action: "enable" });
   }
 
@@ -436,15 +427,22 @@ function ActionsMenu({
 }
 
 // ─── Summary Panel ───
-function SummaryPanel({ onAddTerminal }: { onAddTerminal: () => void }) {
-  const s = terminalsSummary;
+function SummaryPanel({
+  summary,
+  isLoading,
+  onAddTerminal,
+}: {
+  summary?: TerminalsSummaryResponse;
+  isLoading?: boolean;
+  onAddTerminal: () => void;
+}) {
   const cards = [
-    { label: "Total Terminals",      value: s.total,                      Icon: Landmark,     color: "text-blue-400",    bg: "bg-blue-400/10" },
-    { label: "Port Terminals",        value: s.port_terminals,             Icon: Anchor,       color: "text-cyan-400",    bg: "bg-cyan-400/10" },
-    { label: "Non-Port Terminals",    value: s.non_port_terminals,         Icon: Warehouse,    color: "text-amber-400",   bg: "bg-amber-400/10" },
-    { label: "Enabled",               value: s.enabled,                    Icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Disabled",              value: s.disabled,                   Icon: XCircle,      color: "text-red-400",     bg: "bg-red-400/10" },
-    { label: "Avg Hourly Capacity",   value: `${s.avg_hourly_handling_capacity}/hr`, Icon: Timer, color: "text-violet-400", bg: "bg-violet-400/10" },
+    { label: "Total Terminals",    value: summary?.total ?? 0,                      Icon: Landmark,     color: "text-blue-400",    bg: "bg-blue-400/10" },
+    { label: "Port Terminals",      value: summary?.port_terminals ?? 0,             Icon: Anchor,       color: "text-cyan-400",    bg: "bg-cyan-400/10" },
+    { label: "Non-Port Terminals",  value: summary?.non_port_terminals ?? 0,         Icon: Warehouse,    color: "text-amber-400",   bg: "bg-amber-400/10" },
+    { label: "Enabled",             value: summary?.enabled ?? 0,                    Icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+    { label: "Disabled",            value: summary?.disabled ?? 0,                   Icon: XCircle,      color: "text-red-400",     bg: "bg-red-400/10" },
+    { label: "Avg Hourly Capacity", value: `${summary?.avg_trucks_per_hour ?? 0}/hr`, Icon: Timer,     color: "text-violet-400", bg: "bg-violet-400/10" },
   ];
 
   return (
@@ -464,17 +462,23 @@ function SummaryPanel({ onAddTerminal }: { onAddTerminal: () => void }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -578,8 +582,6 @@ export function TerminalsPage() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
@@ -592,9 +594,6 @@ export function TerminalsPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  // Mock terminal list state (enables client-side mutations)
-  const [terminals, setTerminals] = useState<Terminal[]>(MOCK_TERMINALS);
-
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -605,62 +604,24 @@ export function TerminalsPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [search]);
 
-  // ─── Toggle sort ───
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDir("asc");
-    }
-    setPage(1);
-  }
+  // ─── API Hooks ───
+  const { data: summary, isLoading: summaryLoading } = useTerminalsSummary();
+  const { data: terminalsData, isLoading, isError } = useTerminals({
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    type: typeFilter !== "All" ? (typeFilter as Terminal["terminal_type"]) : undefined,
+    status: statusFilter !== "All" ? statusFilter : undefined,
+  });
 
-  // ─── Toggle column ───
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  const enableTerminal = useEnableTerminal();
+  const disableTerminal = useDisableTerminal();
+  const archiveTerminal = useArchiveTerminal();
 
-  // ─── Filter + sort + paginate ───
-  const filtered = useMemo(() => {
-    let result = [...terminals];
-
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (t) =>
-          t.terminal_name.toLowerCase().includes(q) ||
-          t.location.toLowerCase().includes(q) ||
-          t.terminal_code.toLowerCase().includes(q)
-      );
-    }
-
-    if (typeFilter !== "All") {
-      result = result.filter((t) => t.terminal_type === typeFilter);
-    }
-
-    if (statusFilter !== "All") {
-      result = result.filter((t) => t.operational_status === statusFilter);
-    }
-
-    if (sortField) {
-      result.sort((a, b) => {
-        const av = a[sortField as keyof Terminal] ?? "";
-        const bv = b[sortField as keyof Terminal] ?? "";
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-
-    return result;
-  }, [terminals, debouncedSearch, typeFilter, statusFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const terminals = Array.isArray(terminalsData?.data) ? terminalsData.data : [];
+  const meta = terminalsData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
 
   const hasActiveFilters = debouncedSearch || typeFilter !== "All" || statusFilter !== "All";
   const activeFilterCount = [typeFilter !== "All", statusFilter !== "All"].filter(Boolean).length;
@@ -673,6 +634,15 @@ export function TerminalsPage() {
     setPage(1);
   }
 
+  // ─── Toggle column ───
+  function toggleColumn(key: ColumnKey) {
+    setVisibleColumns((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
   // ─── Actions ───
   function handleAction(action: string, terminal: Terminal) {
     if (action === "view") {
@@ -681,23 +651,20 @@ export function TerminalsPage() {
     }
 
     if (action === "edit") {
-      toast.info(`Edit "${terminal.terminal_name}" — coming soon.`);
+      toast.info(`Edit "${terminal.name}" — coming soon.`);
       return;
     }
 
     if (action === "enable") {
       setConfirm({
         title: "Enable Terminal",
-        message: `Enable "${terminal.terminal_name}"? It will become available for scheduling and dispatch operations.`,
+        message: `Enable "${terminal.name}"? It will become available for scheduling and dispatch operations.`,
         confirmLabel: "Enable Terminal",
         onConfirm: () => {
           setConfirm(null);
-          setTerminals((prev) =>
-            prev.map((t) =>
-              t.id === terminal.id ? { ...t, operational_status: "ACTIVE", updated_at: new Date().toISOString() } : t
-            )
-          );
-          toast.success(`"${terminal.terminal_name}" has been enabled.`);
+          enableTerminal.mutate(terminal, {
+            onSuccess: () => toast.success(`"${terminal.name}" has been enabled.`),
+          });
         },
       });
     }
@@ -705,17 +672,14 @@ export function TerminalsPage() {
     if (action === "disable") {
       setConfirm({
         title: "Disable Terminal",
-        message: `Disable "${terminal.terminal_name}"? It will be excluded from scheduling and dispatch but remain visible in the database.`,
+        message: `Disable "${terminal.name}"? It will be excluded from scheduling and dispatch but remain visible in the database.`,
         confirmLabel: "Disable Terminal",
         danger: true,
         onConfirm: () => {
           setConfirm(null);
-          setTerminals((prev) =>
-            prev.map((t) =>
-              t.id === terminal.id ? { ...t, operational_status: "INACTIVE", updated_at: new Date().toISOString() } : t
-            )
-          );
-          toast.success(`"${terminal.terminal_name}" has been disabled.`);
+          disableTerminal.mutate(terminal, {
+            onSuccess: () => toast.success(`"${terminal.name}" has been disabled.`),
+          });
         },
       });
     }
@@ -723,35 +687,17 @@ export function TerminalsPage() {
     if (action === "archive") {
       setConfirm({
         title: "Archive Terminal",
-        message: `Archive "${terminal.terminal_name}"? It will be permanently removed from all users' view. Only SuperAdmin will retain visibility.`,
+        message: `Archive "${terminal.name}"? It will be permanently removed from all users' view. Only SuperAdmin will retain visibility.`,
         confirmLabel: "Archive Terminal",
         danger: true,
         onConfirm: () => {
           setConfirm(null);
-          setTerminals((prev) =>
-            prev.map((t) =>
-              t.id === terminal.id ? { ...t, operational_status: "ARCHIVED", updated_at: new Date().toISOString() } : t
-            )
-          );
-          toast.success(`"${terminal.terminal_name}" has been archived.`);
+          archiveTerminal.mutate(terminal.id, {
+            onSuccess: () => toast.success(`"${terminal.name}" has been archived.`),
+          });
         },
       });
     }
-  }
-
-  // ─── Sortable TH ───
-  function SortableTH({ field, children }: { field: SortField; children: React.ReactNode }) {
-    return (
-      <th
-        onClick={() => handleSort(field)}
-        className="cursor-pointer select-none px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700"
-      >
-        <span className="inline-flex items-center">
-          {children}
-          <SortIcon field={field} sortField={sortField} sortDir={sortDir} />
-        </span>
-      </th>
-    );
   }
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
@@ -786,7 +732,11 @@ export function TerminalsPage() {
       </nav>
 
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel onAddTerminal={() => toast.info("Add Terminal form — coming soon.")} />
+      <SummaryPanel
+        summary={summary}
+        isLoading={summaryLoading}
+        onAddTerminal={() => toast.info("Add Terminal form — coming soon.")}
+      />
 
       {/* ─── Charts ─── */}
       <TerminalCharts />
@@ -909,18 +859,9 @@ export function TerminalsPage() {
       {/* ─── Results Count ─── */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Showing <span className="font-semibold text-gray-800">{filtered.length}</span> terminal{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-semibold text-gray-800">{totalCount}</span> terminal{totalCount !== 1 ? "s" : ""}
           {hasActiveFilters && " matching your filters"}
         </p>
-        {sortField && (
-          <button
-            onClick={() => { setSortField(null); setSortDir("asc"); }}
-            className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
-          >
-            <X className="h-3 w-3" />
-            Clear sort
-          </button>
-        )}
       </div>
 
       {/* ─── Table ─── */}
@@ -932,17 +873,39 @@ export function TerminalsPage() {
                 <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   S/No.
                 </th>
-                <SortableTH field="terminal_name">Terminal Name</SortableTH>
-                {col("terminal_type") && <SortableTH field="terminal_type">Type</SortableTH>}
+                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Terminal Name
+                </th>
+                {col("terminal_type") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Type
+                  </th>
+                )}
                 {col("terminal_code") && (
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     Code
                   </th>
                 )}
-                {col("location") && <SortableTH field="location">Location / Address</SortableTH>}
-                {col("daily_capacity") && <SortableTH field="approved_daily_truck_capacity">Daily Cap.</SortableTH>}
-                {col("hourly_capacity") && <SortableTH field="hourly_truck_handling_capacity">Hourly TAT</SortableTH>}
-                {col("status") && <SortableTH field="operational_status">Status</SortableTH>}
+                {col("location") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Location / Address
+                  </th>
+                )}
+                {col("daily_capacity") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Daily Cap.
+                  </th>
+                )}
+                {col("hourly_capacity") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Hourly TAT
+                  </th>
+                )}
+                {col("status") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Status
+                  </th>
+                )}
                 {col("created_at") && (
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     Created
@@ -960,7 +923,25 @@ export function TerminalsPage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading terminals...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load terminals</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : terminals.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -975,7 +956,7 @@ export function TerminalsPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((t, idx) => (
+                terminals.map((t, idx) => (
                   <tr key={t.id} className="group transition-colors hover:bg-gray-50/80">
                     {/* S/No */}
                     <td className="px-4 py-3 text-xs font-medium text-gray-400">
@@ -996,9 +977,11 @@ export function TerminalsPage() {
                           }
                         </div>
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-900">{t.terminal_name}</p>
-                          {t.port_zone && (
-                            <p className="text-[10px] text-gray-400">{t.port_zone === "APAPA" ? "Apapa Zone" : "Tincan Zone"}</p>
+                          <p className="text-xs font-semibold text-gray-900">{t.name}</p>
+                          {t.location && (
+                            <p className="text-[10px] text-gray-400">
+                              {t.location === "APAPA" ? "Apapa Zone" : t.location === "TINCAN" ? "Tincan Zone" : t.location}
+                            </p>
                           )}
                         </div>
                       </div>
@@ -1025,7 +1008,7 @@ export function TerminalsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-start gap-1">
                           <MapPin className="mt-0.5 h-3 w-3 shrink-0 text-gray-400" />
-                          <p className="text-xs text-gray-600 max-w-44 leading-tight">{t.location}</p>
+                          <p className="text-xs text-gray-600 max-w-44 leading-tight">{t.address || t.location}</p>
                         </div>
                       </td>
                     )}
@@ -1049,7 +1032,7 @@ export function TerminalsPage() {
                         <div className="flex items-center gap-1">
                           <Timer className="h-3 w-3 text-gray-400" />
                           <span className="text-xs font-semibold text-gray-800">
-                            {t.hourly_truck_handling_capacity.toLocaleString()}
+                            {t.approved_trucks_per_hour.toLocaleString()}
                           </span>
                           <span className="text-[10px] text-gray-400">/hr</span>
                         </div>
@@ -1059,7 +1042,7 @@ export function TerminalsPage() {
                     {/* Status */}
                     {col("status") && (
                       <td className="px-4 py-3">
-                        <StatusBadge status={t.operational_status} />
+                        <StatusBadge status={getTerminalDisplayStatus(t)} />
                       </td>
                     )}
 
@@ -1099,13 +1082,13 @@ export function TerminalsPage() {
           <p className="text-xs text-gray-500">
             Showing{" "}
             <span className="font-medium text-gray-700">
-              {paged.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}
+              {terminals.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}
             </span>
             –
             <span className="font-medium text-gray-700">
-              {(page - 1) * PAGE_SIZE + paged.length}
+              {(page - 1) * PAGE_SIZE + terminals.length}
             </span>{" "}
-            of <span className="font-medium text-gray-700">{filtered.length}</span> terminals
+            of <span className="font-medium text-gray-700">{totalCount}</span> terminals
           </p>
 
           <div className="flex items-center gap-1">

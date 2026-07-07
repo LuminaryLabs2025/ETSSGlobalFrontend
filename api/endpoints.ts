@@ -60,6 +60,17 @@ export const PERMISSIONS = {
   MODULES: "/roles-permissions/permission-modules",
 } as const;
 
+// ─── Terminals ───
+export const TERMINALS = {
+  LIST: "/terminals",
+  SUMMARY: "/terminals/summary",
+  BY_ID: (id: string) => `/terminals/${id}`,
+  ENABLE: (id: string) => `/terminals/${id}/enable`,
+  DISABLE: (id: string) => `/terminals/${id}/disable`,
+  ARCHIVE: (id: string) => `/terminals/${id}/archive`,
+  UNARCHIVE: (id: string) => `/terminals/${id}/unarchive`,
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",
