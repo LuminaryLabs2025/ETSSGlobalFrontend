@@ -83,6 +83,19 @@ export const TRANSIT_PARKS = {
   STATUS: (id: string) => `/transit-parks/${id}/status`,
 } as const;
 
+// ─── Facilities ───
+export const FACILITIES = {
+  LIST: "/facilities",
+  SUMMARY: "/facilities/summary",
+  BY_ID: (id: string) => `/facilities/${id}`,
+  ENABLE: (id: string) => `/facilities/${id}/enable`,
+  DISABLE: (id: string) => `/facilities/${id}/disable`,
+  ARCHIVE: (id: string) => `/facilities/${id}/archive`,
+  UNARCHIVE: (id: string) => `/facilities/${id}/unarchive`,
+  STATUS: (id: string) => `/facilities/${id}/status`,
+  TIMESLOTS: (id: string) => `/facilities/${id}/timeslots`,
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",

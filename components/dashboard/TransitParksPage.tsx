@@ -60,6 +60,7 @@ import {
   useDisableTransitPark,
   useArchiveTransitPark,
 } from "@/hooks/transit-parks/useTransitParkActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -575,12 +576,11 @@ function DisplayOptionsMenu({
 // ─── Main Page ───
 export function TransitParksPage() {
   const [activeTab, setActiveTab] = useState<TabId>("pregates");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [statusFilter, setStatusFilter] = useState("All");
   const [locationFilter, setLocationFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
@@ -594,21 +594,10 @@ export function TransitParksPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
-
   function switchTab(tab: TabId) {
     setActiveTab(tab);
     setPage(1);
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setStatusFilter("All");
     setLocationFilter("All");
   }
@@ -638,8 +627,7 @@ export function TransitParksPage() {
   const activeFilterCount = [statusFilter !== "All", locationFilter !== "All"].filter(Boolean).length;
 
   function clearFilters() {
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setStatusFilter("All");
     setLocationFilter("All");
     setPage(1);
