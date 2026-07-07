@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Warehouse,
   Truck,
@@ -25,26 +25,32 @@ import {
   MapPin,
   Timer,
   Package,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   FileText,
   Plus,
   Layers,
   SlidersHorizontal,
   BarChart3,
   TrendingUp,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import type {
+  Facility,
+  FacilityDisplayStatus,
+  FacilityParkType,
+  FacilitySubType,
+  FacilitiesSummaryResponse,
+} from "@/types/facilities.types";
+import { getFacilityDisplayStatus } from "@/types/facilities.types";
+import { useFacilities } from "@/hooks/facilities/useFacilities";
+import { useFacilitiesSummary } from "@/hooks/facilities/useFacilitiesSummary";
 import {
-  MOCK_BONDED_TERMINALS,
-  MOCK_TRUCK_PARKS,
-  MOCK_FISH_VAN_PARKS,
-  bondedSummary,
-  truckParksSummary,
-  fishVanSummary,
-} from "@/lib/facilities-mock-data";
-import type { Facility, FacilityStatus, FacilitySubType, FacilitySummary } from "@/types/facilities.types";
+  useEnableFacility,
+  useDisableFacility,
+  useArchiveFacility,
+} from "@/hooks/facilities/useFacilityActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -62,8 +68,19 @@ const FACILITY_SUB_TYPES = [
   { value: "FACILITY_PREGATE",  label: "Facility Pregate" },
 ];
 
+const LOCATIONS = [
+  { value: "All",    label: "All Locations" },
+  { value: "APAPA",  label: "Apapa" },
+  { value: "TINCAN", label: "Tincan" },
+];
+
 type TabId = "bonded" | "truck_parks" | "fish_van";
-type SortField = "name" | "facility_type" | "operational_status" | "hourly_handling_capacity" | "approved_capacity";
+
+const TAB_TO_PARK_TYPE: Record<TabId, FacilityParkType> = {
+  bonded: "BONDED_TERMINAL",
+  truck_parks: "TRUCK_PARK",
+  fish_van: "FISH_VAN_PARK",
+};
 
 // ─── Display Options ───
 const TOGGLEABLE_COLUMNS = [
@@ -92,8 +109,6 @@ const TAB_CONFIG: Record<TabId, {
   Icon: React.ElementType;
   iconColor: string;
   iconBg: string;
-  summaryData: FacilitySummary;
-  data: Facility[];
 }> = {
   bonded: {
     label: "Bonded Terminals",
@@ -107,8 +122,6 @@ const TAB_CONFIG: Record<TabId, {
     Icon: Warehouse,
     iconColor: "text-orange-600",
     iconBg: "bg-orange-50",
-    summaryData: bondedSummary,
-    data: MOCK_BONDED_TERMINALS,
   },
   truck_parks: {
     label: "Truck Parks",
@@ -122,8 +135,6 @@ const TAB_CONFIG: Record<TabId, {
     Icon: Truck,
     iconColor: "text-blue-600",
     iconBg: "bg-blue-50",
-    summaryData: truckParksSummary,
-    data: MOCK_TRUCK_PARKS,
   },
   fish_van: {
     label: "Fish-Van Parks",
@@ -137,8 +148,6 @@ const TAB_CONFIG: Record<TabId, {
     Icon: Fish,
     iconColor: "text-teal-600",
     iconBg: "bg-teal-50",
-    summaryData: fishVanSummary,
-    data: MOCK_FISH_VAN_PARKS,
   },
 };
 
@@ -158,9 +167,25 @@ function formatFacilityType(type: FacilitySubType) {
   return type === "FACILITY" ? "Facility" : "Facility Pregate";
 }
 
+function formatNumber(value: number | null | undefined): string {
+  return (value ?? 0).toLocaleString();
+}
+
+function getApprovedCapacity(facility: Facility, tab: TabId): number {
+  return tab === "bonded"
+    ? facility.approved_truck_capacity ?? 0
+    : facility.bay_capacity ?? 0;
+}
+
+function formatLocation(location: string) {
+  if (location === "APAPA") return "Apapa Zone";
+  if (location === "TINCAN") return "Tincan Zone";
+  return location;
+}
+
 // ─── Status Badge ───
-function StatusBadge({ status }: { status: FacilityStatus }) {
-  const map: Record<FacilityStatus, { cls: string; Icon: React.ElementType; label: string }> = {
+function StatusBadge({ status }: { status: FacilityDisplayStatus }) {
+  const map: Record<FacilityDisplayStatus, { cls: string; Icon: React.ElementType; label: string }> = {
     ACTIVE:   { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", Icon: CheckCircle2, label: "Enabled" },
     INACTIVE: { cls: "bg-red-50 text-red-700 border-red-200",             Icon: XCircle,     label: "Disabled" },
     ARCHIVED: { cls: "bg-gray-50 text-gray-500 border-gray-200",           Icon: Archive,     label: "Archived" },
@@ -241,6 +266,8 @@ function FacilityDetailDrawer({
   onClose: () => void;
 }) {
   const cfg = TAB_CONFIG[tab];
+  const displayStatus = getFacilityDisplayStatus(facility);
+  const approvedCapacity = getApprovedCapacity(facility, tab);
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
@@ -253,7 +280,7 @@ function FacilityDetailDrawer({
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">{facility.name}</h2>
-              <p className="font-mono text-[11px] text-emerald-400">{facility.facility_id}</p>
+              <p className="font-mono text-[11px] text-emerald-400">{facility.facility_code}</p>
             </div>
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
@@ -265,12 +292,17 @@ function FacilityDetailDrawer({
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={facility.operational_status} />
+            <StatusBadge status={displayStatus} />
             <FacilityTypeBadge type={facility.facility_type} />
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cfg.iconBg} ${cfg.iconColor}`}>
               <cfg.Icon className="h-3 w-3" />
               {cfg.entityLabel}
             </span>
+            {facility.location && (
+              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
+                {formatLocation(facility.location)}
+              </span>
+            )}
           </div>
 
           {/* Capacity Cards */}
@@ -280,7 +312,7 @@ function FacilityDetailDrawer({
                 <div className="rounded-lg bg-blue-100 p-1.5"><Timer className="h-3.5 w-3.5 text-blue-600" /></div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Hourly TAT</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{facility.hourly_handling_capacity}</p>
+              <p className="text-2xl font-bold text-gray-900">{facility.approved_truck_exits_per_hour ?? 0}</p>
               <p className="mt-0.5 text-[11px] text-gray-400">units / hour</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -288,7 +320,7 @@ function FacilityDetailDrawer({
                 <div className="rounded-lg bg-emerald-100 p-1.5"><Package className="h-3.5 w-3.5 text-emerald-600" /></div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">{cfg.capacityLabel}</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{facility.approved_capacity}</p>
+              <p className="text-2xl font-bold text-gray-900">{approvedCapacity}</p>
               <p className="mt-0.5 text-[11px] text-gray-400">{cfg.capacityUnit}</p>
             </div>
             <div className="col-span-2 rounded-xl border border-gray-100 bg-gray-50 p-4">
@@ -296,7 +328,7 @@ function FacilityDetailDrawer({
                 <div className="rounded-lg bg-amber-100 p-1.5"><TrendingUp className="h-3.5 w-3.5 text-amber-600" /></div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Daily Evacuation Limit</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{facility.daily_evacuation_limit.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-gray-900">{formatNumber(facility.daily_empty_evacuation_limit)}</p>
               <p className="mt-0.5 text-[11px] text-gray-400">units / day (max throughput)</p>
             </div>
           </div>
@@ -308,11 +340,12 @@ function FacilityDetailDrawer({
             </div>
             <div className="divide-y divide-gray-50">
               {[
-                { label: "Facility ID",     value: facility.id,                            mono: true },
-                { label: cfg.idLabel,       value: facility.facility_id,                   mono: true },
+                { label: "Record ID",       value: facility.id,              mono: true },
+                { label: cfg.idLabel,       value: facility.facility_code,   mono: true },
                 { label: "Name",            value: facility.name },
                 { label: "Category",        value: cfg.entityLabel },
                 { label: "Facility Type",   value: formatFacilityType(facility.facility_type) },
+                { label: "Location",        value: facility.location },
                 { label: "Address",         value: facility.address },
               ].map(({ label, value, mono }) => (
                 <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
@@ -418,19 +451,20 @@ function ActionsMenu({
 }) {
   const [open, setOpen] = useState(false);
   const cfg = TAB_CONFIG[tab];
+  const displayStatus = getFacilityDisplayStatus(facility);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
     { label: "View Details",                           icon: Eye,     action: "view" },
     { label: `Edit ${cfg.entityLabel} Details`,        icon: Edit2,   action: "edit" },
   ];
 
-  if (facility.operational_status === "ACTIVE") {
+  if (displayStatus === "ACTIVE") {
     actions.push({ label: `Disable ${cfg.entityLabel}`, icon: Ban,     action: "disable", danger: true });
     actions.push({ label: `Archive ${cfg.entityLabel}`, icon: Archive, action: "archive", danger: true });
-  } else if (facility.operational_status === "INACTIVE") {
+  } else if (displayStatus === "INACTIVE") {
     actions.push({ label: `Enable ${cfg.entityLabel}`,  icon: Power,   action: "enable" });
     actions.push({ label: `Archive ${cfg.entityLabel}`, icon: Archive, action: "archive", danger: true });
-  } else if (facility.operational_status === "ARCHIVED") {
+  } else if (displayStatus === "ARCHIVED") {
     actions.push({ label: `Enable ${cfg.entityLabel}`,  icon: Power,   action: "enable" });
   }
 
@@ -467,19 +501,28 @@ function ActionsMenu({
 function SummaryPanel({
   summary,
   tab,
+  isLoading,
   onAdd,
 }: {
-  summary: FacilitySummary;
+  summary?: FacilitiesSummaryResponse;
   tab: TabId;
+  isLoading?: boolean;
   onAdd: () => void;
 }) {
   const cfg = TAB_CONFIG[tab];
+  const tabTotal =
+    tab === "bonded"
+      ? summary?.bonded_terminals ?? 0
+      : tab === "truck_parks"
+        ? summary?.truck_parks ?? 0
+        : summary?.fish_van_parks ?? 0;
+
   const cards = [
-    { label: `Total ${cfg.label}`,         value: summary.total,                                       Icon: cfg.Icon,     color: "text-blue-400",    bg: "bg-blue-400/10" },
-    { label: "Enabled",                    value: summary.enabled,                                     Icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Disabled",                   value: summary.disabled,                                    Icon: XCircle,      color: "text-red-400",     bg: "bg-red-400/10" },
-    { label: "Avg Hourly Capacity",        value: `${summary.avg_hourly_handling_capacity}/hr`,        Icon: Timer,        color: "text-violet-400",  bg: "bg-violet-400/10" },
-    { label: "Total Daily Evacuation",     value: summary.total_daily_evacuation_limit.toLocaleString(),Icon: TrendingUp,  color: "text-amber-400",   bg: "bg-amber-400/10" },
+    { label: `Total ${cfg.label}`,         value: tabTotal,                                                          Icon: cfg.Icon,     color: "text-blue-400",    bg: "bg-blue-400/10" },
+    { label: "Enabled",                    value: summary?.enabled ?? 0,                                             Icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+    { label: "Disabled",                   value: summary?.disabled ?? 0,                                            Icon: XCircle,      color: "text-red-400",     bg: "bg-red-400/10" },
+    { label: "Avg Hourly Capacity",        value: `${summary?.avg_truck_exits_per_hour ?? 0}/hr`,                    Icon: Timer,        color: "text-violet-400",  bg: "bg-violet-400/10" },
+    { label: "Total Daily Evacuation",     value: (summary?.total_daily_empty_evacuation_limit ?? 0).toLocaleString(), Icon: TrendingUp,   color: "text-amber-400",   bg: "bg-amber-400/10" },
   ];
 
   return (
@@ -499,48 +542,40 @@ function SummaryPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Sort Icon ───
-function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" }) {
-  if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-  return sortDir === "asc"
-    ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-    : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
-}
-
 // ─── Main Page ───
 export function FacilitiesPage() {
   const [activeTab, setActiveTab] = useState<TabId>("bonded");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [statusFilter, setStatusFilter] = useState("All");
   const [facilityTypeFilter, setFacilityTypeFilter] = useState("All");
+  const [locationFilter, setLocationFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
-
-  const [bondedList, setBondedList] = useState<Facility[]>(MOCK_BONDED_TERMINALS);
-  const [truckList, setTruckList] = useState<Facility[]>(MOCK_TRUCK_PARKS);
-  const [fishVanList, setFishVanList] = useState<Facility[]>(MOCK_FISH_VAN_PARKS);
 
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -551,24 +586,13 @@ export function FacilitiesPage() {
     onConfirm: () => void;
   } | null>(null);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
-
   function switchTab(tab: TabId) {
     setActiveTab(tab);
     setPage(1);
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setStatusFilter("All");
     setFacilityTypeFilter("All");
-    setSortField(null);
+    setLocationFilter("All");
   }
 
   function toggleColumn(key: ColumnKey) {
@@ -580,83 +604,66 @@ export function FacilitiesPage() {
   }
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
-
-  const currentData = activeTab === "bonded" ? bondedList : activeTab === "truck_parks" ? truckList : fishVanList;
-  const currentSetter = activeTab === "bonded" ? setBondedList : activeTab === "truck_parks" ? setTruckList : setFishVanList;
-  const currentSummary = TAB_CONFIG[activeTab].summaryData;
   const cfg = TAB_CONFIG[activeTab];
 
-  // ─── Filter + Sort + Paginate ───
-  const filtered = useMemo(() => {
-    let result = [...currentData];
+  const { data: summary, isLoading: summaryLoading } = useFacilitiesSummary();
+  const { data: facilitiesData, isLoading, isError } = useFacilities({
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    park_type: TAB_TO_PARK_TYPE[activeTab],
+    facility_type: facilityTypeFilter !== "All" ? (facilityTypeFilter as FacilitySubType) : undefined,
+    status: statusFilter !== "All" ? statusFilter : undefined,
+    location: locationFilter !== "All" ? locationFilter : undefined,
+  });
 
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter(
-        (f) => f.name.toLowerCase().includes(q) || f.address.toLowerCase().includes(q) || f.facility_id.toLowerCase().includes(q)
-      );
-    }
+  const enableFacility = useEnableFacility();
+  const disableFacility = useDisableFacility();
+  const archiveFacility = useArchiveFacility();
 
-    if (statusFilter !== "All") {
-      result = result.filter((f) => f.operational_status === statusFilter);
-    }
+  const facilities = Array.isArray(facilitiesData?.data) ? facilitiesData.data : [];
+  const meta = facilitiesData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
 
-    if (facilityTypeFilter !== "All") {
-      result = result.filter((f) => f.facility_type === facilityTypeFilter);
-    }
-
-    if (sortField) {
-      result.sort((a, b) => {
-        const av = a[sortField as keyof Facility] ?? "";
-        const bv = b[sortField as keyof Facility] ?? "";
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-
-    return result;
-  }, [currentData, debouncedSearch, statusFilter, facilityTypeFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const hasActiveFilters = debouncedSearch || statusFilter !== "All" || facilityTypeFilter !== "All";
-  const activeFilterCount = [statusFilter !== "All", facilityTypeFilter !== "All"].filter(Boolean).length;
+  const hasActiveFilters =
+    debouncedSearch || statusFilter !== "All" || facilityTypeFilter !== "All" || locationFilter !== "All";
+  const activeFilterCount = [
+    statusFilter !== "All",
+    facilityTypeFilter !== "All",
+    locationFilter !== "All",
+  ].filter(Boolean).length;
 
   function clearFilters() {
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setStatusFilter("All");
     setFacilityTypeFilter("All");
+    setLocationFilter("All");
     setPage(1);
   }
 
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortField(field);
-      setSortDir("asc");
-    }
-    setPage(1);
-  }
-
-  // ─── Mutations ───
   function handleAction(action: string, facility: Facility) {
-    if (action === "view") { setSelectedFacility(facility); return; }
-    if (action === "edit") { toast.info(`Edit "${facility.name}" — coming soon.`); return; }
+    if (action === "view") {
+      setSelectedFacility(facility);
+      return;
+    }
 
-    const update = (status: FacilityStatus) => {
-      currentSetter((prev) =>
-        prev.map((f) => f.id === facility.id ? { ...f, operational_status: status, updated_at: new Date().toISOString() } : f)
-      );
-    };
+    if (action === "edit") {
+      toast.info(`Edit "${facility.name}" — coming soon.`);
+      return;
+    }
 
     if (action === "enable") {
       setConfirm({
         title: `Enable ${cfg.entityLabel}`,
         message: `Enable "${facility.name}"? It will become available for scheduling and dispatch.`,
         confirmLabel: `Enable ${cfg.entityLabel}`,
-        onConfirm: () => { setConfirm(null); update("ACTIVE"); toast.success(`"${facility.name}" has been enabled.`); },
+        onConfirm: () => {
+          setConfirm(null);
+          enableFacility.mutate(facility, {
+            onSuccess: () => toast.success(`"${facility.name}" has been enabled.`),
+          });
+        },
       });
     }
 
@@ -666,7 +673,12 @@ export function FacilitiesPage() {
         message: `Disable "${facility.name}"? It will be excluded from scheduling and dispatch but remain in the database.`,
         confirmLabel: `Disable ${cfg.entityLabel}`,
         danger: true,
-        onConfirm: () => { setConfirm(null); update("INACTIVE"); toast.success(`"${facility.name}" has been disabled.`); },
+        onConfirm: () => {
+          setConfirm(null);
+          disableFacility.mutate(facility, {
+            onSuccess: () => toast.success(`"${facility.name}" has been disabled.`),
+          });
+        },
       });
     }
 
@@ -676,30 +688,21 @@ export function FacilitiesPage() {
         message: `Archive "${facility.name}"? This will permanently remove it from all users' view. Only SuperAdmin retains visibility.`,
         confirmLabel: `Archive ${cfg.entityLabel}`,
         danger: true,
-        onConfirm: () => { setConfirm(null); update("ARCHIVED"); toast.success(`"${facility.name}" has been archived.`); },
+        onConfirm: () => {
+          setConfirm(null);
+          archiveFacility.mutate(facility.id, {
+            onSuccess: () => toast.success(`"${facility.name}" has been archived.`),
+          });
+        },
       });
     }
   }
 
-  function SortableTH({ field, children }: { field: SortField; children: React.ReactNode }) {
-    return (
-      <th
-        onClick={() => handleSort(field)}
-        className="cursor-pointer select-none px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700"
-      >
-        <span className="inline-flex items-center">
-          {children}
-          <SortIcon field={field} sortField={sortField} sortDir={sortDir} />
-        </span>
-      </th>
-    );
-  }
-
   const TABS: TabId[] = ["bonded", "truck_parks", "fish_van"];
   const tabCounts: Record<TabId, number> = {
-    bonded: bondedList.length,
-    truck_parks: truckList.length,
-    fish_van: fishVanList.length,
+    bonded: summary?.bonded_terminals ?? 0,
+    truck_parks: summary?.truck_parks ?? 0,
+    fish_van: summary?.fish_van_parks ?? 0,
   };
 
   return (
@@ -784,8 +787,9 @@ export function FacilitiesPage() {
 
       {/* ─── Summary Panel ─── */}
       <SummaryPanel
-        summary={currentSummary}
+        summary={summary}
         tab={activeTab}
+        isLoading={summaryLoading}
         onAdd={() => toast.info(`${cfg.addLabel} form — coming soon.`)}
       />
 
@@ -847,6 +851,23 @@ export function FacilitiesPage() {
         {/* Filter Row */}
         {showFilters && (
           <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-gray-100 pt-3">
+            {/* Location */}
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Location
+              </label>
+              <div className="relative">
+                <select
+                  value={locationFilter}
+                  onChange={(e) => { setLocationFilter(e.target.value); setPage(1); }}
+                  className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
+                >
+                  {LOCATIONS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+                </select>
+                <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
+              </div>
+            </div>
+
             {/* Status */}
             <div>
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -897,15 +918,9 @@ export function FacilitiesPage() {
       {/* ─── Result Count ─── */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Showing <span className="font-semibold text-gray-800">{filtered.length}</span> {cfg.entityLabel.toLowerCase()}{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-semibold text-gray-800">{totalCount}</span> {cfg.entityLabel.toLowerCase()}{totalCount !== 1 ? "s" : ""}
           {hasActiveFilters && " matching your filters"}
         </p>
-        {sortField && (
-          <button onClick={() => { setSortField(null); setSortDir("asc"); }} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-            <X className="h-3 w-3" />
-            Clear sort
-          </button>
-        )}
       </div>
 
       {/* ─── Table ─── */}
@@ -917,21 +932,39 @@ export function FacilitiesPage() {
                 <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                   S/No.
                 </th>
-                <SortableTH field="name">Facility Name</SortableTH>
+                <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Facility Name
+                </th>
                 {col("facility_id") && (
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     {cfg.idLabel}
                   </th>
                 )}
-                {col("facility_type") && <SortableTH field="facility_type">Facility Type</SortableTH>}
+                {col("facility_type") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Facility Type
+                  </th>
+                )}
                 {col("address") && (
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     Address
                   </th>
                 )}
-                {col("hourly_capacity") && <SortableTH field="hourly_handling_capacity">Hourly Capacity</SortableTH>}
-                {col("approved_capacity") && <SortableTH field="approved_capacity">{cfg.capacityLabel}</SortableTH>}
-                {col("status") && <SortableTH field="operational_status">Status</SortableTH>}
+                {col("hourly_capacity") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Hourly Capacity
+                  </th>
+                )}
+                {col("approved_capacity") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    {cfg.capacityLabel}
+                  </th>
+                )}
+                {col("status") && (
+                  <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Status
+                  </th>
+                )}
                 {col("created_at") && (
                   <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                     Created
@@ -949,7 +982,25 @@ export function FacilitiesPage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading {cfg.label.toLowerCase()}...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load {cfg.label.toLowerCase()}</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : facilities.length === 0 ? (
                 <tr>
                   <td colSpan={12} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -964,7 +1015,7 @@ export function FacilitiesPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((f, idx) => (
+                facilities.map((f, idx) => (
                   <tr key={f.id} className="transition-colors hover:bg-gray-50/80">
 
                     {/* S/No */}
@@ -978,7 +1029,12 @@ export function FacilitiesPage() {
                         <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${cfg.iconBg}`}>
                           <cfg.Icon className={`h-4 w-4 ${cfg.iconColor}`} />
                         </div>
-                        <p className="text-xs font-semibold text-gray-900">{f.name}</p>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-900">{f.name}</p>
+                          {f.location && (
+                            <p className="text-[10px] text-gray-400">{formatLocation(f.location)}</p>
+                          )}
+                        </div>
                       </div>
                     </td>
 
@@ -986,7 +1042,7 @@ export function FacilitiesPage() {
                     {col("facility_id") && (
                       <td className="px-4 py-3">
                         <span className="rounded-md bg-gray-100 px-2 py-0.5 font-mono text-[11px] text-gray-600">
-                          {f.facility_id}
+                          {f.facility_code}
                         </span>
                       </td>
                     )}
@@ -1013,7 +1069,7 @@ export function FacilitiesPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           <Timer className="h-3 w-3 text-gray-400" />
-                          <span className="text-xs font-semibold text-gray-800">{f.hourly_handling_capacity}</span>
+                          <span className="text-xs font-semibold text-gray-800">{f.approved_truck_exits_per_hour ?? 0}</span>
                           <span className="text-[10px] text-gray-400">/hr</span>
                         </div>
                       </td>
@@ -1024,7 +1080,7 @@ export function FacilitiesPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1">
                           <Package className="h-3 w-3 text-gray-400" />
-                          <span className="text-xs font-semibold text-gray-800">{f.approved_capacity}</span>
+                          <span className="text-xs font-semibold text-gray-800">{getApprovedCapacity(f, activeTab)}</span>
                           <span className="text-[10px] text-gray-400">{cfg.capacityUnit}</span>
                         </div>
                       </td>
@@ -1033,7 +1089,7 @@ export function FacilitiesPage() {
                     {/* Status */}
                     {col("status") && (
                       <td className="px-4 py-3">
-                        <StatusBadge status={f.operational_status} />
+                        <StatusBadge status={getFacilityDisplayStatus(f)} />
                       </td>
                     )}
 
@@ -1072,9 +1128,9 @@ export function FacilitiesPage() {
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
             Showing{" "}
-            <span className="font-medium text-gray-700">{paged.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
-            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + paged.length}</span> of{" "}
-            <span className="font-medium text-gray-700">{filtered.length}</span> {cfg.label.toLowerCase()}
+            <span className="font-medium text-gray-700">{facilities.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
+            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + facilities.length}</span> of{" "}
+            <span className="font-medium text-gray-700">{totalCount}</span> {cfg.label.toLowerCase()}
           </p>
           <div className="flex items-center gap-1">
             <button

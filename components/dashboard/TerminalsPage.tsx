@@ -58,6 +58,7 @@ import {
   useDisableTerminal,
   useArchiveTerminal,
 } from "@/hooks/terminals/useTerminalActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -576,12 +577,11 @@ function TerminalCharts() {
 
 // ─── Main Page ───
 export function TerminalsPage() {
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
@@ -593,16 +593,6 @@ export function TerminalsPage() {
     danger?: boolean;
     onConfirm: () => void;
   } | null>(null);
-
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
 
   // ─── API Hooks ───
   const { data: summary, isLoading: summaryLoading } = useTerminalsSummary();
@@ -627,8 +617,7 @@ export function TerminalsPage() {
   const activeFilterCount = [typeFilter !== "All", statusFilter !== "All"].filter(Boolean).length;
 
   function clearFilters() {
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setTypeFilter("All");
     setStatusFilter("All");
     setPage(1);
