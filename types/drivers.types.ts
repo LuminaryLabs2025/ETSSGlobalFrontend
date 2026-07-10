@@ -86,3 +86,51 @@ export interface DriversSummary {
   available: number;
   on_trip: number;
 }
+
+export type DriversSummaryResponse = DriversSummary;
+
+// ─── List Params ───
+export interface DriversListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  verification_status?: DriverVerificationStatus | string;
+  operational_status?: DriverOperationalStatus | string;
+  visibility?: DriverVisibility | string;
+  flag_type?: FlagType | string;
+  flag_status?: FlagStatus | string;
+}
+
+// ─── List Response ───
+export interface DriversListResponse {
+  data: Driver[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+// ─── Action Response ───
+export interface DriverActionResponse {
+  message: string;
+}
+
+export interface DriverReasonPayload {
+  reason: string;
+}
+
+// ─── Create Payload ───
+export interface CreateDriverPayload {
+  first_name: string;
+  last_name: string;
+  mobile_number: string;
+  license_number: string;
+  license_expiry_date: string;
+  date_of_birth: string;
+  sex: DriverSex;
+  transporter_company_id: string;
+  visibility: DriverVisibility;
+}
