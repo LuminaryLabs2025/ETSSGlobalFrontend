@@ -125,6 +125,17 @@ export const DRIVERS = {
   START_VERIFICATION: (id: string) => `/drivers/${id}/start-verification`,
 } as const;
 
+// ─── TEPs ───
+export const TEPS = {
+  LIST: "/teps",
+  SUMMARY: "/teps/summary",
+  EXPORT: "/teps/export",
+  CREATE: "/teps",
+  BULK: "/teps/bulk",
+  BY_ID: (id: string) => `/teps/${id}`,
+  REVOKE: (id: string) => `/teps/${id}/revoke`,
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",

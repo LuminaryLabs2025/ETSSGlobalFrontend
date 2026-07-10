@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   FileCheck,
   Search,
@@ -19,9 +19,6 @@ import {
   AlertTriangle,
   FileText,
   Building2,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   RefreshCw,
   Truck,
   Link2,
@@ -29,12 +26,12 @@ import {
   Activity,
   Upload,
   SlidersHorizontal,
-  Shield,
   Hash,
   Ban,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { MOCK_TEPS, buildTEPsSummary } from "@/lib/teps-mock-data";
 import type {
   TEP,
   TEPClassification,
@@ -42,20 +39,26 @@ import type {
   TEPMatchStatus,
   TEPStatus,
   TEPActivityType,
+  TEPsSummaryResponse,
+  TEPsListParams,
 } from "@/types/teps.types";
+import { useTeps } from "@/hooks/teps/useTeps";
+import { useTepsSummary } from "@/hooks/teps/useTepsSummary";
+import { useRevokeTEP, useExportTeps } from "@/hooks/teps/useTepActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
 
 type TabId = "all" | "empty_tdo" | "import_tdo" | "export_tdo" | "gatepass_port" | "gatepass_non_port";
 
-const TAB_TO_CLASS: Record<Exclude<TabId, "all">, TEPClassification> = {
-  empty_tdo:          "EMPTY_TDO",
-  import_tdo:         "IMPORT_TDO",
-  export_tdo:         "EXPORT_TDO",
-  gatepass_port:      "GATEPASS_PORT",
-  gatepass_non_port:  "GATEPASS_NON_PORT",
-};
+const ALL_CLASSIFICATIONS: TEPClassification[] = [
+  "EMPTY_TDO", "IMPORT_TDO", "EXPORT_TDO", "GATEPASS_PORT", "GATEPASS_NON_PORT",
+];
+
+const ALL_SOURCES: TEPSource[] = [
+  "SHIPPING_LINE", "PORT_TERMINAL", "NON_PORT_TERMINAL", "EPT",
+];
 
 const SOURCE_LABELS: Record<TEPSource, string> = {
   SHIPPING_LINE:     "Shipping Line",
@@ -218,15 +221,20 @@ function ReasonDialog({
 }
 
 // ─── Summary Panel ───
-function SummaryPanel({ teps }: { teps: TEP[] }) {
-  const s = buildTEPsSummary(teps);
+function SummaryPanel({
+  summary,
+  isLoading,
+}: {
+  summary?: TEPsSummaryResponse;
+  isLoading?: boolean;
+}) {
   const kpis = [
-    { label: "Total TEPs",   value: s.total,    color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: FileCheck },
-    { label: "Active",       value: s.active,   color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Expired",      value: s.expired,  color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: Clock },
-    { label: "Revoked",      value: s.revoked,  color: "text-red-400",     bg: "bg-red-400/10",     Icon: XCircle },
-    { label: "Matched",      value: s.matched,  color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: Link2 },
-    { label: "Unmatched",    value: s.unmatched,color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: LinkIcon },
+    { label: "Total TEPs",   value: summary?.total ?? 0,    color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: FileCheck },
+    { label: "Active",       value: summary?.active ?? 0,   color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Expired",      value: summary?.expired ?? 0,  color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: Clock },
+    { label: "Revoked",      value: summary?.revoked ?? 0,  color: "text-red-400",     bg: "bg-red-400/10",     Icon: XCircle },
+    { label: "Matched",      value: summary?.matched ?? 0,  color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: Link2 },
+    { label: "Unmatched",    value: summary?.unmatched ?? 0,color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: LinkIcon },
   ];
 
   const classColors: Record<TEPClassification, string> = {
@@ -261,33 +269,44 @@ function SummaryPanel({ teps }: { teps: TEP[] }) {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {kpis.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 hover:bg-white/10 transition-colors">
-            <div className="mb-2"><div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}><card.Icon className={`h-4 w-4 ${card.color}`} /></div></div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          kpis.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 hover:bg-white/10 transition-colors">
+              <div className="mb-2"><div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}><card.Icon className={`h-4 w-4 ${card.color}`} /></div></div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Breakdown grid */}
+      {!isLoading && (
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {/* By Classification */}
         <div className="rounded-xl bg-white/5 p-4">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">By Classification Type</p>
           <div className="space-y-2">
-            {(Object.entries(s.by_classification) as [TEPClassification, number][]).map(([k, v]) => (
+            {ALL_CLASSIFICATIONS.map((k) => {
+              const v = summary?.by_classification?.[k] ?? 0;
+              const total = summary?.total ?? 0;
+              return (
               <div key={k} className="flex items-center gap-2">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${classColors[k]}`} />
                 <span className="flex-1 text-xs text-gray-300">{CLASSIFICATION_LABELS[k]}</span>
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                    <div className={`h-full rounded-full ${classColors[k]}`} style={{ width: s.total > 0 ? `${(v / s.total) * 100}%` : "0%" }} />
+                    <div className={`h-full rounded-full ${classColors[k]}`} style={{ width: total > 0 ? `${(v / total) * 100}%` : "0%" }} />
                   </div>
                   <span className="w-5 text-right text-xs font-bold text-white">{v}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -295,44 +314,64 @@ function SummaryPanel({ teps }: { teps: TEP[] }) {
         <div className="rounded-xl bg-white/5 p-4">
           <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400">By Source of Upload</p>
           <div className="space-y-2">
-            {(Object.entries(s.by_source) as [TEPSource, number][]).map(([k, v]) => (
+            {ALL_SOURCES.map((k) => {
+              const v = summary?.by_source?.[k] ?? 0;
+              const total = summary?.total ?? 0;
+              return (
               <div key={k} className="flex items-center gap-2">
                 <span className={`h-2 w-2 shrink-0 rounded-full ${sourceColors[k]}`} />
                 <span className="flex-1 text-xs text-gray-300">{SOURCE_LABELS[k]}</span>
                 <div className="flex items-center gap-2">
                   <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                    <div className={`h-full rounded-full ${sourceColors[k]}`} style={{ width: s.total > 0 ? `${(v / s.total) * 100}%` : "0%" }} />
+                    <div className={`h-full rounded-full ${sourceColors[k]}`} style={{ width: total > 0 ? `${(v / total) * 100}%` : "0%" }} />
                   </div>
                   <span className="w-5 text-right text-xs font-bold text-white">{v}</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
 
-// ─── Sort Icon ───
-function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" }) {
-  if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-  return sortDir === "asc" ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" /> : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
+function buildListParams(
+  activeTab: TabId,
+  page: number,
+  debouncedSearch: string,
+  statusFilter: string,
+  matchFilter: string,
+  sourceFilter: string,
+): TEPsListParams {
+  const params: TEPsListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+  };
+
+  if (activeTab !== "all") {
+    params.category = activeTab;
+  }
+
+  if (sourceFilter !== "All") params.source = sourceFilter;
+  if (statusFilter !== "All") params.status = statusFilter;
+  if (matchFilter !== "All") params.match_status = matchFilter;
+
+  return params;
 }
 
 // ─── Main Page ───
 export function TEPsPage() {
   const [activeTab, setActiveTab] = useState<TabId>("all");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [statusFilter, setStatusFilter] = useState("All");
   const [matchFilter, setMatchFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState<string | null>("created_at");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [teps, setTeps] = useState<TEP[]>(MOCK_TEPS);
   const [selectedTEP, setSelectedTEP] = useState<TEP | null>(null);
   const [reasonDialog, setReasonDialog] = useState<{
     title: string; description: string; confirmLabel: string;
@@ -349,82 +388,62 @@ export function TEPsPage() {
     });
   }
 
+  const listParams = buildListParams(
+    activeTab,
+    page,
+    debouncedSearch,
+    statusFilter,
+    matchFilter,
+    sourceFilter,
+  );
+
+  const { data: summary, isLoading: summaryLoading } = useTepsSummary();
+  const { data: tepsData, isLoading, isError } = useTeps(listParams);
+  const revokeTEP = useRevokeTEP();
+  const exportTeps = useExportTeps();
+
+  const teps = Array.isArray(tepsData?.data) ? tepsData.data : [];
+  const meta = tepsData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
+
   const lastRefresh = new Date().toLocaleString("en-NG", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
   });
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
-
   function switchTab(tab: TabId) {
-    setActiveTab(tab); setPage(1); setSearch(""); setDebouncedSearch("");
-    setStatusFilter("All"); setMatchFilter("All"); setSourceFilter("All");
+    setActiveTab(tab);
+    setPage(1);
+    resetSearch();
+    setStatusFilter("All");
+    setMatchFilter("All");
+    setSourceFilter("All");
     setShowFilters(false);
   }
 
-  function handleSort(field: string) {
-    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("asc"); }
-    setPage(1);
-  }
+  const tabCounts: Record<TabId, number> = {
+    all:               summary?.total ?? 0,
+    empty_tdo:         summary?.by_classification?.EMPTY_TDO ?? 0,
+    import_tdo:        summary?.by_classification?.IMPORT_TDO ?? 0,
+    export_tdo:        summary?.by_classification?.EXPORT_TDO ?? 0,
+    gatepass_port:     summary?.by_classification?.GATEPASS_PORT ?? 0,
+    gatepass_non_port: summary?.by_classification?.GATEPASS_NON_PORT ?? 0,
+  };
 
-  // ─── Tab data ───
-  const tabData = useMemo(() => {
-    const all = teps;
-    const byClass = (c: TEPClassification) => teps.filter((t) => t.classification === c);
-    return {
-      all,
-      empty_tdo:         byClass("EMPTY_TDO"),
-      import_tdo:        byClass("IMPORT_TDO"),
-      export_tdo:        byClass("EXPORT_TDO"),
-      gatepass_port:     byClass("GATEPASS_PORT"),
-      gatepass_non_port: byClass("GATEPASS_NON_PORT"),
-    };
-  }, [teps]);
-
-  const tabCounts = Object.fromEntries(
-    Object.entries(tabData).map(([k, v]) => [k, v.length])
-  ) as Record<TabId, number>;
-
-  // ─── Filtered + sorted ───
-  const filtered = useMemo(() => {
-    let result = [...tabData[activeTab]];
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((t) =>
-        t.reference_number.toLowerCase().includes(q) ||
-        (t.truck_plate_number ?? "").toLowerCase().includes(q) ||
-        t.facility_name.toLowerCase().includes(q) ||
-        t.company_name.toLowerCase().includes(q)
-      );
-    }
-    if (statusFilter !== "All") result = result.filter((t) => t.status === statusFilter);
-    if (matchFilter !== "All") result = result.filter((t) => t.match_status === matchFilter);
-    if (sourceFilter !== "All") result = result.filter((t) => t.source === sourceFilter);
-
-    if (sortField) {
-      result.sort((a, b) => {
-        let av = "", bv = "";
-        if (sortField === "created_at")  { av = a.created_at; bv = b.created_at; }
-        else if (sortField === "expiry") { av = a.expiry_date ?? ""; bv = b.expiry_date ?? ""; }
-        else if (sortField === "ref")    { av = a.reference_number; bv = b.reference_number; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return result;
-  }, [tabData, activeTab, debouncedSearch, statusFilter, matchFilter, sourceFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const hasActiveFilters = debouncedSearch || statusFilter !== "All" || matchFilter !== "All" || sourceFilter !== "All";
 
   function clearFilters() {
-    setSearch(""); setDebouncedSearch("");
-    setStatusFilter("All"); setMatchFilter("All"); setSourceFilter("All"); setPage(1);
+    resetSearch();
+    setStatusFilter("All");
+    setMatchFilter("All");
+    setSourceFilter("All");
+    setPage(1);
+  }
+
+  function handleExportCsv() {
+    exportTeps.mutate(listParams, {
+      onSuccess: () => toast.success("TEPs exported as CSV."),
+    });
   }
 
   function handleRevoke(tep: TEP) {
@@ -434,17 +453,12 @@ export function TEPsPage() {
       confirmLabel: "Revoke TEP",
       onConfirm: (reason) => {
         setReasonDialog(null);
-        setTeps((prev) => prev.map((t) => t.id === tep.id ? {
-          ...t, status: "REVOKED" as TEPStatus,
-          activity_log: [...t.activity_log, {
-            event_type: "REVOKED" as const,
-            performed_by: "SuperAdmin",
-            timestamp: new Date().toISOString(),
-            details: reason,
-          }],
-        } : t));
-        if (selectedTEP?.id === tep.id) setSelectedTEP(null);
-        toast.success(`TEP ${tep.reference_number} has been revoked.`);
+        revokeTEP.mutate({ id: tep.id, reason }, {
+          onSuccess: () => {
+            if (selectedTEP?.id === tep.id) setSelectedTEP(null);
+            toast.success(`TEP ${tep.reference_number} has been revoked.`);
+          },
+        });
       },
     });
   }
@@ -507,13 +521,6 @@ export function TEPsPage() {
     );
   }
 
-  function SortableTH({ field, children }: { field: string; children: React.ReactNode }) {
-    return (
-      <th onClick={() => handleSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={sortField} sortDir={sortDir} /></span>
-      </th>
-    );
-  }
   const staticTH = (label: string) => <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</th>;
 
   const TAB_CONFIG: Record<TabId, { label: string; dot: string; short: string }> = {
@@ -632,7 +639,7 @@ export function TEPsPage() {
       </nav>
 
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel teps={teps} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -715,8 +722,15 @@ export function TEPsPage() {
               <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
             </button>
             <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-              <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" /> CSV</button>
-              <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
+              <button
+                onClick={handleExportCsv}
+                disabled={exportTeps.isPending}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {exportTeps.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" /> : <FileText className="h-3.5 w-3.5 text-gray-400" />}
+                CSV
+              </button>
+              <button onClick={() => toast.info("PDF export — coming soon.")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
             </div>
           </div>
         </div>
@@ -767,14 +781,9 @@ export function TEPsPage() {
       {/* ─── Results ─── */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Showing <span className="font-semibold text-gray-800">{filtered.length}</span> TEP{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-semibold text-gray-800">{totalCount}</span> TEP{totalCount !== 1 ? "s" : ""}
           {hasActiveFilters && " matching your filters"}
         </p>
-        {sortField && (
-          <button onClick={() => { setSortField(null); setSortDir("asc"); }} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-            <X className="h-3 w-3" /> Clear sort
-          </button>
-        )}
       </div>
 
       {/* ─── Table ─── */}
@@ -784,7 +793,7 @@ export function TEPsPage() {
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {staticTH("S/No.")}
-                <SortableTH field="ref">TEP Ref. No.</SortableTH>
+                {staticTH("TEP Ref. No.")}
                 {activeTab === "all" && staticTH("Classification")}
                 {col("source") && staticTH("Source")}
                 {col("facility") && staticTH("Facility")}
@@ -792,14 +801,32 @@ export function TEPsPage() {
                 {col("user_account") && staticTH("User Account")}
                 {col("truck_plate") && staticTH("Plate No.")}
                 {staticTH("Match Status")}
-                <SortableTH field="created_at">Date Created</SortableTH>
-                {col("expiry_date") && <SortableTH field="expiry">Expiry Date</SortableTH>}
+                {staticTH("Date Created")}
+                {col("expiry_date") && staticTH("Expiry Date")}
                 {staticTH("Status")}
                 <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={15} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading TEPs...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={15} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load TEPs</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : teps.length === 0 ? (
                 <tr>
                   <td colSpan={15} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -810,7 +837,7 @@ export function TEPsPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((t, idx) => (
+                teps.map((t, idx) => (
                   <tr key={t.id} className="transition-colors hover:bg-gray-50/80">
                     {/* S/No */}
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
@@ -895,9 +922,9 @@ export function TEPsPage() {
         {/* ─── Pagination ─── */}
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
-            Showing <span className="font-medium text-gray-700">{paged.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
-            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + paged.length}</span> of{" "}
-            <span className="font-medium text-gray-700">{filtered.length}</span> TEPs
+            Showing <span className="font-medium text-gray-700">{teps.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
+            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + teps.length}</span> of{" "}
+            <span className="font-medium text-gray-700">{totalCount}</span> TEPs
           </p>
           <div className="flex items-center gap-1">
             <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
