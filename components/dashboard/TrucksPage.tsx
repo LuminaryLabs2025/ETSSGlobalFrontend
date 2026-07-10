@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Truck,
   Search,
@@ -19,24 +19,17 @@ import {
   Ban,
   Eye,
   MoreHorizontal,
-  MapPin,
   Shield,
   AlertTriangle,
   FileText,
   Building2,
-  Tag,
-  Hash,
-  Layers,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   RefreshCw,
-  Send,
   AlertCircle,
   SlidersHorizontal,
+  Loader2,
+  Send,
 } from "lucide-react";
 import { toast } from "sonner";
-import { MOCK_TRUCKS, buildTrucksSummary } from "@/lib/trucks-mock-data";
 import type {
   Truck as TruckType,
   RegistrationStatus,
@@ -44,7 +37,20 @@ import type {
   Visibility,
   PenaltyType,
   PaymentStatus,
+  TrucksSummaryResponse,
+  TrucksListParams,
 } from "@/types/trucks.types";
+import { useTrucks } from "@/hooks/trucks/useTrucks";
+import { useTrucksSummary } from "@/hooks/trucks/useTrucksSummary";
+import {
+  useDisableTruck,
+  useArchiveTruck,
+  useReEnableTruck,
+  useOverrideTruckPenalty,
+  useRequestTruckVerification,
+  useExportTrucks,
+} from "@/hooks/trucks/useTruckActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -275,16 +281,26 @@ function ReasonDialog({
   );
 }
 
+function formatChassisNumber(value: string) {
+  if (!value) return "—";
+  return value.length > 12 ? `${value.substring(0, 12)}...` : value;
+}
+
 // ─── Summary Panel ───
-function SummaryPanel({ trucks }: { trucks: TruckType[] }) {
-  const s = buildTrucksSummary(trucks);
+function SummaryPanel({
+  summary,
+  isLoading,
+}: {
+  summary?: TrucksSummaryResponse;
+  isLoading?: boolean;
+}) {
   const cards = [
-    { label: "Total Trucks",         value: s.total,                 color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Truck },
-    { label: "MSS Verified",         value: s.mss_verified,          color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Unverified",           value: s.unverified + s.verification_requested, color: "text-amber-400", bg: "bg-amber-400/10", Icon: AlertCircle },
-    { label: "Flagged",              value: s.flagged,               color: "text-red-400",     bg: "bg-red-400/10",     Icon: AlertTriangle },
-    { label: "Disabled",             value: s.disabled,              color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
-    { label: "Available Now",        value: s.available,             color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: Power },
+    { label: "Total Trucks",  value: summary?.total ?? 0, color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Truck },
+    { label: "MSS Verified",  value: summary?.mss_verified ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Unverified",    value: (summary?.unverified ?? 0) + (summary?.verification_requested ?? 0), color: "text-amber-400", bg: "bg-amber-400/10", Icon: AlertCircle },
+    { label: "Flagged",       value: summary?.flagged ?? 0, color: "text-red-400",     bg: "bg-red-400/10",     Icon: AlertTriangle },
+    { label: "Disabled",      value: summary?.disabled ?? 0, color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
+    { label: "Available Now", value: summary?.available ?? 0, color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: Power },
   ];
 
   return (
@@ -303,35 +319,65 @@ function SummaryPanel({ trucks }: { trucks: TruckType[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Sort Icon ───
-function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" }) {
-  if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-  return sortDir === "asc"
-    ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-    : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
+function buildListParams(
+  activeTab: TabId,
+  page: number,
+  debouncedSearch: string,
+  regStatusFilter: string,
+  truckStatusFilter: string,
+  visibilityFilter: string,
+  penaltyTypeFilter: string,
+  paymentStatusFilter: string,
+  truckTypeFilter: string,
+): TrucksListParams {
+  const params: TrucksListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+  };
+
+  if (activeTab !== "all") {
+    params.category = activeTab;
+  } else if (regStatusFilter !== "All") {
+    params.registration_status = regStatusFilter;
+  }
+
+  if (truckStatusFilter !== "All") params.truck_status = truckStatusFilter;
+  if (visibilityFilter !== "All") params.visibility = visibilityFilter;
+  if (penaltyTypeFilter !== "All") params.penalty_type = penaltyTypeFilter;
+  if (paymentStatusFilter !== "All") params.payment_status = paymentStatusFilter;
+  if (truckTypeFilter !== "All") params.truck_type = truckTypeFilter;
+
+  return params;
 }
 
 // ─── Main Page ───
 export function TrucksPage() {
   const [activeTab, setActiveTab] = useState<TabId>("all");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [truckStatusFilter, setTruckStatusFilter] = useState("All");
   const [visibilityFilter, setVisibilityFilter] = useState("All");
   const [regStatusFilter, setRegStatusFilter] = useState("All");
@@ -339,10 +385,6 @@ export function TrucksPage() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState("All");
   const [truckTypeFilter, setTruckTypeFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [trucks, setTrucks] = useState<TruckType[]>(MOCK_TRUCKS);
   const [selectedTruck, setSelectedTruck] = useState<TruckType | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string; message: string; confirmLabel: string; danger?: boolean;
@@ -363,123 +405,85 @@ export function TrucksPage() {
     });
   }
 
-  const lastRefresh = new Date().toLocaleString("en-NG", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit", hour12: true,
-  });
+  const listParams = buildListParams(
+    activeTab,
+    page,
+    debouncedSearch,
+    regStatusFilter,
+    truckStatusFilter,
+    visibilityFilter,
+    penaltyTypeFilter,
+    paymentStatusFilter,
+    truckTypeFilter,
+  );
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
+  const { data: summary, isLoading: summaryLoading } = useTrucksSummary();
+  const { data: trucksData, isLoading, isError } = useTrucks(listParams);
+
+  const disableTruck = useDisableTruck();
+  const archiveTruck = useArchiveTruck();
+  const reEnableTruck = useReEnableTruck();
+  const overridePenalty = useOverrideTruckPenalty();
+  const requestVerification = useRequestTruckVerification();
+  const exportTrucks = useExportTrucks();
+
+  const trucks = Array.isArray(trucksData?.data) ? trucksData.data : [];
+  const meta = trucksData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
 
   function switchTab(tab: TabId) {
     setActiveTab(tab);
     setPage(1);
-    setSearch("");
-    setDebouncedSearch("");
+    resetSearch();
     setTruckStatusFilter("All");
     setVisibilityFilter("All");
     setRegStatusFilter("All");
     setPenaltyTypeFilter("All");
     setPaymentStatusFilter("All");
     setTruckTypeFilter("All");
-    setSortField(null);
     setShowFilters(false);
   }
 
-  function handleSort(field: string) {
-    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("asc"); }
-    setPage(1);
-  }
-
-  // ─── Tab-based data ───
-  const tabData = useMemo(() => {
-    const byReg = (status: RegistrationStatus[]) => trucks.filter((t) => status.includes(t.registration_status));
-    return {
-      all:        trucks,
-      verified:   byReg(["MSS_VERIFIED"]),
-      unverified: byReg(["UNVERIFIED", "VERIFICATION_REQUESTED"]),
-      flagged:    byReg(["FLAGGED"]),
-      disabled:   byReg(["DISABLED"]),
-    };
-  }, [trucks]);
-
   const tabCounts = {
-    all:        tabData.all.length,
-    verified:   tabData.verified.length,
-    unverified: tabData.unverified.length,
-    flagged:    tabData.flagged.length,
-    disabled:   tabData.disabled.length,
+    all:        summary?.total ?? 0,
+    verified:   summary?.mss_verified ?? 0,
+    unverified: (summary?.unverified ?? 0) + (summary?.verification_requested ?? 0),
+    flagged:    summary?.flagged ?? 0,
+    disabled:   summary?.disabled ?? 0,
   };
 
-  // ─── Filtered & sorted data ───
-  const filtered = useMemo(() => {
-    let result = [...tabData[activeTab]];
-
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((t) =>
-        t.plate_number.toLowerCase().includes(q) ||
-        t.chassis_number.toLowerCase().includes(q) ||
-        t.registered_by.company_name.toLowerCase().includes(q) ||
-        (t.mss_verification_number ?? "").toLowerCase().includes(q) ||
-        (t.penalty?.penalty_id ?? "").toLowerCase().includes(q)
-      );
-    }
-
-    if (truckStatusFilter !== "All") result = result.filter((t) => t.truck_status === truckStatusFilter);
-    if (visibilityFilter !== "All") result = result.filter((t) => t.visibility === visibilityFilter);
-    if (regStatusFilter !== "All") result = result.filter((t) => t.registration_status === regStatusFilter);
-    if (penaltyTypeFilter !== "All") result = result.filter((t) => t.penalty?.penalty_type === penaltyTypeFilter);
-    if (paymentStatusFilter !== "All") result = result.filter((t) => t.penalty?.payment_status === paymentStatusFilter);
-    if (truckTypeFilter !== "All") result = result.filter((t) => t.truck_type === truckTypeFilter);
-
-    if (sortField) {
-      result.sort((a, b) => {
-        let av: string, bv: string;
-        if (sortField === "created_at") { av = a.created_at; bv = b.created_at; }
-        else if (sortField === "verification_timestamp") { av = a.verification_timestamp ?? ""; bv = b.verification_timestamp ?? ""; }
-        else if (sortField === "plate_number") { av = a.plate_number; bv = b.plate_number; }
-        else if (sortField === "truck_type") { av = a.truck_type; bv = b.truck_type; }
-        else { av = ""; bv = ""; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return result;
-  }, [tabData, activeTab, debouncedSearch, truckStatusFilter, visibilityFilter, regStatusFilter, penaltyTypeFilter, paymentStatusFilter, truckTypeFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const hasActiveFilters = debouncedSearch || truckStatusFilter !== "All" || visibilityFilter !== "All" ||
     regStatusFilter !== "All" || penaltyTypeFilter !== "All" || paymentStatusFilter !== "All" || truckTypeFilter !== "All";
 
   function clearFilters() {
-    setSearch(""); setDebouncedSearch("");
-    setTruckStatusFilter("All"); setVisibilityFilter("All");
-    setRegStatusFilter("All"); setPenaltyTypeFilter("All");
-    setPaymentStatusFilter("All"); setTruckTypeFilter("All");
+    resetSearch();
+    setTruckStatusFilter("All");
+    setVisibilityFilter("All");
+    setRegStatusFilter("All");
+    setPenaltyTypeFilter("All");
+    setPaymentStatusFilter("All");
+    setTruckTypeFilter("All");
     setPage(1);
   }
 
-  // ─── Mutations ───
-  function updateTruck(id: string, patch: Partial<TruckType>) {
-    setTrucks((prev) => prev.map((t) => t.id === id ? { ...t, ...patch } : t));
+  function handleExportCsv() {
+    exportTrucks.mutate(listParams, {
+      onSuccess: () => toast.success("Trucks exported as CSV."),
+    });
   }
 
   function handleDisable(truck: TruckType) {
-    setConfirm({
-      title: "Disable Truck",
-      message: `Disable truck "${truck.plate_number}"? It will be prevented from new bookings immediately.`,
+    setReasonDialog({
+      title: `Disable Truck — ${truck.plate_number}`,
+      description: `Disable truck "${truck.plate_number}"? It will be prevented from new bookings immediately.`,
       confirmLabel: "Disable Truck",
       danger: true,
-      onConfirm: () => {
-        setConfirm(null);
-        updateTruck(truck.id, { registration_status: "DISABLED" });
-        toast.success(`Truck ${truck.plate_number} has been disabled.`);
+      onConfirm: (reason) => {
+        setReasonDialog(null);
+        disableTruck.mutate({ id: truck.id, reason }, {
+          onSuccess: () => toast.success(`Truck ${truck.plate_number} has been disabled.`),
+        });
       },
     });
   }
@@ -492,8 +496,9 @@ export function TrucksPage() {
       danger: true,
       onConfirm: () => {
         setConfirm(null);
-        updateTruck(truck.id, { registration_status: "ARCHIVED" });
-        toast.success(`Truck ${truck.plate_number} has been archived.`);
+        archiveTruck.mutate(truck.id, {
+          onSuccess: () => toast.success(`Truck ${truck.plate_number} has been archived.`),
+        });
       },
     });
   }
@@ -505,8 +510,9 @@ export function TrucksPage() {
       confirmLabel: "Send Request",
       onConfirm: () => {
         setConfirm(null);
-        updateTruck(truck.id, { registration_status: "VERIFICATION_REQUESTED", mss_verification_number: "PENDING" });
-        toast.success(`Verification request sent for ${truck.plate_number}.`);
+        requestVerification.mutate(truck.id, {
+          onSuccess: () => toast.success(`Verification request sent for ${truck.plate_number}.`),
+        });
       },
     });
   }
@@ -519,11 +525,9 @@ export function TrucksPage() {
       danger: true,
       onConfirm: (reason) => {
         setReasonDialog(null);
-        updateTruck(truck.id, {
-          registration_status: "MSS_VERIFIED",
-          penalty: truck.penalty ? { ...truck.penalty, payment_status: "OVERRIDDEN" } : undefined,
+        overridePenalty.mutate({ id: truck.id, reason }, {
+          onSuccess: () => toast.success(`Penalty for ${truck.plate_number} has been overridden.`),
         });
-        toast.success(`Penalty for ${truck.plate_number} overridden. Reason: "${reason.substring(0, 40)}..."`);
       },
     });
   }
@@ -535,12 +539,9 @@ export function TrucksPage() {
       confirmLabel: "Re-enable Truck",
       onConfirm: (reason) => {
         setReasonDialog(null);
-        updateTruck(truck.id, {
-          registration_status: "MSS_VERIFIED",
-          truck_status: "AVAILABLE",
-          disable_info: undefined,
+        reEnableTruck.mutate({ id: truck.id, reason }, {
+          onSuccess: () => toast.success(`Truck ${truck.plate_number} has been re-enabled.`),
         });
-        toast.success(`Truck ${truck.plate_number} re-enabled. Reason: "${reason.substring(0, 40)}"`);
       },
     });
   }
@@ -710,17 +711,16 @@ export function TrucksPage() {
     );
   }
 
-  function SortableTH({ field, children }: { field: string; children: React.ReactNode }) {
-    return (
-      <th onClick={() => handleSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={sortField} sortDir={sortDir} /></span>
-      </th>
-    );
-  }
-
   const staticTH = (label: string) => (
     <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</th>
   );
+
+  const lastRefresh = trucksData
+    ? new Date().toLocaleString("en-NG", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit", hour12: true,
+      })
+    : "—";
 
   // ─── Tab Config ───
   const TAB_CONFIG: Record<TabId, { label: string; color: string; dot: string }> = {
@@ -834,7 +834,7 @@ export function TrucksPage() {
       </nav>
 
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel trucks={trucks} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -918,8 +918,15 @@ export function TrucksPage() {
               <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
             </button>
             <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-              <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" /> CSV</button>
-              <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
+              <button
+                onClick={handleExportCsv}
+                disabled={exportTrucks.isPending}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {exportTrucks.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" /> : <FileText className="h-3.5 w-3.5 text-gray-400" />}
+                CSV
+              </button>
+              <button onClick={() => toast.info("PDF export — coming soon.")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
             </div>
           </div>
         </div>
@@ -1017,14 +1024,9 @@ export function TrucksPage() {
       {/* ─── Results count ─── */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Showing <span className="font-semibold text-gray-800">{filtered.length}</span> truck{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-semibold text-gray-800">{totalCount}</span> truck{totalCount !== 1 ? "s" : ""}
           {hasActiveFilters && " matching your filters"}
         </p>
-        {sortField && (
-          <button onClick={() => { setSortField(null); setSortDir("asc"); }} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-            <X className="h-3 w-3" /> Clear sort
-          </button>
-        )}
       </div>
 
       {/* ─── Table ─── */}
@@ -1035,26 +1037,26 @@ export function TrucksPage() {
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {staticTH("S/No.")}
                 {col("truck_image") && staticTH("Truck")}
-                <SortableTH field="plate_number">Plate Number</SortableTH>
-                {col("truck_type") && <SortableTH field="truck_type">Truck Type</SortableTH>}
+                {staticTH("Plate Number")}
+                {col("truck_type") && staticTH("Truck Type")}
                 {col("truck_color") && staticTH("Color")}
                 {col("chassis_number") && staticTH("Chassis No.")}
                 {col("truck_brand") && staticTH("Brand")}
                 {col("truck_model") && staticTH("Model")}
                 {col("truck_length") && staticTH("Length")}
                 {col("truck_capacity") && staticTH("Capacity")}
-                <SortableTH field="created_at">Created</SortableTH>
+                {staticTH("Created")}
                 {staticTH("Reg. Status")}
                 {(activeTab === "verified" || activeTab === "all") && staticTH("Truck Status")}
                 {staticTH("Registered By")}
                 {staticTH("Visibility")}
                 {activeTab === "verified" && staticTH("MSS Verif. No.")}
-                {activeTab === "verified" && <SortableTH field="verification_timestamp">Verification Date</SortableTH>}
+                {activeTab === "verified" && staticTH("Verification Date")}
                 {activeTab === "unverified" && staticTH("MSS Status")}
                 {activeTab === "flagged" && staticTH("Penalty ID")}
                 {activeTab === "flagged" && staticTH("Penalty Type")}
                 {activeTab === "flagged" && staticTH("Amount (₦)")}
-                {activeTab === "flagged" && <SortableTH field="penalty.date_issued">Date Issued</SortableTH>}
+                {activeTab === "flagged" && staticTH("Date Issued")}
                 {activeTab === "flagged" && staticTH("Issued By")}
                 {activeTab === "flagged" && staticTH("Payment")}
                 {activeTab === "disabled" && staticTH("MSS Verif. No.")}
@@ -1066,7 +1068,25 @@ export function TrucksPage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={20} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading trucks...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={20} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load trucks</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : trucks.length === 0 ? (
                 <tr>
                   <td colSpan={20} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -1077,7 +1097,7 @@ export function TrucksPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((t, idx) => (
+                trucks.map((t, idx) => (
                   <tr key={t.id} className="transition-colors hover:bg-gray-50/80">
                     {/* S/No */}
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
@@ -1102,27 +1122,27 @@ export function TrucksPage() {
 
                     {/* Chassis Number */}
                     {col("chassis_number") && (
-                      <td className="px-3 py-3"><span className="font-mono text-[11px] text-gray-500">{t.chassis_number.substring(0, 12)}...</span></td>
+                      <td className="px-3 py-3"><span className="font-mono text-[11px] text-gray-500">{formatChassisNumber(t.chassis_number)}</span></td>
                     )}
 
                     {/* Truck Brand */}
                     {col("truck_brand") && (
-                      <td className="px-3 py-3 text-xs font-semibold text-gray-800">{t.brand}</td>
+                      <td className="px-3 py-3 text-xs font-semibold text-gray-800">{t?.brand || "N/A"}</td>
                     )}
 
                     {/* Truck Model */}
                     {col("truck_model") && (
-                      <td className="px-3 py-3 text-xs text-gray-600">{t.model}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{t?.model || "N/A"}</td>
                     )}
 
                     {/* Truck Length */}
                     {col("truck_length") && (
-                      <td className="px-3 py-3 text-xs text-gray-600">{t.truck_length}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{t?.truck_length || "N/A"}</td>
                     )}
 
                     {/* Truck Capacity */}
                     {col("truck_capacity") && (
-                      <td className="px-3 py-3 text-xs text-gray-600">{t.truck_capacity}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{t?.truck_capacity || "N/A"}</td>
                     )}
 
                     {/* Created */}
@@ -1217,9 +1237,9 @@ export function TrucksPage() {
         {/* ─── Pagination ─── */}
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
-            Showing <span className="font-medium text-gray-700">{paged.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
-            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + paged.length}</span> of{" "}
-            <span className="font-medium text-gray-700">{filtered.length}</span> trucks
+            Showing <span className="font-medium text-gray-700">{trucks.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
+            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + trucks.length}</span> of{" "}
+            <span className="font-medium text-gray-700">{totalCount}</span> trucks
           </p>
           <div className="flex items-center gap-1">
             <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>

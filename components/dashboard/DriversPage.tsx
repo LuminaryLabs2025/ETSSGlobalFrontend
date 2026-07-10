@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Users,
   Search,
@@ -23,18 +23,15 @@ import {
   AlertTriangle,
   FileText,
   Building2,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
   RefreshCw,
   Send,
   AlertCircle,
   SlidersHorizontal,
   UserCheck,
   Flag,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { MOCK_DRIVERS, buildDriversSummary } from "@/lib/drivers-mock-data";
 import type {
   Driver,
   DriverVerificationStatus,
@@ -42,7 +39,20 @@ import type {
   DriverVisibility,
   FlagType,
   FlagStatus,
+  DriversSummaryResponse,
+  DriversListParams,
 } from "@/types/drivers.types";
+import { useDrivers } from "@/hooks/drivers/useDrivers";
+import { useDriversSummary } from "@/hooks/drivers/useDriversSummary";
+import {
+  useDisableDriver,
+  useArchiveDriver,
+  useEnableDriver,
+  useClearDriverFlag,
+  useStartDriverVerification,
+  useExportDrivers,
+} from "@/hooks/drivers/useDriverActions";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -278,15 +288,20 @@ function ReasonDialog({
 }
 
 // ─── Summary Panel ───
-function SummaryPanel({ drivers }: { drivers: Driver[] }) {
-  const s = buildDriversSummary(drivers);
+function SummaryPanel({
+  summary,
+  isLoading,
+}: {
+  summary?: DriversSummaryResponse;
+  isLoading?: boolean;
+}) {
   const cards = [
-    { label: "Total Drivers",   value: s.total,                       color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Users },
-    { label: "Verified",        value: s.verified,                    color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Unverified",      value: s.unverified + s.verification_in_progress, color: "text-amber-400", bg: "bg-amber-400/10", Icon: AlertCircle },
-    { label: "Flagged",         value: s.flagged,                     color: "text-red-400",     bg: "bg-red-400/10",     Icon: Flag },
-    { label: "Disabled",        value: s.disabled,                    color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
-    { label: "Available Now",   value: s.available,                   color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: UserCheck },
+    { label: "Total Drivers",   value: summary?.total ?? 0, color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Users },
+    { label: "Verified",        value: summary?.verified ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Unverified",      value: (summary?.unverified ?? 0) + (summary?.verification_in_progress ?? 0), color: "text-amber-400", bg: "bg-amber-400/10", Icon: AlertCircle },
+    { label: "Flagged",         value: summary?.flagged ?? 0, color: "text-red-400",     bg: "bg-red-400/10",     Icon: Flag },
+    { label: "Disabled",        value: summary?.disabled ?? 0, color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
+    { label: "Available Now",   value: summary?.available ?? 0, color: "text-cyan-400",    bg: "bg-cyan-400/10",    Icon: UserCheck },
   ];
 
   return (
@@ -305,45 +320,69 @@ function SummaryPanel({ drivers }: { drivers: Driver[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Sort Icon ───
-function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" }) {
-  if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-  return sortDir === "asc"
-    ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-    : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
+function buildListParams(
+  activeTab: TabId,
+  page: number,
+  debouncedSearch: string,
+  opStatusFilter: string,
+  visibilityFilter: string,
+  verStatusFilter: string,
+  flagTypeFilter: string,
+  flagStatusFilter: string,
+): DriversListParams {
+  const params: DriversListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+  };
+
+  if (activeTab !== "all") {
+    params.category = activeTab;
+  } else if (verStatusFilter !== "All") {
+    params.verification_status = verStatusFilter;
+  }
+
+  if (opStatusFilter !== "All") params.operational_status = opStatusFilter;
+  if (visibilityFilter !== "All") params.visibility = visibilityFilter;
+  if (flagTypeFilter !== "All") params.flag_type = flagTypeFilter;
+  if (flagStatusFilter !== "All") params.flag_status = flagStatusFilter;
+
+  return params;
 }
 
 // ─── Main Page ───
 export function DriversPage() {
   const [activeTab, setActiveTab] = useState<TabId>("all");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [opStatusFilter, setOpStatusFilter] = useState("All");
   const [visibilityFilter, setVisibilityFilter] = useState("All");
   const [verStatusFilter, setVerStatusFilter] = useState("All");
   const [flagTypeFilter, setFlagTypeFilter] = useState("All");
   const [flagStatusFilter, setFlagStatusFilter] = useState("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [page, setPage] = useState(1);
-  const [sortField, setSortField] = useState<string | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [drivers, setDrivers] = useState<Driver[]>(MOCK_DRIVERS);
   const [selectedDriver, setSelectedDriver] = useState<Driver | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string; message: string; confirmLabel: string; danger?: boolean;
@@ -364,102 +403,74 @@ export function DriversPage() {
     });
   }
 
+  const listParams = buildListParams(
+    activeTab,
+    page,
+    debouncedSearch,
+    opStatusFilter,
+    visibilityFilter,
+    verStatusFilter,
+    flagTypeFilter,
+    flagStatusFilter,
+  );
+
+  const { data: summary, isLoading: summaryLoading } = useDriversSummary();
+  const { data: driversData, isLoading, isError } = useDrivers(listParams);
+
+  const disableDriver = useDisableDriver();
+  const archiveDriver = useArchiveDriver();
+  const enableDriver = useEnableDriver();
+  const clearFlag = useClearDriverFlag();
+  const startVerification = useStartDriverVerification();
+  const exportDrivers = useExportDrivers();
+
+  const drivers = Array.isArray(driversData?.data) ? driversData.data : [];
+  const meta = driversData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
+
   const lastRefresh = new Date().toLocaleString("en-NG", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    debounceRef.current = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 400);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [search]);
-
   function switchTab(tab: TabId) {
     setActiveTab(tab);
     setPage(1);
-    setSearch(""); setDebouncedSearch("");
-    setOpStatusFilter("All"); setVisibilityFilter("All");
-    setVerStatusFilter("All"); setFlagTypeFilter("All");
-    setFlagStatusFilter("All"); setSortField(null);
+    resetSearch();
+    setOpStatusFilter("All");
+    setVisibilityFilter("All");
+    setVerStatusFilter("All");
+    setFlagTypeFilter("All");
+    setFlagStatusFilter("All");
     setShowFilters(false);
   }
 
-  function handleSort(field: string) {
-    if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("asc"); }
-    setPage(1);
-  }
-
-  // ─── Tab data ───
-  const tabData = useMemo(() => {
-    const byStatus = (status: DriverVerificationStatus[]) =>
-      drivers.filter((d) => status.includes(d.verification_status));
-    return {
-      all:        drivers,
-      verified:   byStatus(["VERIFIED"]),
-      unverified: byStatus(["UNVERIFIED", "VERIFICATION_IN_PROGRESS"]),
-      flagged:    byStatus(["FLAGGED"]),
-      disabled:   byStatus(["DISABLED"]),
-    };
-  }, [drivers]);
-
   const tabCounts = {
-    all: tabData.all.length, verified: tabData.verified.length,
-    unverified: tabData.unverified.length, flagged: tabData.flagged.length,
-    disabled: tabData.disabled.length,
+    all:        summary?.total ?? 0,
+    verified:   summary?.verified ?? 0,
+    unverified: (summary?.unverified ?? 0) + (summary?.verification_in_progress ?? 0),
+    flagged:    summary?.flagged ?? 0,
+    disabled:   summary?.disabled ?? 0,
   };
 
-  // ─── Filtered + sorted ───
-  const filtered = useMemo(() => {
-    let result = [...tabData[activeTab]];
-
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      result = result.filter((d) =>
-        `${d.first_name} ${d.last_name}`.toLowerCase().includes(q) ||
-        d.license_number.toLowerCase().includes(q) ||
-        d.mobile_number.includes(q) ||
-        d.registered_by.company_name.toLowerCase().includes(q) ||
-        (d.flag?.flag_id ?? "").toLowerCase().includes(q)
-      );
-    }
-
-    if (opStatusFilter !== "All") result = result.filter((d) => d.operational_status === opStatusFilter);
-    if (visibilityFilter !== "All") result = result.filter((d) => d.visibility === visibilityFilter);
-    if (verStatusFilter !== "All") result = result.filter((d) => d.verification_status === verStatusFilter);
-    if (flagTypeFilter !== "All") result = result.filter((d) => d.flag?.flag_type === flagTypeFilter);
-    if (flagStatusFilter !== "All") result = result.filter((d) => d.flag?.flag_status === flagStatusFilter);
-
-    if (sortField) {
-      result.sort((a, b) => {
-        let av = "", bv = "";
-        if (sortField === "name") { av = `${a.first_name} ${a.last_name}`; bv = `${b.first_name} ${b.last_name}`; }
-        else if (sortField === "created_at") { av = a.created_at; bv = b.created_at; }
-        else if (sortField === "verification_timestamp") { av = a.verification_timestamp ?? ""; bv = b.verification_timestamp ?? ""; }
-        else if (sortField === "license_expiry_date") { av = a.license_expiry_date; bv = b.license_expiry_date; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return sortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return result;
-  }, [tabData, activeTab, debouncedSearch, opStatusFilter, visibilityFilter, verStatusFilter, flagTypeFilter, flagStatusFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const hasActiveFilters = debouncedSearch || opStatusFilter !== "All" || visibilityFilter !== "All" ||
     verStatusFilter !== "All" || flagTypeFilter !== "All" || flagStatusFilter !== "All";
 
   function clearFilters() {
-    setSearch(""); setDebouncedSearch("");
-    setOpStatusFilter("All"); setVisibilityFilter("All");
-    setVerStatusFilter("All"); setFlagTypeFilter("All");
-    setFlagStatusFilter("All"); setPage(1);
+    resetSearch();
+    setOpStatusFilter("All");
+    setVisibilityFilter("All");
+    setVerStatusFilter("All");
+    setFlagTypeFilter("All");
+    setFlagStatusFilter("All");
+    setPage(1);
   }
 
-  // ─── Mutations ───
-  function updateDriver(id: string, patch: Partial<Driver>) {
-    setDrivers((prev) => prev.map((d) => d.id === id ? { ...d, ...patch } : d));
+  function handleExportCsv() {
+    exportDrivers.mutate(listParams, {
+      onSuccess: () => toast.success("Drivers exported as CSV."),
+    });
   }
 
   function handleDisable(driver: Driver) {
@@ -470,25 +481,24 @@ export function DriversPage() {
       danger: true,
       onConfirm: (reason) => {
         setReasonDialog(null);
-        updateDriver(driver.id, { verification_status: "DISABLED", disable_info: {
-          disabled_by: "SuperAdmin", disable_reason: reason,
-          disable_timestamp: new Date().toISOString(),
-        }});
-        toast.success(`Driver ${driver.first_name} ${driver.last_name} has been disabled.`);
+        disableDriver.mutate({ id: driver.id, reason }, {
+          onSuccess: () => toast.success(`Driver ${driver.first_name} ${driver.last_name} has been disabled.`),
+        });
       },
     });
   }
 
   function handleArchive(driver: Driver) {
-    setReasonDialog({
+    setConfirm({
       title: `Archive Driver — ${driver.first_name} ${driver.last_name}`,
-      description: "This driver's record will be retained for audit but removed from active listings.",
+      message: "This driver's record will be retained for audit but removed from active listings.",
       confirmLabel: "Archive Driver",
       danger: true,
-      onConfirm: (reason) => {
-        setReasonDialog(null);
-        updateDriver(driver.id, { verification_status: "ARCHIVED" });
-        toast.success(`Driver ${driver.first_name} ${driver.last_name} archived. Reason: "${reason.substring(0, 40)}"`);
+      onConfirm: () => {
+        setConfirm(null);
+        archiveDriver.mutate(driver.id, {
+          onSuccess: () => toast.success(`Driver ${driver.first_name} ${driver.last_name} has been archived.`),
+        });
       },
     });
   }
@@ -500,8 +510,9 @@ export function DriversPage() {
       confirmLabel: "Start Verification",
       onConfirm: () => {
         setConfirm(null);
-        updateDriver(driver.id, { verification_status: "VERIFICATION_IN_PROGRESS" });
-        toast.success(`Verification initiated for ${driver.first_name} ${driver.last_name}.`);
+        startVerification.mutate(driver.id, {
+          onSuccess: () => toast.success(`Verification initiated for ${driver.first_name} ${driver.last_name}.`),
+        });
       },
     });
   }
@@ -513,11 +524,9 @@ export function DriversPage() {
       confirmLabel: "Clear Flag",
       onConfirm: (reason) => {
         setReasonDialog(null);
-        updateDriver(driver.id, {
-          verification_status: "VERIFIED",
-          flag: driver.flag ? { ...driver.flag, flag_status: "CLEARED" } : undefined,
+        clearFlag.mutate({ id: driver.id, reason }, {
+          onSuccess: () => toast.success(`Flag for ${driver.first_name} ${driver.last_name} cleared.`),
         });
-        toast.success(`Flag for ${driver.first_name} ${driver.last_name} cleared. Reason: "${reason.substring(0, 40)}"`);
       },
     });
   }
@@ -529,12 +538,9 @@ export function DriversPage() {
       confirmLabel: "Enable Driver",
       onConfirm: () => {
         setConfirm(null);
-        updateDriver(driver.id, {
-          verification_status: "VERIFIED",
-          operational_status: "AVAILABLE",
-          disable_info: undefined,
+        enableDriver.mutate(driver.id, {
+          onSuccess: () => toast.success(`Driver ${driver.first_name} ${driver.last_name} is now active and available.`),
         });
-        toast.success(`Driver ${driver.first_name} ${driver.last_name} is now active and available.`);
       },
     });
   }
@@ -690,14 +696,6 @@ export function DriversPage() {
     );
   }
 
-  function SortableTH({ field, children }: { field: string; children: React.ReactNode }) {
-    return (
-      <th onClick={() => handleSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={sortField} sortDir={sortDir} /></span>
-      </th>
-    );
-  }
-
   const staticTH = (label: string) => (
     <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</th>
   );
@@ -820,7 +818,7 @@ export function DriversPage() {
       </nav>
 
       {/* ─── Summary Panel ─── */}
-      <SummaryPanel drivers={drivers} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -896,8 +894,15 @@ export function DriversPage() {
               <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
             </button>
             <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-              <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" /> CSV</button>
-              <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
+              <button
+                onClick={handleExportCsv}
+                disabled={exportDrivers.isPending}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {exportDrivers.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" /> : <FileText className="h-3.5 w-3.5 text-gray-400" />}
+                CSV
+              </button>
+              <button onClick={() => toast.info("PDF export — coming soon.")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" /> PDF</button>
             </div>
           </div>
         </div>
@@ -975,14 +980,9 @@ export function DriversPage() {
       {/* ─── Results count ─── */}
       <div className="flex items-center justify-between">
         <p className="text-xs text-gray-500">
-          Showing <span className="font-semibold text-gray-800">{filtered.length}</span> driver{filtered.length !== 1 ? "s" : ""}
+          Showing <span className="font-semibold text-gray-800">{totalCount}</span> driver{totalCount !== 1 ? "s" : ""}
           {hasActiveFilters && " matching your filters"}
         </p>
-        {sortField && (
-          <button onClick={() => { setSortField(null); setSortDir("asc"); }} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
-            <X className="h-3 w-3" /> Clear sort
-          </button>
-        )}
       </div>
 
       {/* ─── Table ─── */}
@@ -993,19 +993,19 @@ export function DriversPage() {
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {staticTH("S/No.")}
                 {col("driver_image") && staticTH("Driver")}
-                <SortableTH field="name">Driver Name</SortableTH>
+                {staticTH("Driver Name")}
                 {col("mobile_number") && staticTH("Mobile")}
                 {staticTH("License No.")}
-                {col("license_expiry") && <SortableTH field="license_expiry_date">License Expiry</SortableTH>}
+                {col("license_expiry") && staticTH("License Expiry")}
                 {col("date_of_birth") && staticTH("Date of Birth")}
                 {col("sex") && staticTH("Sex")}
-                <SortableTH field="created_at">Created</SortableTH>
+                {staticTH("Created")}
                 {staticTH("Ver. Status")}
                 {(activeTab === "verified" || activeTab === "all") && staticTH("Driver Status")}
                 {col("registered_by") && staticTH("Registered By")}
                 {col("visibility") && staticTH("Visibility")}
                 {(activeTab === "verified" || activeTab === "flagged" || activeTab === "disabled") && (
-                  <SortableTH field="verification_timestamp">Verification Date</SortableTH>
+                  staticTH("Verification Date")
                 )}
                 {activeTab === "unverified" && staticTH("Ver. Progress")}
                 {activeTab === "flagged" && staticTH("Flag ID")}
@@ -1020,7 +1020,25 @@ export function DriversPage() {
             </thead>
 
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={20} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading drivers...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={20} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load drivers</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : drivers.length === 0 ? (
                 <tr>
                   <td colSpan={20} className="px-4 py-12 text-center">
                     <div className="flex flex-col items-center gap-2">
@@ -1031,7 +1049,7 @@ export function DriversPage() {
                   </td>
                 </tr>
               ) : (
-                paged.map((d, idx) => (
+                drivers.map((d, idx) => (
                   <tr key={d.id} className="transition-colors hover:bg-gray-50/80">
                     {/* S/No */}
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
@@ -1156,9 +1174,9 @@ export function DriversPage() {
         {/* ─── Pagination ─── */}
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
-            Showing <span className="font-medium text-gray-700">{paged.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
-            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + paged.length}</span> of{" "}
-            <span className="font-medium text-gray-700">{filtered.length}</span> drivers
+            Showing <span className="font-medium text-gray-700">{drivers.length > 0 ? (page - 1) * PAGE_SIZE + 1 : 0}</span>–
+            <span className="font-medium text-gray-700">{(page - 1) * PAGE_SIZE + drivers.length}</span> of{" "}
+            <span className="font-medium text-gray-700">{totalCount}</span> drivers
           </p>
           <div className="flex items-center gap-1">
             <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>

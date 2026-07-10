@@ -96,6 +96,46 @@ export const FACILITIES = {
   TIMESLOTS: (id: string) => `/facilities/${id}/timeslots`,
 } as const;
 
+// ─── Trucks ───
+export const TRUCKS = {
+  LIST: "/trucks",
+  SUMMARY: "/trucks/summary",
+  EXPORT: "/trucks/export",
+  CREATE: "/trucks",
+  BULK: "/trucks/bulk",
+  BY_ID: (id: string) => `/trucks/${id}`,
+  DISABLE: (id: string) => `/trucks/${id}/disable`,
+  ARCHIVE: (id: string) => `/trucks/${id}/archive`,
+  RE_ENABLE: (id: string) => `/trucks/${id}/re-enable`,
+  OVERRIDE_PENALTY: (id: string) => `/trucks/${id}/override-penalty`,
+  REQUEST_VERIFICATION: (id: string) => `/trucks/${id}/request-verification`,
+} as const;
+
+// ─── Drivers ───
+export const DRIVERS = {
+  LIST: "/drivers",
+  SUMMARY: "/drivers/summary",
+  EXPORT: "/drivers/export",
+  CREATE: "/drivers",
+  BY_ID: (id: string) => `/drivers/${id}`,
+  DISABLE: (id: string) => `/drivers/${id}/disable`,
+  ARCHIVE: (id: string) => `/drivers/${id}/archive`,
+  ENABLE: (id: string) => `/drivers/${id}/enable`,
+  CLEAR_FLAG: (id: string) => `/drivers/${id}/clear-flag`,
+  START_VERIFICATION: (id: string) => `/drivers/${id}/start-verification`,
+} as const;
+
+// ─── TEPs ───
+export const TEPS = {
+  LIST: "/teps",
+  SUMMARY: "/teps/summary",
+  EXPORT: "/teps/export",
+  CREATE: "/teps",
+  BULK: "/teps/bulk",
+  BY_ID: (id: string) => `/teps/${id}`,
+  REVOKE: (id: string) => `/teps/${id}/revoke`,
+} as const;
+
 // ─── Activity Log ───
 export const ACTIVITY_LOG = {
   LIST: "/activity-logs",

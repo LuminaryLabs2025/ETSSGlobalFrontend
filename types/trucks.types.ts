@@ -99,3 +99,70 @@ export interface TrucksSummary {
   available: number;
   on_trip: number;
 }
+
+export type TrucksSummaryResponse = TrucksSummary;
+
+// ─── List Params ───
+export interface TrucksListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  registration_status?: RegistrationStatus | string;
+  truck_status?: TruckStatus | string;
+  truck_type?: TruckType | string;
+  visibility?: Visibility | string;
+  penalty_type?: PenaltyType | string;
+  payment_status?: PaymentStatus | string;
+}
+
+// ─── List Response ───
+export interface TrucksListResponse {
+  data: Truck[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+// ─── Action Response ───
+export interface TruckActionResponse {
+  message: string;
+}
+
+export interface TruckReasonPayload {
+  reason: string;
+}
+
+// ─── Create Payloads ───
+export interface CreateTruckPayload {
+  plate_number: string;
+  truck_type: TruckType;
+  color: string;
+  chassis_number: string;
+  brand: string;
+  model: string;
+  truck_length: string;
+  truck_capacity: string;
+  transporter_company_id: string;
+  visibility: Visibility;
+}
+
+export interface BulkCreateTruckItem {
+  plate_number: string;
+  truck_type: TruckType;
+  color: string;
+  chassis_number: string;
+  brand: string;
+  model: string;
+  truck_length: string;
+  truck_capacity: string;
+  visibility: Visibility;
+}
+
+export interface BulkCreateTrucksPayload {
+  transporter_company_id: string;
+  trucks: BulkCreateTruckItem[];
+}

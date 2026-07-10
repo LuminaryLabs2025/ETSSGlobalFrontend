@@ -66,6 +66,54 @@ export interface TEPsSummary {
   revoked: number;
   matched: number;
   unmatched: number;
-  by_classification: Record<TEPClassification, number>;
-  by_source: Record<TEPSource, number>;
+  by_classification: Partial<Record<TEPClassification, number>>;
+  by_source: Partial<Record<TEPSource, number>>;
+}
+
+export type TEPsSummaryResponse = TEPsSummary;
+
+// ─── List Params ───
+export interface TEPsListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  category?: string;
+  classification?: TEPClassification | string;
+  source?: TEPSource | string;
+  status?: TEPStatus | string;
+  match_status?: TEPMatchStatus | string;
+}
+
+// ─── List Response ───
+export interface TEPsListResponse {
+  data: TEP[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+// ─── Action Response ───
+export interface TEPActionResponse {
+  message: string;
+}
+
+export interface TEPReasonPayload {
+  reason: string;
+}
+
+// ─── Create Payloads ───
+export interface CreateTEPPayload {
+  reference_number: string;
+  classification: TEPClassification;
+  facility_name: string;
+  company_name: string;
+  truck_plate_number: string;
+  expiry_date: string;
+}
+
+export interface BulkCreateTEPsPayload {
+  teps: CreateTEPPayload[];
 }
