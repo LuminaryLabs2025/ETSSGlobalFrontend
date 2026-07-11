@@ -31,6 +31,7 @@ import {
   X,
   Activity,
   UsersRound,
+  ClipboardList,
   Settings,
 } from "lucide-react";
 import { totalRevenue } from "@/lib/mock-data";
@@ -49,6 +50,7 @@ const navGroups = [
     title: "Operations",
     items: [
       { label: "Bookings", icon: BookOpen, href: "/dashboard/bookings/all" },
+      { label: "Daily Truck Requests", icon: ClipboardList, href: "/dashboard/dttr" },
       { label: "Trucks", icon: Truck, href: "/dashboard/trucks" },
       { label: "Drivers", icon: Users, href: "/dashboard/drivers" },
       { label: "Companies", icon: Building2, href: "/dashboard/companies" },
