@@ -36,7 +36,13 @@ export const TEAM = {
 // ─── Bookings ───
 export const BOOKINGS = {
   LIST: "/bookings",
+  SUMMARY: "/bookings/summary",
+  EXPORT: "/bookings/export",
+  MANIFEST: "/bookings/manifest",
   BY_ID: (id: string) => `/bookings/${id}`,
+  REMOVE_FROM_MANIFEST: (id: string) => `/bookings/${id}/remove-from-manifest`,
+  ADD_TO_MANIFEST: (id: string) => `/bookings/${id}/add-to-manifest`,
+  CANCEL: (id: string) => `/bookings/${id}/cancel`,
 } as const;
 
 // ─── Profile ───
@@ -134,6 +140,18 @@ export const TEPS = {
   BULK: "/teps/bulk",
   BY_ID: (id: string) => `/teps/${id}`,
   REVOKE: (id: string) => `/teps/${id}/revoke`,
+} as const;
+
+// ─── DTTR ───
+export const DTTR = {
+  LIST: "/dttr",
+  SUMMARY: "/dttr/summary",
+  EDIT_AUDIT: "/dttr/edit-audit",
+  BY_ID: (id: string) => `/dttr/${id}`,
+  SUBMISSIONS: (id: string) => `/dttr/${id}/submissions`,
+  SUBMIT: (id: string) => `/dttr/${id}/submit`,
+  EDIT: (id: string) => `/dttr/${id}`,
+  CONFIGURE_MODE: (id: string) => `/dttr/${id}/configure-mode`,
 } as const;
 
 // ─── Activity Log ───

@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState } from "react";
 import {
   BookOpen,
   Search,
   Filter,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ChevronRight as Chevron,
@@ -14,37 +13,37 @@ import {
   Eye,
   Ban,
   MoreHorizontal,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Shield,
   Truck,
-  User,
-  Building2,
-  MapPin,
   RefreshCw,
   History,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
-  ClipboardList,
-  Plus,
   RotateCcw,
+  Loader2,
+  AlertCircle,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useBookings } from "@/hooks/bookings/useBookings";
+import { useBookingsSummary } from "@/hooks/bookings/useBookingsSummary";
+import { useBookingsManifest } from "@/hooks/bookings/useBookingsManifest";
+import { useBooking } from "@/hooks/bookings/useBooking";
 import {
-  MOCK_BOOKINGS,
-  TERMINAL_OPTIONS,
-  TRANSPORTER_OPTIONS,
-  buildBookingsSummary,
-} from "@/lib/bookings-mock-data";
+  useRemoveFromManifest,
+  useAddToManifest,
+  useCancelBooking,
+  useExportBookings,
+} from "@/hooks/bookings/useBookingActions";
 import type {
   Booking,
   BookingStatus,
   TransferType,
-  BookingAuditEntry,
-  BookingTimelineEntry,
+  BookingsSummaryResponse,
+  BookingsListParams,
+  BookingsManifestParams,
 } from "@/types/bookings.types";
 
 const PAGE_SIZE = 10;
@@ -52,8 +51,25 @@ const PAGE_SIZE = 10;
 type MainSection = "all" | "manifest";
 type StatusTab = "all" | BookingStatus;
 type ManifestTab = "in" | "left";
-type SortField = "created_at" | "status" | "terminal_name" | "last_updated_at";
-type SortDir = "asc" | "desc";
+
+const TERMINAL_OPTIONS = [
+  "All",
+  "Apapa Port Terminal A",
+  "Tincan Island Terminal",
+  "Onne Port Terminal",
+  "Lekki Deep Sea Terminal",
+  "Calabar Non-Port Terminal",
+];
+
+const TRANSPORTER_OPTIONS = [
+  "All",
+  "ABC Logistics Ltd",
+  "BUA Transport Services",
+  "Dangote Transport Services",
+  "Mikano Logistics",
+  "Shina & Sons Logistics",
+  "Calabar Haulage Co.",
+];
 
 const STATUS_TABS: { id: StatusTab; label: string }[] = [
   { id: "all", label: "All Bookings" },
@@ -87,10 +103,6 @@ function formatTimestamp(ts: string) {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
-}
-
-function toDateInput(ts: string) {
-  return ts.slice(0, 10);
 }
 
 function formatLabel(s: string) {
@@ -128,14 +140,21 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
-function SummaryPanel({ bookings, lastRefresh }: { bookings: Booking[]; lastRefresh: string }) {
-  const s = buildBookingsSummary(bookings);
+function SummaryPanel({
+  summary,
+  isLoading,
+  lastRefresh,
+}: {
+  summary?: BookingsSummaryResponse;
+  isLoading?: boolean;
+  lastRefresh: string;
+}) {
   const cards = [
-    { label: "Total Bookings", value: s.total, color: "text-blue-400", bg: "bg-blue-400/10", Icon: BookOpen },
-    { label: "Live", value: s.live, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: ActivityIcon },
-    { label: "Completed", value: s.completed, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Cancelled", value: s.cancelled, color: "text-red-400", bg: "bg-red-400/10", Icon: XCircle },
-    { label: "Expired", value: s.expired, color: "text-gray-400", bg: "bg-gray-400/10", Icon: Clock },
+    { label: "Total Bookings", value: summary?.total ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: BookOpen },
+    { label: "Live", value: summary?.live ?? 0, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: ActivityIcon },
+    { label: "Completed", value: summary?.completed ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Cancelled", value: summary?.cancelled ?? 0, color: "text-red-400", bg: "bg-red-400/10", Icon: XCircle },
+    { label: "Expired", value: summary?.expired ?? 0, color: "text-gray-400", bg: "bg-gray-400/10", Icon: Clock },
   ];
 
   return (
@@ -160,17 +179,23 @@ function SummaryPanel({ bookings, lastRefresh }: { bookings: Booking[]; lastRefr
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -184,22 +209,36 @@ function ActivityIcon({ className }: { className?: string }) {
   );
 }
 
-function BookingDetailDrawer({ booking, onClose }: { booking: Booking; onClose: () => void }) {
+function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClose: () => void }) {
+  const { data: booking, isLoading, isError } = useBooking(bookingId);
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
         <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
           <div>
-            <p className="font-mono text-sm font-bold text-white">{booking.booking_id}</p>
-            <p className="text-[11px] text-gray-400">{booking.journey_code}</p>
+            <p className="font-mono text-sm font-bold text-white">{booking?.booking_id ?? "Loading..."}</p>
+            <p className="text-[11px] text-gray-400">{booking?.journey_code ?? ""}</p>
           </div>
           <div className="flex items-center gap-2">
-            <StatusBadge status={booking.status} />
+            {booking && <StatusBadge status={booking.status} />}
             <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
           </div>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-400">Loading booking details...</p>
+            </div>
+          ) : isError || !booking ? (
+            <div className="flex flex-col items-center gap-2 py-12">
+              <AlertCircle className="h-8 w-8 text-red-300" />
+              <p className="text-sm text-gray-400">Failed to load booking details</p>
+            </div>
+          ) : (
+            <>
           <div className="flex items-center gap-3 rounded-xl border border-gray-100 p-4">
             <TruckAvatar color={booking.truck_color} />
             <div>
@@ -227,10 +266,10 @@ function BookingDetailDrawer({ booking, onClose }: { booking: Booking; onClose: 
             </div>
           </div>
 
-          {booking.exceptions.length > 0 && (
+          {(booking.exceptions?.length ?? 0) > 0 && (
             <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
               <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-600">Penalties, Delays &amp; Exceptions</p>
-              {booking.exceptions.map((ex) => (
+              {booking.exceptions!.map((ex) => (
                 <div key={ex.id} className="mt-2 rounded-lg bg-white p-3">
                   <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{ex.type}</span>
                   <p className="mt-1 text-xs text-gray-700">{ex.description}</p>
@@ -257,7 +296,7 @@ function BookingDetailDrawer({ booking, onClose }: { booking: Booking; onClose: 
               <History className="mr-1 inline h-3.5 w-3.5" /> Booking Timeline
             </p>
             <div className="divide-y divide-gray-50">
-              {[...booking.timeline].reverse().map((entry) => (
+              {[...(booking.timeline ?? [])].reverse().map((entry) => (
                 <div key={entry.id} className="px-4 py-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-gray-800">{formatLabel(entry.status)}</p>
@@ -269,6 +308,8 @@ function BookingDetailDrawer({ booking, onClose }: { booking: Booking; onClose: 
               ))}
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -276,10 +317,10 @@ function BookingDetailDrawer({ booking, onClose }: { booking: Booking; onClose: 
 }
 
 function ConfirmDialog({
-  title, message, confirmLabel, danger, onConfirm, onCancel,
+  title, message, confirmLabel, danger, onConfirm, onCancel, isPending,
 }: {
   title: string; message: string; confirmLabel: string; danger?: boolean;
-  onConfirm: () => void; onCancel: () => void;
+  onConfirm: () => void; onCancel: () => void; isPending?: boolean;
 }) {
   return (
     <>
@@ -288,8 +329,11 @@ function ConfirmDialog({
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onConfirm} className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>{confirmLabel}</button>
+          <button onClick={onCancel} disabled={isPending} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button disabled={isPending} onClick={onConfirm} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </>
@@ -301,13 +345,12 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
   const isSuperAdmin = user?.is_super_admin ?? false;
 
   const [mainSection, setMainSection] = useState<MainSection>(initialSection);
-  const [bookings, setBookings] = useState<Booking[]>(MOCK_BOOKINGS);
-  const [auditLog, setAuditLog] = useState<BookingAuditEntry[]>([]);
-  const [lastRefresh, setLastRefresh] = useState(formatTimestamp(new Date().toISOString()));
-
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [manifestTab, setManifestTab] = useState<ManifestTab>("in");
-  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [manifestPage, setManifestPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
+  const { search: manifestSearch, setSearch: setManifestSearch, debouncedSearch: debouncedManifestSearch } = useDebouncedSearch("", () => setManifestPage(1));
   const [terminalFilter, setTerminalFilter] = useState("All");
   const [transferFilter, setTransferFilter] = useState<TransferType | "All">("All");
   const [transporterFilter, setTransporterFilter] = useState("All");
@@ -315,184 +358,127 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
   const [dateTo, setDateTo] = useState("");
   const [dateField, setDateField] = useState<"created" | "completed">("created");
   const [showFilters, setShowFilters] = useState(false);
-  const [sortField, setSortField] = useState<SortField>("created_at");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [page, setPage] = useState(1);
-  const [manifestSearch, setManifestSearch] = useState("");
 
-  const [detailBooking, setDetailBooking] = useState<Booking | null>(null);
+  const [detailBookingId, setDetailBookingId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string; message: string; confirmLabel: string; danger?: boolean;
     onConfirm: () => void;
   } | null>(null);
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLastRefresh(formatTimestamp(new Date().toISOString()));
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  function logAction(action: string, details: string) {
-    setAuditLog((prev) => [
-      ...prev,
-      {
-        id: `audit-${Date.now()}`,
-        action,
-        details,
-        performed_by: user ? `${user.first_name} ${user.last_name}` : "SuperAdmin",
-        performed_at: new Date().toISOString(),
-      },
-    ]);
-  }
-
-  function appendTimeline(bookingId: string, entry: Omit<BookingTimelineEntry, "id">) {
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === bookingId
-          ? {
-              ...b,
-              last_updated_at: new Date().toISOString(),
-              timeline: [...b.timeline, { ...entry, id: `t-${Date.now()}` }],
-            }
-          : b,
-      ),
-    );
-  }
-
-  const allBookingsFiltered = useMemo(() => {
-    let result = [...bookings];
-    if (statusTab !== "all") result = result.filter((b) => b.status === statusTab);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (b) =>
-          b.booking_id.toLowerCase().includes(q) ||
-          b.journey_code.toLowerCase().includes(q) ||
-          b.truck_plate_number.toLowerCase().includes(q) ||
-          b.driver_name.toLowerCase().includes(q),
-      );
-    }
-    if (terminalFilter !== "All") result = result.filter((b) => b.terminal_name === terminalFilter);
-    if (transferFilter !== "All") result = result.filter((b) => b.transfer_type === transferFilter);
-    if (transporterFilter !== "All") result = result.filter((b) => b.transporter_company === transporterFilter);
-    if (dateFrom) {
-      result = result.filter((b) => {
-        const d = dateField === "completed" ? b.completed_at : b.created_at;
-        return d ? toDateInput(d) >= dateFrom : false;
-      });
-    }
-    if (dateTo) {
-      result = result.filter((b) => {
-        const d = dateField === "completed" ? b.completed_at : b.created_at;
-        return d ? toDateInput(d) <= dateTo : false;
-      });
-    }
-    result.sort((a, b) => {
-      let av = "", bv = "";
-      if (sortField === "created_at") { av = a.created_at; bv = b.created_at; }
-      else if (sortField === "last_updated_at") { av = a.last_updated_at; bv = b.last_updated_at; }
-      else if (sortField === "status") { av = a.status; bv = b.status; }
-      else if (sortField === "terminal_name") { av = a.terminal_name; bv = b.terminal_name; }
-      const cmp = av.localeCompare(bv, undefined, { numeric: true });
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-    return result;
-  }, [bookings, statusTab, search, terminalFilter, transferFilter, transporterFilter, dateFrom, dateTo, dateField, sortField, sortDir]);
-
-  const inManifest = useMemo(() => {
-    let list = bookings.filter((b) => b.manifest_status === "IN_MANIFEST" && b.left_pregate_at);
-    if (manifestSearch.trim()) {
-      const q = manifestSearch.toLowerCase();
-      list = list.filter(
-        (b) => b.booking_id.toLowerCase().includes(q) || b.truck_plate_number.toLowerCase().includes(q),
-      );
-    }
-    return list.sort((a, b) => (b.left_pregate_at ?? "").localeCompare(a.left_pregate_at ?? ""));
-  }, [bookings, manifestSearch]);
-
-  const leftManifest = useMemo(() => {
-    let list = bookings.filter((b) => b.manifest_status === "LEFT_MANIFEST" && b.tow_truck_request);
-    if (manifestSearch.trim()) {
-      const q = manifestSearch.toLowerCase();
-      list = list.filter(
-        (b) => b.booking_id.toLowerCase().includes(q) || b.truck_plate_number.toLowerCase().includes(q),
-      );
-    }
-    return list.sort((a, b) => (b.left_manifest_at ?? "").localeCompare(a.left_manifest_at ?? ""));
-  }, [bookings, manifestSearch]);
-
-  const statusTabCounts = {
-    all: bookings.length,
-    LIVE: bookings.filter((b) => b.status === "LIVE").length,
-    COMPLETED: bookings.filter((b) => b.status === "COMPLETED").length,
-    CANCELLED: bookings.filter((b) => b.status === "CANCELLED").length,
-    EXPIRED: bookings.filter((b) => b.status === "EXPIRED").length,
+  const listParams: BookingsListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    status: statusTab !== "all" ? statusTab : undefined,
+    terminal_name: terminalFilter !== "All" ? terminalFilter : undefined,
+    transfer_type: transferFilter !== "All" ? transferFilter : undefined,
+    transporter_company: transporterFilter !== "All" ? transporterFilter : undefined,
+    date_field: dateFrom || dateTo ? dateField : undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
   };
 
-  const totalPages = Math.max(1, Math.ceil(allBookingsFiltered.length / PAGE_SIZE));
-  const paged = allBookingsFiltered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const manifestParams: BookingsManifestParams = {
+    page: manifestPage,
+    limit: PAGE_SIZE,
+    search: debouncedManifestSearch || undefined,
+    tab: manifestTab,
+  };
+
+  const manifestCountParams = (tab: ManifestTab): BookingsManifestParams => ({
+    page: 1,
+    limit: 1,
+    search: debouncedManifestSearch || undefined,
+    tab,
+  });
+
+  const { data: summary, isLoading: summaryLoading, dataUpdatedAt: summaryUpdatedAt } = useBookingsSummary(isSuperAdmin);
+  const { data: bookingsData, isLoading, isError, dataUpdatedAt } = useBookings(listParams, isSuperAdmin && mainSection === "all");
+  const { data: manifestData, isLoading: manifestLoading, isError: manifestError } = useBookingsManifest(
+    manifestParams,
+    isSuperAdmin && mainSection === "manifest",
+  );
+  const { data: inManifestCountData } = useBookingsManifest(
+    manifestCountParams("in"),
+    isSuperAdmin && mainSection === "manifest",
+  );
+  const { data: leftManifestCountData } = useBookingsManifest(
+    manifestCountParams("left"),
+    isSuperAdmin && mainSection === "manifest",
+  );
+
+  const removeFromManifest = useRemoveFromManifest();
+  const addToManifest = useAddToManifest();
+  const cancelBooking = useCancelBooking();
+  const exportBookings = useExportBookings();
+
+  const bookings = Array.isArray(bookingsData?.data) ? bookingsData.data : [];
+  const meta = bookingsData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
+
+  const manifestBookings = Array.isArray(manifestData?.data) ? manifestData.data : [];
+  const manifestMeta = manifestData?.meta;
+  const manifestTotalPages = manifestMeta?.total_pages ?? 1;
+  const manifestTotalCount = manifestMeta?.total ?? 0;
+
+  const lastRefresh = formatTimestamp(new Date(summaryUpdatedAt || dataUpdatedAt || Date.now()).toISOString());
+
+  const statusTabCounts = {
+    all: summary?.total ?? 0,
+    LIVE: summary?.live ?? 0,
+    COMPLETED: summary?.completed ?? 0,
+    CANCELLED: summary?.cancelled ?? 0,
+    EXPIRED: summary?.expired ?? 0,
+  };
+
   const hasActiveFilters =
-    search || terminalFilter !== "All" || transferFilter !== "All" ||
+    debouncedSearch || terminalFilter !== "All" || transferFilter !== "All" ||
     transporterFilter !== "All" || dateFrom || dateTo;
 
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setSortField(field); setSortDir("asc"); }
+  const isActionPending = removeFromManifest.isPending || addToManifest.isPending || cancelBooking.isPending;
+
+  function clearFilters() {
+    resetSearch();
+    setTerminalFilter("All");
+    setTransferFilter("All");
+    setTransporterFilter("All");
+    setDateFrom("");
+    setDateTo("");
     setPage(1);
-    logAction("APPLY_SORT", `Sorted by ${field}`);
   }
 
-  function SortIcon({ field }: { field: SortField }) {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-    return sortDir === "asc"
-      ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-      : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
+  function handleExportCsv() {
+    exportBookings.mutate(listParams, {
+      onSuccess: () => toast.success("Bookings exported as CSV."),
+    });
   }
 
-  function removeFromManifest(booking: Booking) {
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === booking.id ? { ...b, manifest_status: null, last_updated_at: new Date().toISOString() } : b,
-      ),
-    );
-    appendTimeline(booking.id, { status: "REMOVED_FROM_MANIFEST", timestamp: new Date().toISOString(), performed_by: "SuperAdmin", notes: "Removed from IN-MANIFEST by SuperAdmin." });
-    logAction("REMOVE_FROM_MANIFEST", booking.booking_id);
-    toast.success(`${booking.truck_plate_number} removed from manifest.`);
+  function handleRemoveFromManifest(booking: Booking) {
+    removeFromManifest.mutate(booking.id, {
+      onSuccess: (res) => {
+        toast.success(res.message ?? `${booking.truck_plate_number} removed from manifest.`);
+        setConfirm(null);
+      },
+    });
   }
 
-  function addToManifest(booking: Booking) {
-    const now = new Date().toISOString();
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === booking.id
-          ? {
-              ...b,
-              manifest_status: "IN_MANIFEST",
-              left_manifest_at: undefined,
-              tow_truck_request: undefined,
-              last_updated_at: now,
-            }
-          : b,
-      ),
-    );
-    appendTimeline(booking.id, { status: "ADDED_TO_MANIFEST", timestamp: now, performed_by: "SuperAdmin", notes: "Re-listed in IN-MANIFEST — removed from LEFT-MANIFEST." });
-    logAction("ADD_TO_MANIFEST", booking.booking_id);
-    toast.success(`${booking.truck_plate_number} added back to IN-MANIFEST.`);
+  function handleAddToManifest(booking: Booking) {
+    addToManifest.mutate(booking.id, {
+      onSuccess: (res) => {
+        toast.success(res.message ?? `${booking.truck_plate_number} added back to IN-MANIFEST.`);
+        setConfirm(null);
+      },
+    });
   }
 
-  function cancelBooking(booking: Booking) {
-    const now = new Date().toISOString();
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === booking.id
-          ? { ...b, status: "CANCELLED", manifest_status: null, last_updated_at: now }
-          : b,
-      ),
-    );
-    appendTimeline(booking.id, { status: "CANCELLED", timestamp: now, performed_by: "SuperAdmin", notes: "Booking cancelled by SuperAdmin." });
-    logAction("CANCEL_BOOKING", booking.booking_id);
-    toast.success(`Booking ${booking.booking_id} cancelled.`);
+  function handleCancelBooking(booking: Booking) {
+    cancelBooking.mutate(booking.id, {
+      onSuccess: (res) => {
+        toast.success(res.message ?? `Booking ${booking.booking_id} cancelled.`);
+        setConfirm(null);
+      },
+    });
   }
 
   function InManifestActions({ booking }: { booking: Booking }) {
@@ -504,8 +490,8 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); logAction("VIEW_RECORD", booking.booking_id); setDetailBooking(booking); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Booking Details</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Remove From Manifest", message: `Remove ${booking.truck_plate_number} from IN-MANIFEST?`, confirmLabel: "Remove", danger: true, onConfirm: () => { setConfirm(null); removeFromManifest(booking); } }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Remove From Manifest</button>
+              <button onClick={() => { setOpen(false); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Booking Details</button>
+              <button onClick={() => { setOpen(false); setConfirm({ title: "Remove From Manifest", message: `Remove ${booking.truck_plate_number} from IN-MANIFEST?`, confirmLabel: "Remove", danger: true, onConfirm: () => handleRemoveFromManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Remove From Manifest</button>
             </div>
           </>
         )}
@@ -522,9 +508,9 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); logAction("VIEW_TOW_REQUEST", booking.booking_id); setDetailBooking(booking); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Tow Truck Request Details</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Add to Manifest", message: `Re-list ${booking.truck_plate_number} in IN-MANIFEST?`, confirmLabel: "Add to Manifest", onConfirm: () => { setConfirm(null); addToManifest(booking); } }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Add to Manifest</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Cancel Booking", message: `Cancel booking ${booking.booking_id}?`, confirmLabel: "Cancel Booking", danger: true, onConfirm: () => { setConfirm(null); cancelBooking(booking); } }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Cancel Booking</button>
+              <button onClick={() => { setOpen(false); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Tow Truck Request Details</button>
+              <button onClick={() => { setOpen(false); setConfirm({ title: "Add to Manifest", message: `Re-list ${booking.truck_plate_number} in IN-MANIFEST?`, confirmLabel: "Add to Manifest", onConfirm: () => handleAddToManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Add to Manifest</button>
+              <button onClick={() => { setOpen(false); setConfirm({ title: "Cancel Booking", message: `Cancel booking ${booking.booking_id}?`, confirmLabel: "Cancel Booking", danger: true, onConfirm: () => handleCancelBooking(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Cancel Booking</button>
             </div>
           </>
         )}
@@ -532,11 +518,6 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
     );
   }
 
-  const SortableTH = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
-    <th onClick={() => handleSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-      <span className="inline-flex items-center">{children}<SortIcon field={field} /></span>
-    </th>
-  );
   const staticTH = (label: string) => (
     <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</th>
   );
@@ -553,8 +534,8 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
 
   return (
     <div className="space-y-5 p-6">
-      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
-      {detailBooking && <BookingDetailDrawer booking={detailBooking} onClose={() => setDetailBooking(null)} />}
+      {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} isPending={isActionPending} />}
+      {detailBookingId && <BookingDetailDrawer bookingId={detailBookingId} onClose={() => setDetailBookingId(null)} />}
 
       <nav className="flex items-center gap-1.5 text-xs text-gray-500">
         <span>Operations</span>
@@ -562,7 +543,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
         <span className="font-semibold text-gray-800">Bookings</span>
       </nav>
 
-      <SummaryPanel bookings={bookings} lastRefresh={lastRefresh} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} lastRefresh={lastRefresh} />
 
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-6 pb-0 pt-4">
@@ -582,7 +563,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
             ]).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => { setMainSection(tab.id); setPage(1); }}
+                onClick={() => { setMainSection(tab.id); setPage(1); setManifestPage(1); }}
                 className={`whitespace-nowrap rounded-t-lg border-b-2 px-4 py-3 text-xs font-semibold transition-colors ${
                   mainSection === tab.id ? "border-emerald-600 text-emerald-700" : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
@@ -621,19 +602,27 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                   type="text"
                   placeholder="Search booking ID, journey code, plate or driver..."
                   value={search}
-                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 />
               </div>
               <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${showFilters || hasActiveFilters ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 <Filter className="h-4 w-4" /> Filters
               </button>
+              <button
+                onClick={handleExportCsv}
+                disabled={exportBookings.isPending}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {exportBookings.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                Export CSV
+              </button>
             </div>
             {showFilters && (
               <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-gray-100 pt-3">
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Terminal</label>
-                  <select value={terminalFilter} onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); logAction("APPLY_FILTER", `Terminal: ${e.target.value}`); }} className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300">
+                  <select value={terminalFilter} onChange={(e) => { setTerminalFilter(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300">
                     {TERMINAL_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
                   </select>
                 </div>
@@ -665,13 +654,13 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                   <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 py-1.5 pl-3 text-xs outline-none focus:border-emerald-300" />
                 </div>
                 {hasActiveFilters && (
-                  <button onClick={() => { setSearch(""); setTerminalFilter("All"); setTransferFilter("All"); setTransporterFilter("All"); setDateFrom(""); setDateTo(""); setPage(1); logAction("CLEAR_FILTERS", "Cleared filters"); }} className="flex items-center gap-1 text-xs font-medium text-red-500 hover:bg-red-50 px-2 py-1.5 rounded-lg"><X className="h-3 w-3" /> Clear</button>
+                  <button onClick={clearFilters} className="flex items-center gap-1 text-xs font-medium text-red-500 hover:bg-red-50 px-2 py-1.5 rounded-lg"><X className="h-3 w-3" /> Clear</button>
                 )}
               </div>
             )}
           </div>
 
-          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{allBookingsFiltered.length}</span> booking{allBookingsFiltered.length !== 1 ? "s" : ""}</p>
+          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{totalCount}</span> booking{totalCount !== 1 ? "s" : ""}</p>
 
           <div className="min-w-0 rounded-xl border border-gray-200 bg-white">
             <div className="overflow-x-auto">
@@ -684,23 +673,48 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                     {staticTH("Plate No.")}
                     {staticTH("Driver")}
                     {staticTH("Transporter")}
-                    <SortableTH field="terminal_name">Terminal</SortableTH>
+                    {staticTH("Terminal")}
                     {staticTH("Transfer Type")}
-                    <SortableTH field="status">Status</SortableTH>
-                    <SortableTH field="created_at">Created</SortableTH>
-                    <SortableTH field="last_updated_at">Last Updated</SortableTH>
+                    {staticTH("Status")}
+                    {staticTH("Created")}
+                    {staticTH("Last Updated")}
                     <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {paged.length === 0 ? (
-                    <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-400">No bookings match your filters</td></tr>
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={13} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                          <p className="text-sm font-medium text-gray-400">Loading bookings...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : isError ? (
+                    <tr>
+                      <td colSpan={13} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertCircle className="h-8 w-8 text-red-300" />
+                          <p className="text-sm font-medium text-gray-400">Failed to load bookings</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : bookings.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-400">
+                        No bookings match your filters
+                        {hasActiveFilters && (
+                          <button onClick={clearFilters} className="mt-2 block w-full text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>
+                        )}
+                      </td>
+                    </tr>
                   ) : (
-                    paged.map((b, idx) => (
+                    bookings.map((b, idx) => (
                       <tr key={b.id} className="hover:bg-gray-50/80">
                         <td className="px-3 py-3 text-xs text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                         <td className="px-3 py-3">
-                          <button onClick={() => { logAction("VIEW_RECORD", b.booking_id); setDetailBooking(b); }} className="font-mono text-xs font-bold text-emerald-700 hover:underline">{b.booking_id}</button>
+                          <button onClick={() => setDetailBookingId(b.id)} className="font-mono text-xs font-bold text-emerald-700 hover:underline">{b.booking_id}</button>
                           <p className="text-[10px] text-gray-400">{b.journey_code}</p>
                         </td>
                         <td className="px-3 py-3"><TruckAvatar color={b.truck_color} /></td>
@@ -713,7 +727,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                         <td className="px-3 py-3 text-[11px] text-gray-500">{formatTimestamp(b.created_at)}</td>
                         <td className="px-3 py-3 text-[11px] text-gray-500">{formatTimestamp(b.last_updated_at)}</td>
                         <td className="px-3 py-3 text-center">
-                          <button onClick={() => { logAction("VIEW_RECORD", b.booking_id); setDetailBooking(b); }} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100"><Eye className="h-4 w-4" /></button>
+                          <button onClick={() => setDetailBookingId(b.id)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100"><Eye className="h-4 w-4" /></button>
                         </td>
                       </tr>
                     ))
@@ -723,7 +737,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
             </div>
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
               <p className="text-xs text-gray-500">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, allBookingsFiltered.length)} of {allBookingsFiltered.length}
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
               </p>
               <div className="flex items-center gap-1">
                 <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
@@ -745,12 +759,12 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
         <>
           <div className="flex gap-0.5 rounded-xl border border-gray-200 bg-white p-1">
             {([
-              { id: "in" as ManifestTab, label: "IN-MANIFEST", count: inManifest.length },
-              { id: "left" as ManifestTab, label: "LEFT-MANIFEST", count: leftManifest.length },
+              { id: "in" as ManifestTab, label: "IN-MANIFEST", count: inManifestCountData?.meta?.total ?? 0 },
+              { id: "left" as ManifestTab, label: "LEFT-MANIFEST", count: leftManifestCountData?.meta?.total ?? 0 },
             ]).map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setManifestTab(tab.id)}
+                onClick={() => { setManifestTab(tab.id); setManifestPage(1); }}
                 className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-xs font-semibold transition-colors ${
                   manifestTab === tab.id ? "bg-emerald-50 text-emerald-700" : "text-gray-500 hover:bg-gray-50"
                 }`}
@@ -798,10 +812,28 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {(manifestTab === "in" ? inManifest : leftManifest).length === 0 ? (
+                {manifestLoading ? (
+                  <tr>
+                    <td colSpan={manifestTab === "in" ? 8 : 9} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                        <p className="text-sm font-medium text-gray-400">Loading manifest...</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : manifestError ? (
+                  <tr>
+                    <td colSpan={manifestTab === "in" ? 8 : 9} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2">
+                        <AlertCircle className="h-8 w-8 text-red-300" />
+                        <p className="text-sm font-medium text-gray-400">Failed to load manifest</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : manifestBookings.length === 0 ? (
                   <tr><td colSpan={manifestTab === "in" ? 8 : 9} className="px-4 py-12 text-center text-sm text-gray-400">No trucks in this manifest</td></tr>
                 ) : (
-                  (manifestTab === "in" ? inManifest : leftManifest).map((b) => (
+                  manifestBookings.map((b) => (
                     <tr key={b.id} className="hover:bg-gray-50/80">
                       <td className="px-3 py-3 font-mono text-xs font-bold text-emerald-700">{b.booking_id}</td>
                       <td className="px-3 py-3 font-mono text-xs font-semibold text-gray-800">{b.truck_plate_number}</td>
@@ -819,16 +851,26 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                 )}
               </tbody>
             </table>
+            <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+              <p className="text-xs text-gray-500">
+                Showing {(manifestPage - 1) * PAGE_SIZE + 1}–{Math.min(manifestPage * PAGE_SIZE, manifestTotalCount)} of {manifestTotalCount}
+              </p>
+              <div className="flex items-center gap-1">
+                <button disabled={manifestPage <= 1} onClick={() => setManifestPage((p) => p - 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                {Array.from({ length: manifestTotalPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setManifestPage(p)}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-medium ${p === manifestPage ? "bg-emerald-600 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button disabled={manifestPage >= manifestTotalPages} onClick={() => setManifestPage((p) => p + 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+              </div>
+            </div>
           </div>
         </>
-      )}
-
-      {auditLog.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-[11px] text-amber-700">
-            <span className="font-semibold">Audit:</span> Latest — {auditLog[auditLog.length - 1].action}: {auditLog[auditLog.length - 1].details}
-          </p>
-        </div>
       )}
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">

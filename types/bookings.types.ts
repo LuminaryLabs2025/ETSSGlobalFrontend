@@ -69,6 +69,50 @@ export interface BookingsSummary {
   expired: number;
 }
 
+export type BookingsSummaryResponse = BookingsSummary;
+
+export interface BookingsListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  booking_id?: string;
+  journey_code?: string;
+  truck_plate_number?: string;
+  driver_name?: string;
+  status?: BookingStatus | string;
+  terminal_name?: string;
+  transfer_type?: TransferType | string;
+  transporter_company?: string;
+  date_field?: "created" | "completed";
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface BookingsManifestParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  tab?: "in" | "left";
+  date?: string;
+}
+
+export interface BookingsListResponse {
+  data: Booking[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+export type BookingsManifestResponse = BookingsListResponse;
+
+export interface BookingActionResponse {
+  message: string;
+  data?: Booking;
+}
+
 export interface BookingAuditEntry {
   id: string;
   action: string;

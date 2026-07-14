@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   ClipboardList,
   Search,
@@ -22,28 +22,34 @@ import {
   Landmark,
   Zap,
   Hand,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
   Shield,
   Calendar,
   Plus,
   Ban,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useDttr } from "@/hooks/dttr/useDttr";
+import { useDttrSummary } from "@/hooks/dttr/useDttrSummary";
+import { useDttrEditAudit } from "@/hooks/dttr/useDttrEditAudit";
+import { useDttrSubmissions } from "@/hooks/dttr/useDttrSubmissions";
 import {
-  MOCK_DTTR_TERMINALS,
-  MOCK_DTTR_SUBMISSIONS,
-  MOCK_DTTR_EDIT_LOG,
-  buildDTTRSummary,
-} from "@/lib/dttr-mock-data";
+  useSubmitDttrRequest,
+  useEditDttr,
+  useConfigureDttrMode,
+} from "@/hooks/dttr/useDttrActions";
 import type {
   DTTRTerminalRequest,
   DTTRTransferBreakdown,
   DTTRRequestMode,
-  DTTRSubmissionRecord,
   DTTREditAuditEntry,
+  DTTRSummaryResponse,
+  EditDttrPayload,
+  ConfigureModePayload,
+  DTTRListParams,
 } from "@/types/dttr.types";
 import { sumBreakdown } from "@/types/dttr.types";
 
@@ -55,9 +61,6 @@ const TRANSFER_LABELS: Record<keyof DTTRTransferBreakdown, string> = {
   empties: "Empties",
   gatepass: "GatePass",
 };
-
-type SortField = "terminal_name" | "last_updated_at" | "request_mode" | "total_requested";
-type SortDir = "asc" | "desc";
 
 function formatTimestamp(ts: string) {
   return new Date(ts).toLocaleString("en-NG", {
@@ -76,10 +79,6 @@ function formatDate(ts: string) {
     month: "short",
     year: "numeric",
   });
-}
-
-function toDateInputValue(ts: string) {
-  return ts.slice(0, 10);
 }
 
 function ModeBadge({ mode }: { mode: DTTRRequestMode }) {
@@ -136,15 +135,20 @@ function CapacityBar({ requested, capacity }: { requested: number; capacity: num
   );
 }
 
-function SummaryPanel({ terminals }: { terminals: DTTRTerminalRequest[] }) {
-  const s = buildDTTRSummary(terminals);
+function SummaryPanel({
+  summary,
+  isLoading,
+}: {
+  summary?: DTTRSummaryResponse;
+  isLoading?: boolean;
+}) {
   const cards = [
-    { label: "Total Terminals", value: s.total_terminals, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Landmark },
-    { label: "Total Capacity", value: s.total_capacity, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: Truck },
-    { label: "Requested Today", value: s.total_requested_today, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: ClipboardList },
-    { label: "Manual Mode", value: s.manual_terminals, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Hand },
-    { label: "Automated Mode", value: s.automated_terminals, color: "text-violet-400", bg: "bg-violet-400/10", Icon: Zap },
-    { label: "At Capacity", value: s.at_capacity, color: "text-red-400", bg: "bg-red-400/10", Icon: AlertTriangle },
+    { label: "Total Terminals", value: summary?.total_terminals ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Landmark },
+    { label: "Total Capacity", value: summary?.total_capacity ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: Truck },
+    { label: "Requested Today", value: summary?.total_requested_today ?? 0, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: ClipboardList },
+    { label: "Manual Mode", value: summary?.manual_terminals ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Hand },
+    { label: "Automated Mode", value: summary?.automated_terminals ?? 0, color: "text-violet-400", bg: "bg-violet-400/10", Icon: Zap },
+    { label: "At Capacity", value: summary?.at_capacity ?? 0, color: "text-red-400", bg: "bg-red-400/10", Icon: AlertTriangle },
   ];
 
   return (
@@ -163,17 +167,23 @@ function SummaryPanel({ terminals }: { terminals: DTTRTerminalRequest[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
-        {cards.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          cards.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -183,10 +193,12 @@ function SubmitRequestModal({
   terminal,
   onSubmit,
   onClose,
+  isSubmitting,
 }: {
   terminal: DTTRTerminalRequest;
   onSubmit: (breakdown: DTTRTransferBreakdown) => void;
   onClose: () => void;
+  isSubmitting?: boolean;
 }) {
   const [values, setValues] = useState<DTTRTransferBreakdown>({ ...terminal.requested });
   const [errors, setErrors] = useState<Partial<Record<keyof DTTRTransferBreakdown, string>>>({});
@@ -272,9 +284,10 @@ function SubmitRequestModal({
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
           <button
             onClick={handleSubmit}
-            disabled={overCapacity}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            disabled={overCapacity || isSubmitting}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
+            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
             Submit Daily Request
           </button>
         </div>
@@ -285,16 +298,14 @@ function SubmitRequestModal({
 
 function SuperAdminEditModal({
   terminal,
-  performedBy,
-  performedById,
   onSave,
   onClose,
+  isSaving,
 }: {
   terminal: DTTRTerminalRequest;
-  performedBy: string;
-  performedById: string;
-  onSave: (entry: DTTREditAuditEntry, updated: DTTRTerminalRequest) => void;
+  onSave: (payload: EditDttrPayload) => void;
   onClose: () => void;
+  isSaving?: boolean;
 }) {
   const [values, setValues] = useState<DTTRTransferBreakdown>({ ...terminal.requested });
   const [justification, setJustification] = useState("");
@@ -318,44 +329,21 @@ function SuperAdminEditModal({
       return;
     }
 
-    const editedFields: string[] = [];
-    const previous: Partial<DTTRTransferBreakdown> = {};
-    const updated: Partial<DTTRTransferBreakdown> = {};
-    (Object.keys(values) as (keyof DTTRTransferBreakdown)[]).forEach((key) => {
-      if (values[key] !== terminal.requested[key]) {
-        editedFields.push(key);
-        previous[key] = terminal.requested[key];
-        updated[key] = values[key];
-      }
-    });
+    const hasChanges = (Object.keys(values) as (keyof DTTRTransferBreakdown)[]).some(
+      (key) => values[key] !== terminal.requested[key],
+    );
 
-    if (editedFields.length === 0) {
+    if (!hasChanges) {
       toast.info("No changes detected.");
       return;
     }
 
-    const entry: DTTREditAuditEntry = {
-      id: `edit-${Date.now()}`,
-      terminal_id: terminal.id,
-      terminal_name: terminal.terminal_name,
-      edited_fields: editedFields,
-      edited_at: new Date().toISOString(),
-      performed_by: performedBy,
-      performed_by_id: performedById,
+    onSave({
+      breakdown: values,
       justification: justification.trim(),
       approval_reference: approvalRef.trim() || undefined,
       approval_document_name: docName.trim() || undefined,
-      previous_values: previous,
-      new_values: updated,
-    };
-
-    const updatedTerminal: DTTRTerminalRequest = {
-      ...terminal,
-      requested: values,
-      last_updated_at: new Date().toISOString(),
-    };
-
-    onSave(entry, updatedTerminal);
+    });
   }
 
   return (
@@ -428,7 +416,14 @@ function SuperAdminEditModal({
 
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700">Save Changes</button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </>
@@ -439,10 +434,12 @@ function ConfigureModeModal({
   terminal,
   onSave,
   onClose,
+  isSaving,
 }: {
   terminal: DTTRTerminalRequest;
-  onSave: (updated: DTTRTerminalRequest) => void;
+  onSave: (payload: ConfigureModePayload) => void;
   onClose: () => void;
+  isSaving?: boolean;
 }) {
   const [mode, setMode] = useState<DTTRRequestMode>(terminal.request_mode);
   const [template, setTemplate] = useState<DTTRTransferBreakdown>(
@@ -458,11 +455,9 @@ function ConfigureModeModal({
       return;
     }
     onSave({
-      ...terminal,
       request_mode: mode,
       automated_template: mode === "AUTOMATED" ? template : undefined,
     });
-    toast.success(`Request mode updated to ${mode === "AUTOMATED" ? "Automated" : "Manual"}.`);
   }
 
   return (
@@ -519,7 +514,14 @@ function ConfigureModeModal({
 
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Save Configuration</button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Configuration
+          </button>
         </div>
       </div>
     </>
@@ -528,14 +530,12 @@ function ConfigureModeModal({
 
 function HistoryDrawer({
   terminal,
-  submissions,
   onClose,
 }: {
   terminal: DTTRTerminalRequest;
-  submissions: DTTRSubmissionRecord[];
   onClose: () => void;
 }) {
-  const history = submissions.filter((s) => s.terminal_id === terminal.id);
+  const { data: history = [], isLoading, isError } = useDttrSubmissions(terminal.id);
 
   return (
     <>
@@ -549,7 +549,17 @@ function HistoryDrawer({
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {history.length === 0 ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-400">Loading submission history...</p>
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <AlertCircle className="h-8 w-8 text-red-300" />
+              <p className="text-sm text-gray-400">Failed to load submission history</p>
+            </div>
+          ) : history.length === 0 ? (
             <p className="py-8 text-center text-sm text-gray-400">No submission history for this terminal.</p>
           ) : (
             <div className="space-y-3">
@@ -574,9 +584,13 @@ function HistoryDrawer({
 
 function EditAuditDrawer({
   entries,
+  isLoading,
+  isError,
   onClose,
 }: {
   entries: DTTREditAuditEntry[];
+  isLoading?: boolean;
+  isError?: boolean;
   onClose: () => void;
 }) {
   return (
@@ -591,7 +605,17 @@ function EditAuditDrawer({
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
-          {entries.length === 0 ? (
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-400">Loading audit log...</p>
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-2 py-8">
+              <AlertCircle className="h-8 w-8 text-red-300" />
+              <p className="text-sm text-gray-400">Failed to load audit log</p>
+            </div>
+          ) : entries.length === 0 ? (
             <p className="py-8 text-center text-sm text-gray-400">No edit records yet.</p>
           ) : (
             <div className="space-y-3">
@@ -624,20 +648,12 @@ function EditAuditDrawer({
 export function DTTRPage() {
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
-  const userName = user ? `${user.first_name} ${user.last_name}` : "Demo User";
-  const userId = user?.id ?? "demo-user";
 
-  const [terminals, setTerminals] = useState<DTTRTerminalRequest[]>(MOCK_DTTR_TERMINALS);
-  const [submissions, setSubmissions] = useState<DTTRSubmissionRecord[]>(MOCK_DTTR_SUBMISSIONS);
-  const [editLog, setEditLog] = useState<DTTREditAuditEntry[]>(MOCK_DTTR_EDIT_LOG);
-
-  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [dateFilter, setDateFilter] = useState("");
   const [modeFilter, setModeFilter] = useState<"All" | DTTRRequestMode>("All");
   const [showFilters, setShowFilters] = useState(false);
-  const [sortField, setSortField] = useState<SortField>("last_updated_at");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [page, setPage] = useState(1);
 
   const [submitTarget, setSubmitTarget] = useState<DTTRTerminalRequest | null>(null);
   const [editTarget, setEditTarget] = useState<DTTRTerminalRequest | null>(null);
@@ -645,108 +661,74 @@ export function DTTRPage() {
   const [historyTarget, setHistoryTarget] = useState<DTTRTerminalRequest | null>(null);
   const [showAuditLog, setShowAuditLog] = useState(false);
 
-  const filtered = useMemo(() => {
-    let result = [...terminals];
+  const listParams: DTTRListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    date: dateFilter || undefined,
+    request_mode: modeFilter !== "All" ? modeFilter : undefined,
+  };
 
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (t) =>
-          t.terminal_name.toLowerCase().includes(q) ||
-          t.terminal_code.toLowerCase().includes(q),
-      );
-    }
+  const { data: summary, isLoading: summaryLoading } = useDttrSummary();
+  const { data: dttrData, isLoading, isError } = useDttr(listParams);
+  const { data: editLog = [], isLoading: auditLoading, isError: auditError } = useDttrEditAudit(
+    showAuditLog && isSuperAdmin,
+  );
 
-    if (dateFilter) {
-      result = result.filter((t) => toDateInputValue(t.last_updated_at) === dateFilter);
-    }
+  const submitRequest = useSubmitDttrRequest();
+  const editDttr = useEditDttr();
+  const configureMode = useConfigureDttrMode();
 
-    if (modeFilter !== "All") {
-      result = result.filter((t) => t.request_mode === modeFilter);
-    }
+  const terminals = Array.isArray(dttrData?.data) ? dttrData.data : [];
+  const meta = dttrData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
+  const hasActiveFilters = debouncedSearch || dateFilter || modeFilter !== "All";
 
-    result.sort((a, b) => {
-      let av: string | number = "";
-      let bv: string | number = "";
-      if (sortField === "terminal_name") {
-        av = a.terminal_name;
-        bv = b.terminal_name;
-      } else if (sortField === "last_updated_at") {
-        av = a.last_updated_at;
-        bv = b.last_updated_at;
-      } else if (sortField === "request_mode") {
-        av = a.request_mode;
-        bv = b.request_mode;
-      } else if (sortField === "total_requested") {
-        av = sumBreakdown(a.requested);
-        bv = sumBreakdown(b.requested);
-      }
-      const cmp = typeof av === "number"
-        ? av - (bv as number)
-        : String(av).localeCompare(String(bv), undefined, { numeric: true });
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-    return result;
-  }, [terminals, search, dateFilter, modeFilter, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const hasActiveFilters = search || dateFilter || modeFilter !== "All";
-
-  function handleSort(field: SortField) {
-    if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortField(field);
-      setSortDir("asc");
-    }
+  function clearFilters() {
+    resetSearch();
+    setDateFilter("");
+    setModeFilter("All");
     setPage(1);
   }
 
-  function SortIcon({ field }: { field: SortField }) {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
-    return sortDir === "asc"
-      ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
-      : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
-  }
-
   function handleSubmitRequest(terminal: DTTRTerminalRequest, breakdown: DTTRTransferBreakdown) {
-    const now = new Date().toISOString();
-    const total = sumBreakdown(breakdown);
-    setTerminals((prev) =>
-      prev.map((t) =>
-        t.id === terminal.id ? { ...t, requested: breakdown, last_updated_at: now } : t,
-      ),
-    );
-    setSubmissions((prev) => [
+    submitRequest.mutate(
+      { id: terminal.id, payload: breakdown },
       {
-        id: `sub-${Date.now()}`,
-        terminal_id: terminal.id,
-        terminal_name: terminal.terminal_name,
-        submitted_at: now,
-        submitted_by: userName,
-        submitted_by_id: userId,
-        breakdown,
-        total_requested: total,
-        approved_capacity: terminal.approved_daily_capacity,
-        request_mode: terminal.request_mode,
+        onSuccess: (res) => {
+          toast.success(res.message ?? "Daily truck request successfully submitted.");
+          setSubmitTarget(null);
+        },
       },
-      ...prev,
-    ]);
-    setSubmitTarget(null);
-    toast.success("Daily truck request successfully submitted.");
+    );
   }
 
-  function handleSuperAdminSave(entry: DTTREditAuditEntry, updated: DTTRTerminalRequest) {
-    setEditLog((prev) => [...prev, entry]);
-    setTerminals((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    setEditTarget(null);
-    toast.success("Terminal daily request updated successfully.");
+  function handleSuperAdminSave(terminal: DTTRTerminalRequest, payload: EditDttrPayload) {
+    editDttr.mutate(
+      { id: terminal.id, payload },
+      {
+        onSuccess: (res) => {
+          toast.success(res.message ?? "Terminal daily request updated successfully.");
+          setEditTarget(null);
+        },
+      },
+    );
   }
 
-  function handleConfigureSave(updated: DTTRTerminalRequest) {
-    setTerminals((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-    setConfigTarget(null);
+  function handleConfigureSave(terminal: DTTRTerminalRequest, payload: ConfigureModePayload) {
+    configureMode.mutate(
+      { id: terminal.id, payload },
+      {
+        onSuccess: (res) => {
+          toast.success(
+            res.message ??
+              `Request mode updated to ${payload.request_mode === "AUTOMATED" ? "Automated" : "Manual"}.`,
+          );
+          setConfigTarget(null);
+        },
+      },
+    );
   }
 
   function ActionsMenu({ terminal }: { terminal: DTTRTerminalRequest }) {
@@ -795,15 +777,6 @@ export function DTTRPage() {
     );
   }
 
-  const SortableTH = ({ field, children }: { field: SortField; children: React.ReactNode }) => (
-    <th
-      onClick={() => handleSort(field)}
-      className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700"
-    >
-      <span className="inline-flex items-center">{children}<SortIcon field={field} /></span>
-    </th>
-  );
-
   const staticTH = (label: string) => (
     <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">{label}</th>
   );
@@ -815,33 +788,35 @@ export function DTTRPage() {
           terminal={submitTarget}
           onSubmit={(b) => handleSubmitRequest(submitTarget, b)}
           onClose={() => setSubmitTarget(null)}
+          isSubmitting={submitRequest.isPending}
         />
       )}
       {editTarget && isSuperAdmin && (
         <SuperAdminEditModal
           terminal={editTarget}
-          performedBy={userName}
-          performedById={userId}
-          onSave={handleSuperAdminSave}
+          onSave={(payload) => handleSuperAdminSave(editTarget, payload)}
           onClose={() => setEditTarget(null)}
+          isSaving={editDttr.isPending}
         />
       )}
       {configTarget && isSuperAdmin && (
         <ConfigureModeModal
           terminal={configTarget}
-          onSave={handleConfigureSave}
+          onSave={(payload) => handleConfigureSave(configTarget, payload)}
           onClose={() => setConfigTarget(null)}
+          isSaving={configureMode.isPending}
         />
       )}
       {historyTarget && (
-        <HistoryDrawer
-          terminal={historyTarget}
-          submissions={submissions}
-          onClose={() => setHistoryTarget(null)}
-        />
+        <HistoryDrawer terminal={historyTarget} onClose={() => setHistoryTarget(null)} />
       )}
       {showAuditLog && isSuperAdmin && (
-        <EditAuditDrawer entries={editLog} onClose={() => setShowAuditLog(false)} />
+        <EditAuditDrawer
+          entries={editLog}
+          isLoading={auditLoading}
+          isError={auditError}
+          onClose={() => setShowAuditLog(false)}
+        />
       )}
 
       <nav className="flex items-center gap-1.5 text-xs text-gray-500">
@@ -850,7 +825,7 @@ export function DTTRPage() {
         <span className="font-semibold text-gray-800">Daily Terminal Truck Requests</span>
       </nav>
 
-      <SummaryPanel terminals={terminals} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
@@ -882,7 +857,7 @@ export function DTTRPage() {
               type="text"
               placeholder="Search terminal name or code..."
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
             />
           </div>
@@ -927,7 +902,7 @@ export function DTTRPage() {
             </div>
             {hasActiveFilters && (
               <button
-                onClick={() => { setSearch(""); setDateFilter(""); setModeFilter("All"); setPage(1); }}
+                onClick={clearFilters}
                 className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50"
               >
                 <X className="h-3 w-3" /> Clear All
@@ -938,7 +913,7 @@ export function DTTRPage() {
       </div>
 
       <p className="text-xs text-gray-500">
-        Showing <span className="font-semibold text-gray-800">{filtered.length}</span> terminal{filtered.length !== 1 ? "s" : ""}
+        Showing <span className="font-semibold text-gray-800">{totalCount}</span> terminal{totalCount !== 1 ? "s" : ""}
         {hasActiveFilters && " matching your filters"}
       </p>
 
@@ -948,25 +923,48 @@ export function DTTRPage() {
             <thead>
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {staticTH("S/No.")}
-                <SortableTH field="terminal_name">Terminal Name</SortableTH>
+                {staticTH("Terminal Name")}
                 {staticTH("Approved Capacity")}
-                <SortableTH field="total_requested">Total Requested</SortableTH>
+                {staticTH("Total Requested")}
                 {staticTH("Transfer Breakdown")}
-                <SortableTH field="last_updated_at">Last Updated</SortableTH>
-                <SortableTH field="request_mode">Request Mode</SortableTH>
+                {staticTH("Last Updated")}
+                {staticTH("Request Mode")}
                 <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {paged.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                      <p className="text-sm font-medium text-gray-400">Loading terminal requests...</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <AlertCircle className="h-8 w-8 text-red-300" />
+                      <p className="text-sm font-medium text-gray-400">Failed to load terminal requests</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : terminals.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center">
                     <ClipboardList className="mx-auto h-8 w-8 text-gray-300" />
                     <p className="mt-2 text-sm font-medium text-gray-400">No terminals match your filters</p>
+                    {hasActiveFilters && (
+                      <button onClick={clearFilters} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">
+                        Clear all filters
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
-                paged.map((t, idx) => {
+                terminals.map((t, idx) => {
                   const total = sumBreakdown(t.requested);
                   const noRequest = total === 0;
                   return (
@@ -1006,7 +1004,7 @@ export function DTTRPage() {
 
         <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
           <p className="text-xs text-gray-500">
-            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
           </p>
           <div className="flex items-center gap-1">
             <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
