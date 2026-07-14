@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import {
   Ticket,
   Search,
@@ -30,21 +30,32 @@ import {
   Activity,
   CheckCircle2,
   History,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useUtilityTickets } from "@/hooks/utility-tickets/useUtilityTickets";
+import { useUtilityTicketsSummary } from "@/hooks/utility-tickets/useUtilityTicketsSummary";
+import { useUtilityTicket } from "@/hooks/utility-tickets/useUtilityTicket";
 import {
-  MOCK_UTILITY_TICKETS,
-  RAISED_BY_OPTIONS,
-  buildUtilityTicketsSummary,
-} from "@/lib/utility-tickets-mock-data";
+  useGenerateUtilityTicket,
+  useEditUtilityTicket,
+  useApproveUtilityTicket,
+  useCancelUtilityTicket,
+  useExportUtilityTickets,
+  useDownloadUtilityETicket,
+} from "@/hooks/utility-tickets/useUtilityTicketActions";
 import type {
   UtilityTicket,
   UtilityTicketStatus,
   UtilityTerminalType,
   UtilityRequestType,
-  UtilityTicketAuditEntry,
-  UtilityTicketHistoryEntry,
+  UtilityTicketsSummaryResponse,
+  UtilityTicketsListParams,
+  EditUtilityTicketPayload,
+  GenerateUtilityTicketPayload,
 } from "@/types/utility-tickets.types";
 
 const PAGE_SIZE = 10;
@@ -56,7 +67,14 @@ const STATUS_OPTIONS: (UtilityTicketStatus | "All")[] = [
   "All", "PENDING", "IN_PROGRESS", "RESOLVED", "CLOSED",
 ];
 
-const TERMINAL_TYPE_OPTIONS: (UtilityTerminalType | "All")[] = ["All", "PORT", "NON_PORT"];
+const RAISED_BY_OPTIONS = [
+  "All",
+  "Femi Okunlola",
+  "Emeka Okafor",
+  "Amina Suleiman",
+  "Chidi Okafor",
+  "SuperAdmin",
+];
 
 const REQUEST_TYPE_LABELS: Record<UtilityRequestType, string> = {
   POWER: "Power",
@@ -68,21 +86,17 @@ const REQUEST_TYPE_LABELS: Record<UtilityRequestType, string> = {
   OTHER: "Other",
 };
 
+function buildSortParam(field: SortField, dir: SortDir): string {
+  const prefix = dir === "desc" ? "-" : "";
+  if (field === "terminal_name") return `${prefix}terminal_name`;
+  return `${prefix}${field}`;
+}
+
 function formatTimestamp(ts: string) {
   return new Date(ts).toLocaleString("en-NG", {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
-}
-
-function formatDate(ts: string) {
-  return new Date(ts).toLocaleDateString("en-NG", {
-    day: "2-digit", month: "short", year: "numeric",
-  });
-}
-
-function toDateInput(ts: string) {
-  return ts.slice(0, 10);
 }
 
 function StatusBadge({ status }: { status: UtilityTicketStatus }) {
@@ -129,16 +143,21 @@ function PriorityBadge({ ticket }: { ticket: UtilityTicket }) {
   );
 }
 
-function SummaryPanel({ tickets }: { tickets: UtilityTicket[] }) {
-  const s = buildUtilityTicketsSummary(tickets);
+function SummaryPanel({
+  summary,
+  isLoading,
+}: {
+  summary?: UtilityTicketsSummaryResponse;
+  isLoading?: boolean;
+}) {
   const kpis = [
-    { label: "Total Requests", value: s.total, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Ticket },
-    { label: "Pending", value: s.pending, color: "text-amber-400", bg: "bg-amber-400/10", Icon: Clock },
-    { label: "In Progress", value: s.in_progress, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: Activity },
-    { label: "Resolved", value: s.resolved, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Closed", value: s.closed, color: "text-gray-400", bg: "bg-gray-400/10", Icon: Ban },
-    { label: "Port Terminals", value: s.port_terminals, color: "text-orange-400", bg: "bg-orange-400/10", Icon: Anchor },
-    { label: "Non-Port", value: s.non_port_terminals, color: "text-teal-400", bg: "bg-teal-400/10", Icon: Building2 },
+    { label: "Total Requests", value: summary?.total ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: Ticket },
+    { label: "Pending", value: summary?.pending ?? 0, color: "text-amber-400", bg: "bg-amber-400/10", Icon: Clock },
+    { label: "In Progress", value: summary?.in_progress ?? 0, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: Activity },
+    { label: "Resolved", value: summary?.resolved ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Closed", value: summary?.closed ?? 0, color: "text-gray-400", bg: "bg-gray-400/10", Icon: Ban },
+    { label: "Port Terminals", value: summary?.port_terminals ?? 0, color: "text-orange-400", bg: "bg-orange-400/10", Icon: Anchor },
+    { label: "Non-Port", value: summary?.non_port_terminals ?? 0, color: "text-teal-400", bg: "bg-teal-400/10", Icon: Building2 },
   ];
 
   return (
@@ -154,46 +173,68 @@ function SummaryPanel({ tickets }: { tickets: UtilityTicket[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
-        {kpis.map((card) => (
-          <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-            <div className="mb-2">
-              <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                <card.Icon className={`h-4 w-4 ${card.color}`} />
-              </div>
-            </div>
-            <p className="text-2xl font-bold text-white">{card.value}</p>
-            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+        {isLoading ? (
+          <div className="col-span-full flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
-        ))}
+        ) : (
+          kpis.map((card) => (
+            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
+              <div className="mb-2">
+                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
 }
 
 function DetailDrawer({
-  ticket,
+  ticketId,
   onClose,
 }: {
-  ticket: UtilityTicket;
+  ticketId: string;
   onClose: () => void;
 }) {
+  const { data: ticket, isLoading, isError } = useUtilityTicket(ticketId);
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
       <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
         <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
           <div>
-            <p className="font-mono text-sm font-bold text-white">{ticket.ticket_id}</p>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              <StatusBadge status={ticket.status} />
-              <TerminalTypeBadge type={ticket.terminal.type} />
-              <PriorityBadge ticket={ticket} />
-            </div>
+            <p className="font-mono text-sm font-bold text-white">{ticket?.ticket_id ?? "Loading..."}</p>
+            {ticket && (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <StatusBadge status={ticket.status} />
+                <TerminalTypeBadge type={ticket.terminal.type} />
+                <PriorityBadge ticket={ticket} />
+              </div>
+            )}
           </div>
           <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          {isLoading ? (
+            <div className="flex flex-col items-center gap-2 py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-400">Loading ticket details...</p>
+            </div>
+          ) : isError || !ticket ? (
+            <div className="flex flex-col items-center gap-2 py-12">
+              <AlertCircle className="h-8 w-8 text-red-300" />
+              <p className="text-sm text-gray-400">Failed to load ticket details</p>
+            </div>
+          ) : (
+            <>
           <div className="rounded-xl border border-gray-100">
             <p className="border-b border-gray-100 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Full Request Description</p>
             <p className="px-4 py-3 text-sm leading-relaxed text-gray-700">{ticket.full_description}</p>
@@ -239,7 +280,7 @@ function DetailDrawer({
               <History className="mr-1 inline h-3.5 w-3.5" /> Request History
             </p>
             <div className="divide-y divide-gray-50">
-              {[...ticket.request_history].reverse().map((h) => (
+              {[...(ticket.request_history ?? [])].reverse().map((h) => (
                 <div key={h.id} className="px-4 py-3">
                   <div className="flex items-center justify-between">
                     <StatusBadge status={h.status} />
@@ -255,6 +296,8 @@ function DetailDrawer({
           <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-[11px] text-gray-500">
             Raised by {ticket.raised_by.user_name} ({ticket.raised_by.user_id}) · {formatTimestamp(ticket.date_raised)}
           </div>
+            </>
+          )}
         </div>
       </div>
     </>
@@ -265,10 +308,12 @@ function EditModal({
   ticket,
   onSave,
   onClose,
+  isSaving,
 }: {
   ticket: UtilityTicket;
-  onSave: (updated: UtilityTicket) => void;
+  onSave: (payload: EditUtilityTicketPayload) => void;
   onClose: () => void;
+  isSaving?: boolean;
 }) {
   const [description, setDescription] = useState(ticket.full_description);
   const [requestType, setRequestType] = useState(ticket.request_type);
@@ -281,24 +326,12 @@ function EditModal({
       toast.error("Description and delivery company are required.");
       return;
     }
-    const now = new Date().toISOString();
-    const historyEntry: UtilityTicketHistoryEntry = {
-      id: `h-${Date.now()}`,
-      status,
-      timestamp: now,
-      performed_by: "SuperAdmin",
-      notes: "Ticket updated by SuperAdmin.",
-    };
     onSave({
-      ...ticket,
-      description: description.slice(0, 80) + (description.length > 80 ? "…" : ""),
       full_description: description.trim(),
       request_type: requestType,
       delivery_company_name: deliveryCompany.trim(),
       truck_plate_number: truckPlate.trim() || undefined,
       status,
-      last_updated_at: now,
-      request_history: [...ticket.request_history, historyEntry],
     });
   }
 
@@ -363,8 +396,11 @@ function EditModal({
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Save Changes</button>
+          <button onClick={onClose} disabled={isSaving} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </>
@@ -375,34 +411,13 @@ function ApproveModal({
   ticket,
   onApprove,
   onClose,
+  isPending,
 }: {
   ticket: UtilityTicket;
-  onApprove: (updated: UtilityTicket) => void;
+  onApprove: () => void;
   onClose: () => void;
+  isPending?: boolean;
 }) {
-  function handleApprove() {
-    const now = new Date().toISOString();
-    onApprove({
-      ...ticket,
-      super_admin_approved: true,
-      approved_by: "SuperAdmin",
-      approved_at: now,
-      status: ticket.status === "PENDING" ? "IN_PROGRESS" : ticket.status,
-      last_updated_at: now,
-      e_ticket_available: true,
-      request_history: [
-        ...ticket.request_history,
-        {
-          id: `h-${Date.now()}`,
-          status: "IN_PROGRESS",
-          timestamp: now,
-          performed_by: "SuperAdmin",
-          notes: "Approved by SuperAdmin. E-Utility Ticket generated.",
-        },
-      ],
-    });
-  }
-
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
@@ -412,8 +427,11 @@ function ApproveModal({
           Approve {ticket.ticket_id}? This will lock editing and generate the E-Utility Ticket.
         </p>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleApprove} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Approve</button>
+          <button onClick={onClose} disabled={isPending} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={onApprove} disabled={isPending} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Approve
+          </button>
         </div>
       </div>
     </>
@@ -423,11 +441,15 @@ function ApproveModal({
 function GenerateTicketModal({
   onGenerate,
   onClose,
+  isSubmitting,
 }: {
-  onGenerate: (ticket: UtilityTicket) => void;
+  onGenerate: (payload: GenerateUtilityTicketPayload) => void;
   onClose: () => void;
+  isSubmitting?: boolean;
 }) {
   const [terminalName, setTerminalName] = useState("");
+  const [terminalCode, setTerminalCode] = useState("");
+  const [terminalLocation, setTerminalLocation] = useState("");
   const [terminalType, setTerminalType] = useState<UtilityTerminalType>("PORT");
   const [requestType, setRequestType] = useState<UtilityRequestType>("POWER");
   const [deliveryCompany, setDeliveryCompany] = useState("");
@@ -436,45 +458,20 @@ function GenerateTicketModal({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!terminalName.trim() || !deliveryCompany.trim() || !description.trim()) {
+    if (!terminalName.trim() || !terminalCode.trim() || !terminalLocation.trim() || !deliveryCompany.trim() || !description.trim()) {
       toast.error("Please fill in all required fields.");
       return;
     }
-    const now = new Date().toISOString();
-    const id = `ut-${Date.now()}`;
-    const ticketId = `UT-2026-${String(Math.floor(Math.random() * 900000) + 100000)}`;
     onGenerate({
-      id,
-      ticket_id: ticketId,
-      terminal: {
-        id: `term-${Date.now()}`,
-        name: terminalName.trim(),
-        code: terminalName.slice(0, 3).toUpperCase(),
-        type: terminalType,
-        location: "—",
-      },
+      terminal_name: terminalName.trim(),
+      terminal_code: terminalCode.trim(),
+      terminal_location: terminalLocation.trim(),
+      terminal_type: terminalType,
       request_type: requestType,
-      description: description.slice(0, 80) + (description.length > 80 ? "…" : ""),
-      full_description: description.trim(),
-      status: "PENDING",
-      booking_priority: terminalType === "PORT" ? "PRIORITY" : "STANDARD",
       delivery_company_name: deliveryCompany.trim(),
+      description: description.trim(),
       truck_plate_number: truckPlate.trim() || undefined,
-      date_raised: now,
-      last_updated_at: now,
-      raised_by: { user_id: "superadmin", user_name: "SuperAdmin" },
-      super_admin_approved: false,
-      request_history: [{
-        id: `h-${Date.now()}`,
-        status: "PENDING",
-        timestamp: now,
-        performed_by: "SuperAdmin",
-        notes: "Utility ticket generated by SuperAdmin.",
-      }],
-      e_ticket_available: false,
     });
-    toast.success(`Utility ticket ${ticketId} generated successfully.`);
-    onClose();
   }
 
   return (
@@ -494,6 +491,14 @@ function GenerateTicketModal({
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Name *</label>
               <input value={terminalName} onChange={(e) => setTerminalName(e.target.value)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Code *</label>
+              <input value={terminalCode} onChange={(e) => setTerminalCode(e.target.value)} placeholder="e.g. APM" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Location *</label>
+              <input value={terminalLocation} onChange={(e) => setTerminalLocation(e.target.value)} placeholder="e.g. Apapa, Lagos" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Type *</label>
@@ -524,9 +529,10 @@ function GenerateTicketModal({
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className="w-full rounded-lg border border-gray-200 p-3 text-sm outline-none focus:border-emerald-300" />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-            <button type="submit" className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700">
-              <Plus className="h-4 w-4" /> Generate Utility Ticket
+            <button type="button" onClick={onClose} disabled={isSubmitting} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Generate Utility Ticket
             </button>
           </div>
         </form>
@@ -539,12 +545,9 @@ export function UtilityTicketsPage() {
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
-  const [tickets, setTickets] = useState<UtilityTicket[]>(MOCK_UTILITY_TICKETS);
-  const [auditLog, setAuditLog] = useState<UtilityTicketAuditEntry[]>([]);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
-
-  const [search, setSearch] = useState("");
-  const [terminalTypeFilter, setTerminalTypeFilter] = useState<UtilityTerminalType | "All">("All");
+  const [page, setPage] = useState(1);
+  const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [statusFilter, setStatusFilter] = useState<UtilityTicketStatus | "All">("All");
   const [raisedByFilter, setRaisedByFilter] = useState("All");
   const [dateFrom, setDateFrom] = useState("");
@@ -552,153 +555,85 @@ export function UtilityTicketsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [sortField, setSortField] = useState<SortField>("date_raised");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  const [page, setPage] = useState(1);
+  const [sortActive, setSortActive] = useState(false);
 
-  const [detailTicket, setDetailTicket] = useState<UtilityTicket | null>(null);
+  const [detailTicketId, setDetailTicketId] = useState<string | null>(null);
   const [editTicket, setEditTicket] = useState<UtilityTicket | null>(null);
   const [approveTicket, setApproveTicket] = useState<UtilityTicket | null>(null);
   const [cancelTarget, setCancelTarget] = useState<UtilityTicket | null>(null);
 
-  function logAction(action: string, details: string) {
-    setAuditLog((prev) => [
-      ...prev,
-      {
-        id: `audit-${Date.now()}`,
-        action,
-        details,
-        performed_by: user ? `${user.first_name} ${user.last_name}` : "SuperAdmin",
-        performed_at: new Date().toISOString(),
-      },
-    ]);
-  }
+  const listParams: UtilityTicketsListParams = {
+    page,
+    limit: PAGE_SIZE,
+    search: debouncedSearch || undefined,
+    status: statusFilter !== "All" ? statusFilter : undefined,
+    raised_by: raisedByFilter !== "All" ? raisedByFilter : undefined,
+    date_from: dateFrom || undefined,
+    date_to: dateTo || undefined,
+    sort: sortActive ? buildSortParam(sortField, sortDir) : undefined,
+  };
 
-  const filtered = useMemo(() => {
-    let result = [...tickets];
+  const { data: summary, isLoading: summaryLoading } = useUtilityTicketsSummary(isSuperAdmin);
+  const { data: ticketsData, isLoading, isError } = useUtilityTickets(listParams, isSuperAdmin);
 
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (t) =>
-          t.terminal.name.toLowerCase().includes(q) ||
-          t.ticket_id.toLowerCase().includes(q),
-      );
-    }
+  const generateTicket = useGenerateUtilityTicket();
+  const editTicketMutation = useEditUtilityTicket();
+  const approveTicketMutation = useApproveUtilityTicket();
+  const cancelTicketMutation = useCancelUtilityTicket();
+  const exportTickets = useExportUtilityTickets();
+  const downloadETicket = useDownloadUtilityETicket();
 
-    if (terminalTypeFilter !== "All") {
-      result = result.filter((t) => t.terminal.type === terminalTypeFilter);
-    }
-    if (statusFilter !== "All") {
-      result = result.filter((t) => t.status === statusFilter);
-    }
-    if (raisedByFilter !== "All") {
-      result = result.filter((t) => t.raised_by.user_name === raisedByFilter);
-    }
-    if (dateFrom) {
-      result = result.filter((t) => toDateInput(t.date_raised) >= dateFrom);
-    }
-    if (dateTo) {
-      result = result.filter((t) => toDateInput(t.date_raised) <= dateTo);
-    }
+  const tickets = Array.isArray(ticketsData?.data) ? ticketsData.data : [];
+  const meta = ticketsData?.meta;
+  const totalPages = meta?.total_pages ?? 1;
+  const totalCount = meta?.total ?? 0;
 
-    result.sort((a, b) => {
-      let av: string | number = "";
-      let bv: string | number = "";
-      if (sortField === "date_raised") {
-        av = a.date_raised;
-        bv = b.date_raised;
-      } else if (sortField === "status") {
-        av = a.status;
-        bv = b.status;
-      } else if (sortField === "terminal_name") {
-        av = a.terminal.name;
-        bv = b.terminal.name;
-      }
-      const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-    return result;
-  }, [tickets, search, terminalTypeFilter, statusFilter, raisedByFilter, dateFrom, dateTo, sortField, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const hasActiveFilters =
-    search || terminalTypeFilter !== "All" || statusFilter !== "All" ||
+    debouncedSearch || statusFilter !== "All" ||
     raisedByFilter !== "All" || dateFrom || dateTo;
 
+  function clearFilters() {
+    resetSearch();
+    setStatusFilter("All");
+    setRaisedByFilter("All");
+    setDateFrom("");
+    setDateTo("");
+    setSortActive(false);
+    setSortField("date_raised");
+    setSortDir("desc");
+    setPage(1);
+  }
+
   function handleSort(field: SortField) {
+    setSortActive(true);
     if (sortField === field) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else {
       setSortField(field);
       setSortDir("asc");
     }
     setPage(1);
-    logAction("APPLY_SORT", `Sorted by ${field} (${sortDir === "asc" ? "desc" : "asc"})`);
   }
 
   function SortIcon({ field }: { field: SortField }) {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
+    if (!sortActive || sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3 text-gray-300" />;
     return sortDir === "asc"
       ? <ArrowUp className="ml-1 h-3 w-3 text-emerald-600" />
       : <ArrowDown className="ml-1 h-3 w-3 text-emerald-600" />;
   }
 
-  function exportCsv() {
-    const headers = [
-      "Ticket ID", "Terminal", "Terminal Type", "Request Type", "Description",
-      "Status", "Priority", "Delivery Company", "Date Raised", "Last Updated", "Raised By",
-    ];
-    const rows = filtered.map((t) => [
-      t.ticket_id,
-      t.terminal.name,
-      t.terminal.type,
-      t.request_type,
-      `"${t.description.replace(/"/g, '""')}"`,
-      t.status,
-      t.booking_priority,
-      t.delivery_company_name,
-      t.date_raised,
-      t.last_updated_at,
-      t.raised_by.user_name,
-    ]);
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `utility-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    logAction("EXPORT_CSV", `Exported ${filtered.length} records with active filters`);
-    toast.success("CSV export downloaded.");
+  function handleExportCsv() {
+    exportTickets.mutate(listParams, {
+      onSuccess: () => toast.success("CSV export downloaded."),
+    });
   }
 
   function handleCancel(ticket: UtilityTicket) {
-    const now = new Date().toISOString();
-    setTickets((prev) =>
-      prev.map((t) =>
-        t.id === ticket.id
-          ? {
-              ...t,
-              status: "CLOSED" as UtilityTicketStatus,
-              last_updated_at: now,
-              request_history: [
-                ...t.request_history,
-                {
-                  id: `h-${Date.now()}`,
-                  status: "CLOSED",
-                  timestamp: now,
-                  performed_by: "SuperAdmin",
-                  notes: "Ticket cancelled by SuperAdmin.",
-                },
-              ],
-            }
-          : t,
-      ),
-    );
-    setCancelTarget(null);
-    logAction("CANCEL_TICKET", `Cancelled ${ticket.ticket_id}`);
-    toast.success(`Utility ticket ${ticket.ticket_id} has been cancelled.`);
+    cancelTicketMutation.mutate(ticket.id, {
+      onSuccess: (res) => {
+        toast.success(res.message ?? `Utility ticket ${ticket.ticket_id} has been cancelled.`);
+        setCancelTarget(null);
+      },
+    });
   }
 
   function ActionsMenu({ ticket }: { ticket: UtilityTicket }) {
@@ -716,7 +651,7 @@ export function UtilityTicketsPage() {
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
             <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
               <button
-                onClick={() => { setOpen(false); logAction("VIEW_RECORD", `Viewed ${ticket.ticket_id}`); setDetailTicket(ticket); }}
+                onClick={() => { setOpen(false); setDetailTicketId(ticket.id); }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
               >
                 <Eye className="h-3.5 w-3.5" /> View Utility Request Details
@@ -749,10 +684,12 @@ export function UtilityTicketsPage() {
                 <button
                   onClick={() => {
                     setOpen(false);
-                    logAction("DOWNLOAD_E_TICKET", `Downloaded E-Utility Ticket ${ticket.ticket_id}`);
-                    toast.success(`E-Utility Ticket ${ticket.ticket_id} downloaded.`);
+                    downloadETicket.mutate(ticket.id, {
+                      onSuccess: () => toast.success(`E-Utility Ticket ${ticket.ticket_id} downloaded.`),
+                    });
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50"
+                  disabled={downloadETicket.isPending}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50 disabled:opacity-50"
                 >
                   <Download className="h-3.5 w-3.5" /> Download E-Utility Ticket
                 </button>
@@ -791,54 +728,71 @@ export function UtilityTicketsPage() {
 
   return (
     <div className="space-y-5 p-6">
-      {detailTicket && (
+      {detailTicketId && (
         <DetailDrawer
-          ticket={detailTicket}
-          onClose={() => setDetailTicket(null)}
+          ticketId={detailTicketId}
+          onClose={() => setDetailTicketId(null)}
         />
       )}
       {editTicket && (
         <EditModal
           ticket={editTicket}
-          onSave={(updated) => {
-            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-            setEditTicket(null);
-            logAction("EDIT_TICKET", `Edited ${updated.ticket_id}`);
-            toast.success("Utility ticket updated successfully.");
+          onSave={(payload) => {
+            editTicketMutation.mutate(
+              { id: editTicket.id, payload },
+              {
+                onSuccess: (res) => {
+                  toast.success(res.message ?? "Utility ticket updated successfully.");
+                  setEditTicket(null);
+                },
+              },
+            );
           }}
           onClose={() => setEditTicket(null)}
+          isSaving={editTicketMutation.isPending}
         />
       )}
       {approveTicket && (
         <ApproveModal
           ticket={approveTicket}
-          onApprove={(updated) => {
-            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-            setApproveTicket(null);
-            logAction("APPROVE_TICKET", `Approved ${updated.ticket_id}`);
-            toast.success("Ticket approved. E-Utility Ticket is now available.");
+          onApprove={() => {
+            approveTicketMutation.mutate(approveTicket.id, {
+              onSuccess: (res) => {
+                toast.success(res.message ?? "Ticket approved. E-Utility Ticket is now available.");
+                setApproveTicket(null);
+              },
+            });
           }}
           onClose={() => setApproveTicket(null)}
+          isPending={approveTicketMutation.isPending}
         />
       )}
       {showGenerateModal && (
         <GenerateTicketModal
-          onGenerate={(ticket) => {
-            setTickets((prev) => [ticket, ...prev]);
-            logAction("GENERATE_TICKET", `Generated ${ticket.ticket_id}`);
+          onGenerate={(payload) => {
+            generateTicket.mutate(payload, {
+              onSuccess: (res) => {
+                toast.success(res.message ?? "Utility ticket generated successfully.");
+                setShowGenerateModal(false);
+              },
+            });
           }}
           onClose={() => setShowGenerateModal(false)}
+          isSubmitting={generateTicket.isPending}
         />
       )}
       {cancelTarget && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setCancelTarget(null)} />
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => !cancelTicketMutation.isPending && setCancelTarget(null)} />
           <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl">
             <h3 className="text-sm font-bold text-gray-900">Cancel Utility Ticket</h3>
             <p className="mt-2 text-sm text-gray-600">Cancel {cancelTarget.ticket_id}? This action will close the ticket.</p>
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setCancelTarget(null)} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Back</button>
-              <button onClick={() => handleCancel(cancelTarget)} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">Cancel Ticket</button>
+              <button onClick={() => setCancelTarget(null)} disabled={cancelTicketMutation.isPending} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Back</button>
+              <button onClick={() => handleCancel(cancelTarget)} disabled={cancelTicketMutation.isPending} className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+                {cancelTicketMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Cancel Ticket
+              </button>
             </div>
           </div>
         </>
@@ -850,7 +804,7 @@ export function UtilityTicketsPage() {
         <span className="font-semibold text-gray-800">Utility Tickets</span>
       </nav>
 
-      <SummaryPanel tickets={tickets} />
+      <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       <div className="rounded-xl border border-gray-200 bg-white px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -880,7 +834,7 @@ export function UtilityTicketsPage() {
                   type="text"
                   placeholder="Search terminal name or ticket ID..."
                   value={search}
-                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
                 />
               </div>
@@ -897,17 +851,18 @@ export function UtilityTicketsPage() {
                   <Download className="h-4 w-4" /> Export<ChevronDown className="h-3 w-3" />
                 </button>
                 <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-                  <button onClick={exportCsv} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                    <FileText className="h-3.5 w-3.5 text-gray-400" /> CSV
+                  <button onClick={handleExportCsv} disabled={exportTickets.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+                    {exportTickets.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" /> : <FileText className="h-3.5 w-3.5 text-gray-400" />}
+                    CSV
                   </button>
                   <button
-                    onClick={() => { logAction("EXPORT_EXCEL", `Excel export — ${filtered.length} records`); toast.info("Excel export — coming soon."); }}
+                    onClick={() => toast.info("Excel export — coming soon.")}
                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
                     <FileText className="h-3.5 w-3.5 text-emerald-500" /> Excel
                   </button>
                   <button
-                    onClick={() => { logAction("EXPORT_PDF", `PDF export — ${filtered.length} records`); toast.info("PDF export — coming soon."); }}
+                    onClick={() => toast.info("PDF export — coming soon.")}
                     className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                   >
                     <FileText className="h-3.5 w-3.5 text-red-500" /> PDF
@@ -918,18 +873,6 @@ export function UtilityTicketsPage() {
 
             {showFilters && (
               <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-gray-100 pt-3">
-                <div>
-                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Terminal Type</label>
-                  <select
-                    value={terminalTypeFilter}
-                    onChange={(e) => { setTerminalTypeFilter(e.target.value as UtilityTerminalType | "All"); setPage(1); logAction("APPLY_FILTER", `Terminal type: ${e.target.value}`); }}
-                    className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300"
-                  >
-                    {TERMINAL_TYPE_OPTIONS.map((o) => (
-                      <option key={o} value={o}>{o === "All" ? "All Types" : o === "PORT" ? "Port" : "Non-Port"}</option>
-                    ))}
-                  </select>
-                </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Request Status</label>
                   <select
@@ -974,11 +917,7 @@ export function UtilityTicketsPage() {
                 </div>
                 {hasActiveFilters && (
                   <button
-                    onClick={() => {
-                      setSearch(""); setTerminalTypeFilter("All"); setStatusFilter("All");
-                      setRaisedByFilter("All"); setDateFrom(""); setDateTo(""); setPage(1);
-                      logAction("CLEAR_FILTERS", "Cleared all filters");
-                    }}
+                    onClick={clearFilters}
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50"
                   >
                     <X className="h-3 w-3" /> Clear All
@@ -989,7 +928,7 @@ export function UtilityTicketsPage() {
           </div>
 
           <p className="text-xs text-gray-500">
-            Showing <span className="font-semibold text-gray-800">{filtered.length}</span> request{filtered.length !== 1 ? "s" : ""}
+            Showing <span className="font-semibold text-gray-800">{totalCount}</span> request{totalCount !== 1 ? "s" : ""}
             {hasActiveFilters && " matching your filters"}
           </p>
 
@@ -1012,20 +951,41 @@ export function UtilityTicketsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {paged.length === 0 ? (
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={11} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+                          <p className="text-sm font-medium text-gray-400">Loading utility tickets...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : isError ? (
+                    <tr>
+                      <td colSpan={11} className="px-4 py-12 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <AlertCircle className="h-8 w-8 text-red-300" />
+                          <p className="text-sm font-medium text-gray-400">Failed to load utility tickets</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : tickets.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="px-4 py-12 text-center">
                         <Ticket className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No utility tickets match your filters</p>
+                        {hasActiveFilters && (
+                          <button onClick={clearFilters} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>
+                        )}
                       </td>
                     </tr>
                   ) : (
-                    paged.map((t, idx) => (
+                    tickets.map((t, idx) => (
                       <tr key={t.id} className="transition-colors hover:bg-gray-50/80">
                         <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
                         <td className="px-3 py-3">
                           <button
-                            onClick={() => { logAction("VIEW_RECORD", `Viewed ${t.ticket_id}`); setDetailTicket(t); }}
+                            onClick={() => setDetailTicketId(t.id)}
                             className="font-mono text-xs font-bold text-emerald-700 hover:underline"
                           >
                             {t.ticket_id}
@@ -1074,7 +1034,7 @@ export function UtilityTicketsPage() {
 
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
               <p className="text-xs text-gray-500">
-                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+                Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
               </p>
               <div className="flex items-center gap-1">
                 <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
@@ -1100,15 +1060,6 @@ export function UtilityTicketsPage() {
           Delivery company name is the utility service provider — trucks need not be registered on MARITIME-ETSS.
         </p>
       </div>
-
-      {auditLog.length > 0 && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="mb-1 text-[11px] font-semibold text-amber-800">Recent Audit Actions ({auditLog.length})</p>
-          <p className="text-[10px] text-amber-700">
-            Latest: {auditLog[auditLog.length - 1].action} — {auditLog[auditLog.length - 1].details} at {formatTimestamp(auditLog[auditLog.length - 1].performed_at)}
-          </p>
-        </div>
-      )}
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
         <p className="text-[11px] leading-relaxed text-amber-700">

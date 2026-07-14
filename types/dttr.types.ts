@@ -60,6 +60,51 @@ export interface DTTRSummary {
   under_capacity: number;
 }
 
+export type DTTRSummaryResponse = DTTRSummary;
+
+export interface DTTRListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  terminal_name?: string;
+  terminal_code?: string;
+  date?: string;
+  request_mode?: DTTRRequestMode | string;
+}
+
+export interface DTTRListResponse {
+  data: DTTRTerminalRequest[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+export interface SubmitDttrPayload {
+  exports: number;
+  imports: number;
+  empties: number;
+  gatepass: number;
+}
+
+export interface EditDttrPayload {
+  breakdown: DTTRTransferBreakdown;
+  justification: string;
+  approval_reference?: string;
+  approval_document_name?: string;
+}
+
+export interface ConfigureModePayload {
+  request_mode: DTTRRequestMode;
+  automated_template?: DTTRTransferBreakdown;
+}
+
+export interface DTTRActionResponse {
+  message: string;
+}
+
 export function sumBreakdown(b: DTTRTransferBreakdown): number {
   return b.exports + b.imports + b.empties + b.gatepass;
 }

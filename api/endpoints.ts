@@ -36,7 +36,54 @@ export const TEAM = {
 // ─── Bookings ───
 export const BOOKINGS = {
   LIST: "/bookings",
+  SUMMARY: "/bookings/summary",
+  EXPORT: "/bookings/export",
+  MANIFEST: "/bookings/manifest",
   BY_ID: (id: string) => `/bookings/${id}`,
+  REMOVE_FROM_MANIFEST: (id: string) => `/bookings/${id}/remove-from-manifest`,
+  ADD_TO_MANIFEST: (id: string) => `/bookings/${id}/add-to-manifest`,
+  CANCEL: (id: string) => `/bookings/${id}/cancel`,
+} as const;
+
+// ─── Utility Tickets ───
+export const UTILITY_TICKETS = {
+  LIST: "/utility-tickets",
+  SUMMARY: "/utility-tickets/summary",
+  EXPORT: "/utility-tickets/export",
+  GENERATE: "/utility-tickets/generate",
+  BY_ID: (id: string) => `/utility-tickets/${id}`,
+  EDIT: (id: string) => `/utility-tickets/${id}`,
+  APPROVE: (id: string) => `/utility-tickets/${id}/approve`,
+  CANCEL: (id: string) => `/utility-tickets/${id}/cancel`,
+  E_TICKET: (id: string) => `/utility-tickets/${id}/e-ticket`,
+} as const;
+
+// ─── Penalties ───
+export const PENALTIES = {
+  LIST: "/penalties",
+  SUMMARY: "/penalties/summary",
+  EXPORT: "/penalties/export",
+  CREATE: "/penalties",
+  BY_ID: (id: string) => `/penalties/${id}`,
+  EDIT: (id: string) => `/penalties/${id}`,
+  ARCHIVE: (id: string) => `/penalties/${id}/archive`,
+} as const;
+
+// ─── Issued Fines ───
+export const ISSUED_FINES = {
+  LIST: "/issued-fines",
+  SUMMARY: "/issued-fines/summary",
+  EXPORT: "/issued-fines/export",
+  BY_ID: (id: string) => `/issued-fines/${id}`,
+} as const;
+
+// ─── Fine Disputes ───
+export const DISPUTES = {
+  LIST: "/disputes",
+  SUMMARY: "/disputes/summary",
+  EXPORT: "/disputes/export",
+  BY_ID: (id: string) => `/disputes/${id}`,
+  RESOLVE: (id: string) => `/disputes/${id}/resolve`,
 } as const;
 
 // ─── Profile ───
@@ -134,6 +181,18 @@ export const TEPS = {
   BULK: "/teps/bulk",
   BY_ID: (id: string) => `/teps/${id}`,
   REVOKE: (id: string) => `/teps/${id}/revoke`,
+} as const;
+
+// ─── DTTR ───
+export const DTTR = {
+  LIST: "/dttr",
+  SUMMARY: "/dttr/summary",
+  EDIT_AUDIT: "/dttr/edit-audit",
+  BY_ID: (id: string) => `/dttr/${id}`,
+  SUBMISSIONS: (id: string) => `/dttr/${id}/submissions`,
+  SUBMIT: (id: string) => `/dttr/${id}/submit`,
+  EDIT: (id: string) => `/dttr/${id}`,
+  CONFIGURE_MODE: (id: string) => `/dttr/${id}/configure-mode`,
 } as const;
 
 // ─── Activity Log ───
