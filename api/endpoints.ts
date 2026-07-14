@@ -45,6 +45,47 @@ export const BOOKINGS = {
   CANCEL: (id: string) => `/bookings/${id}/cancel`,
 } as const;
 
+// ─── Utility Tickets ───
+export const UTILITY_TICKETS = {
+  LIST: "/utility-tickets",
+  SUMMARY: "/utility-tickets/summary",
+  EXPORT: "/utility-tickets/export",
+  GENERATE: "/utility-tickets/generate",
+  BY_ID: (id: string) => `/utility-tickets/${id}`,
+  EDIT: (id: string) => `/utility-tickets/${id}`,
+  APPROVE: (id: string) => `/utility-tickets/${id}/approve`,
+  CANCEL: (id: string) => `/utility-tickets/${id}/cancel`,
+  E_TICKET: (id: string) => `/utility-tickets/${id}/e-ticket`,
+} as const;
+
+// ─── Penalties ───
+export const PENALTIES = {
+  LIST: "/penalties",
+  SUMMARY: "/penalties/summary",
+  EXPORT: "/penalties/export",
+  CREATE: "/penalties",
+  BY_ID: (id: string) => `/penalties/${id}`,
+  EDIT: (id: string) => `/penalties/${id}`,
+  ARCHIVE: (id: string) => `/penalties/${id}/archive`,
+} as const;
+
+// ─── Issued Fines ───
+export const ISSUED_FINES = {
+  LIST: "/issued-fines",
+  SUMMARY: "/issued-fines/summary",
+  EXPORT: "/issued-fines/export",
+  BY_ID: (id: string) => `/issued-fines/${id}`,
+} as const;
+
+// ─── Fine Disputes ───
+export const DISPUTES = {
+  LIST: "/disputes",
+  SUMMARY: "/disputes/summary",
+  EXPORT: "/disputes/export",
+  BY_ID: (id: string) => `/disputes/${id}`,
+  RESOLVE: (id: string) => `/disputes/${id}/resolve`,
+} as const;
+
 // ─── Profile ───
 export const PROFILE = {
   GET: "/profile",

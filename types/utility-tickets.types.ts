@@ -73,6 +73,56 @@ export interface UtilityTicketsSummary {
   non_port_terminals: number;
 }
 
+export type UtilityTicketsSummaryResponse = UtilityTicketsSummary;
+
+export interface UtilityTicketsListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  terminal_name?: string;
+  ticket_id?: string;
+  status?: UtilityTicketStatus | string;
+  raised_by?: string;
+  date_from?: string;
+  date_to?: string;
+  sort?: string;
+}
+
+export interface UtilityTicketsListResponse {
+  data: UtilityTicket[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+export interface GenerateUtilityTicketPayload {
+  terminal_name: string;
+  terminal_type: UtilityTerminalType;
+  terminal_code: string;
+  terminal_location: string;
+  terminal_id?: string;
+  request_type: UtilityRequestType;
+  delivery_company_name: string;
+  description: string;
+  truck_plate_number?: string;
+}
+
+export interface EditUtilityTicketPayload {
+  request_type: UtilityRequestType;
+  delivery_company_name: string;
+  truck_plate_number?: string;
+  status: UtilityTicketStatus;
+  full_description: string;
+}
+
+export interface UtilityTicketActionResponse {
+  message: string;
+  data?: UtilityTicket;
+}
+
 export interface UtilityTicketAuditEntry {
   id: string;
   action: string;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Gavel,
   Search,
@@ -17,7 +17,6 @@ import {
   MoreHorizontal,
   AlertTriangle,
   FileText,
-  Building2,
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
@@ -31,23 +30,30 @@ import {
   TrendingUp,
   Hash,
   CheckCircle,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
-import { toast } from "sonner";
-import {
-  MOCK_PENALTIES,
-  MOCK_ISSUED_FINES,
-  MOCK_DISPUTES,
-  buildPenaltiesSummary,
-  buildIssuedFinesSummary,
-  buildDisputesSummary,
-} from "@/lib/penalties-mock-data";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { usePenalties } from "@/hooks/penalties/usePenalties";
+import { usePenaltiesSummary } from "@/hooks/penalties/usePenaltiesSummary";
+import { useCreatePenalty, useEditPenalty, useArchivePenalty, useExportPenalties } from "@/hooks/penalties/usePenaltyActions";
+import { useIssuedFines } from "@/hooks/issued-fines/useIssuedFines";
+import { useIssuedFinesSummary } from "@/hooks/issued-fines/useIssuedFinesSummary";
+import { useIssuedFine } from "@/hooks/issued-fines/useIssuedFine";
+import { useExportIssuedFines } from "@/hooks/issued-fines/useIssuedFinesExport";
+import { useDisputes } from "@/hooks/disputes/useDisputes";
+import { useDisputesSummary } from "@/hooks/disputes/useDisputesSummary";
+import { useDispute } from "@/hooks/disputes/useDispute";
+import { useResolveDispute, useExportDisputes } from "@/hooks/disputes/useDisputeActions";
 import type {
   PenaltyDefinition,
   PenaltyStatus,
-  IssuedFine,
   FineDispute,
   DisputeStatus,
   ResolutionOutcome,
+  PenaltiesSummary,
+  IssuedFinesSummary,
+  DisputesSummary,
 } from "@/types/penalties.types";
 
 // ─── Constants ───
@@ -109,6 +115,7 @@ function BookingStatusBadge({ status }: { status: string }) {
     IN_TERMINAL:  "bg-purple-50 text-purple-700 border-purple-200",
     LEFT_TERMINAL:"bg-teal-50 text-teal-700 border-teal-200",
     FLAGGED:      "bg-red-50 text-red-700 border-red-200",
+    LIVE:         "bg-emerald-50 text-emerald-700 border-emerald-200",
   };
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${map[status] ?? "bg-gray-100 text-gray-500 border-gray-200"}`}>
@@ -161,9 +168,9 @@ function SortIcon({ field, sortField, sortDir }: { field: string; sortField: str
 }
 
 // ─── Confirm Dialog ───
-function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCancel }: {
+function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCancel, isPending }: {
   title: string; message: string; confirmLabel: string; danger?: boolean;
-  onConfirm: () => void; onCancel: () => void;
+  onConfirm: () => void; onCancel: () => void; isPending?: boolean;
 }) {
   return (
     <>
@@ -172,8 +179,11 @@ function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCanc
         <h3 className="text-sm font-bold text-gray-900">{title}</h3>
         <p className="mt-2 text-sm text-gray-600">{message}</p>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onCancel} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onConfirm} className={`rounded-lg px-4 py-2 text-sm font-medium text-white ${danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>{confirmLabel}</button>
+          <button onClick={onCancel} disabled={isPending} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={onConfirm} disabled={isPending} className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 ${danger ? "bg-red-600 hover:bg-red-700" : "bg-emerald-600 hover:bg-emerald-700"}`}>
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {confirmLabel}
+          </button>
         </div>
       </div>
     </>
@@ -181,10 +191,11 @@ function ConfirmDialog({ title, message, confirmLabel, danger, onConfirm, onCanc
 }
 
 // ─── Penalty Form Modal ───
-function PenaltyFormModal({ initialData, onSave, onCancel }: {
+function PenaltyFormModal({ initialData, onSave, onCancel, isSaving }: {
   initialData?: PenaltyDefinition;
   onSave: (data: { name: string; description: string; fine_amount: number; status: PenaltyStatus }) => void;
   onCancel: () => void;
+  isSaving?: boolean;
 }) {
   const isEdit = Boolean(initialData);
   const [name, setName]             = useState(initialData?.name ?? "");
@@ -258,9 +269,10 @@ function PenaltyFormModal({ initialData, onSave, onCancel }: {
           </div>
         </div>
         <div className="flex justify-end gap-2 border-t border-gray-100 px-6 py-4">
-          <button onClick={onCancel} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={() => { if (validate()) onSave({ name: name.trim(), description: description.trim(), fine_amount: Number(fineAmount), status }); }}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">
+          <button onClick={onCancel} disabled={isSaving} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button onClick={() => { if (validate()) onSave({ name: name.trim(), description: description.trim(), fine_amount: Number(fineAmount), status }); }} disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+            {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {isEdit ? <><Edit2 className="h-3.5 w-3.5" />Save Changes</> : <><Plus className="h-3.5 w-3.5" />Add Penalty</>}
           </button>
         </div>
@@ -270,14 +282,14 @@ function PenaltyFormModal({ initialData, onSave, onCancel }: {
 }
 
 // ─── Summary Panels ───
-function PenaltiesSummaryPanel({ penalties }: { penalties: PenaltyDefinition[] }) {
-  const s = buildPenaltiesSummary(penalties);
+function PenaltiesSummaryPanel({ summary, isLoading }: { summary?: PenaltiesSummary; isLoading?: boolean }) {
+  const s = summary ?? { total: 0, active: 0, inactive: 0, archived: 0, avg_fine_amount: 0 };
   const cards = [
-    { label: "Total Penalties", value: s.total,                    color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Gavel },
-    { label: "Active",          value: s.active,                   color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Inactive",        value: s.inactive,                 color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
-    { label: "Archived",        value: s.archived,                 color: "text-orange-400",  bg: "bg-orange-400/10",  Icon: Archive },
-    { label: "Avg Fine Amount", value: naira(s.avg_fine_amount),   color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: TrendingUp },
+    { label: "Total Penalties", value: isLoading ? "—" : s.total,                    color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Gavel },
+    { label: "Active",          value: isLoading ? "—" : s.active,                   color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Inactive",        value: isLoading ? "—" : s.inactive,                 color: "text-gray-400",    bg: "bg-gray-400/10",    Icon: XCircle },
+    { label: "Archived",        value: isLoading ? "—" : s.archived,                 color: "text-orange-400",  bg: "bg-orange-400/10",  Icon: Archive },
+    { label: "Avg Fine Amount", value: isLoading ? "—" : naira(s.avg_fine_amount),   color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: TrendingUp },
   ];
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
@@ -307,15 +319,15 @@ function PenaltiesSummaryPanel({ penalties }: { penalties: PenaltyDefinition[] }
   );
 }
 
-function IssuedFinesSummaryPanel({ fines }: { fines: IssuedFine[] }) {
-  const s = buildIssuedFinesSummary(fines);
+function IssuedFinesSummaryPanel({ summary, isLoading }: { summary?: IssuedFinesSummary; isLoading?: boolean }) {
+  const s = summary ?? { total: 0, accepted: 0, disputed: 0, total_amount: 0, accepted_amount: 0, disputed_amount: 0 };
   const cards = [
-    { label: "Total Issued Fines", value: s.total,                        color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: ReceiptText },
-    { label: "Accepted",           value: s.accepted,                     color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Disputed",           value: s.disputed,                     color: "text-red-400",     bg: "bg-red-400/10",     Icon: AlertTriangle },
-    { label: "Total Fine Value",   value: naira(s.total_amount),          color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: DollarSign },
-    { label: "Fines Paid",         value: naira(s.accepted_amount),       color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: TrendingUp },
-    { label: "Fines Disputed",     value: naira(s.disputed_amount),       color: "text-red-400",     bg: "bg-red-400/10",     Icon: Scale },
+    { label: "Total Issued Fines", value: isLoading ? "—" : s.total,                        color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: ReceiptText },
+    { label: "Accepted",           value: isLoading ? "—" : s.accepted,                     color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Disputed",           value: isLoading ? "—" : s.disputed,                     color: "text-red-400",     bg: "bg-red-400/10",     Icon: AlertTriangle },
+    { label: "Total Fine Value",   value: isLoading ? "—" : naira(s.total_amount),          color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: DollarSign },
+    { label: "Fines Paid",         value: isLoading ? "—" : naira(s.accepted_amount),       color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: TrendingUp },
+    { label: "Fines Disputed",     value: isLoading ? "—" : naira(s.disputed_amount),       color: "text-red-400",     bg: "bg-red-400/10",     Icon: Scale },
   ];
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
@@ -345,14 +357,18 @@ function IssuedFinesSummaryPanel({ fines }: { fines: IssuedFine[] }) {
   );
 }
 
-function DisputesSummaryPanel({ disputes }: { disputes: FineDispute[] }) {
-  const s = buildDisputesSummary(disputes);
+function DisputesSummaryPanel({ summary, isLoading }: { summary?: DisputesSummary; isLoading?: boolean }) {
+  const s = summary ?? {
+    total: 0, pending_review: 0, under_npa_review: 0, resolved: 0, rejected: 0,
+    fine_upheld: 0, fine_waived: 0, fine_adjusted: 0,
+    total_amount_in_dispute: 0, total_amount_waived_adjusted: 0,
+  };
   const kpis = [
-    { label: "Total Disputes",    value: s.total,                               color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Scale },
-    { label: "Pending Review",    value: s.pending_review,                      color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: Clock },
-    { label: "Under NPA Review",  value: s.under_npa_review,                   color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Shield },
-    { label: "Resolved",          value: s.resolved,                            color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Rejected",          value: s.rejected,                            color: "text-red-400",     bg: "bg-red-400/10",     Icon: XCircle },
+    { label: "Total Disputes",    value: isLoading ? "—" : s.total,                               color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Scale },
+    { label: "Pending Review",    value: isLoading ? "—" : s.pending_review,                      color: "text-amber-400",   bg: "bg-amber-400/10",   Icon: Clock },
+    { label: "Under NPA Review",  value: isLoading ? "—" : s.under_npa_review,                   color: "text-blue-400",    bg: "bg-blue-400/10",    Icon: Shield },
+    { label: "Resolved",          value: isLoading ? "—" : s.resolved,                            color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { label: "Rejected",          value: isLoading ? "—" : s.rejected,                            color: "text-red-400",     bg: "bg-red-400/10",     Icon: XCircle },
   ];
   const outcomeBars = [
     { label: "Fine Upheld",   value: s.fine_upheld,   barCls: "bg-red-500",     textCls: "text-red-300" },
@@ -406,12 +422,12 @@ function DisputesSummaryPanel({ disputes }: { disputes: FineDispute[] }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl bg-white/5 p-4">
             <div className="mb-1 inline-flex rounded-lg bg-amber-400/10 p-1.5"><DollarSign className="h-4 w-4 text-amber-400" /></div>
-            <p className="text-lg font-bold text-white">{naira(s.total_amount_in_dispute)}</p>
+            <p className="text-lg font-bold text-white">{isLoading ? "—" : naira(s.total_amount_in_dispute)}</p>
             <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">In Dispute</p>
           </div>
           <div className="rounded-xl bg-white/5 p-4">
             <div className="mb-1 inline-flex rounded-lg bg-emerald-400/10 p-1.5"><TrendingUp className="h-4 w-4 text-emerald-400" /></div>
-            <p className="text-lg font-bold text-white">{naira(s.total_amount_waived_adjusted)}</p>
+            <p className="text-lg font-bold text-white">{isLoading ? "—" : naira(s.total_amount_waived_adjusted)}</p>
             <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">Waived / Adjusted</p>
           </div>
         </div>
@@ -420,268 +436,214 @@ function DisputesSummaryPanel({ disputes }: { disputes: FineDispute[] }) {
   );
 }
 
+type PenSortField = "name" | "fine_amount" | "created_at";
+
+function buildPenSortParam(field: PenSortField, dir: "asc" | "desc"): string {
+  const prefix = dir === "desc" ? "-" : "";
+  return `${prefix}${field}`;
+}
+
 // ─── Main Page ───
 export default function PenaltiesPage() {
-  // ── Tab ──
   const [activeTab, setActiveTab] = useState<TabId>("penalties");
 
-  // ── Penalty definitions state ──
-  const [penalties, setPenalties] = useState<PenaltyDefinition[]>(MOCK_PENALTIES);
-  const [showAddModal,      setShowAddModal]      = useState(false);
-  const [editingPenalty,    setEditingPenalty]    = useState<PenaltyDefinition | null>(null);
-  const [archivingPenalty,  setArchivingPenalty]  = useState<PenaltyDefinition | null>(null);
-  const [penSearch,         setPenSearch]         = useState("");
-  const [penDSearch,        setPenDSearch]        = useState("");
-  const [penStatusFilter,   setPenStatusFilter]   = useState("All");
-  const [penShowFilters,    setPenShowFilters]    = useState(false);
-  const [penSortField,      setPenSortField]      = useState<string | null>("created_at");
-  const [penSortDir,        setPenSortDir]        = useState<"asc" | "desc">("desc");
-  const [penPage,           setPenPage]           = useState(1);
+  // Penalties tab state
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingPenalty, setEditingPenalty] = useState<PenaltyDefinition | null>(null);
+  const [archivingPenalty, setArchivingPenalty] = useState<PenaltyDefinition | null>(null);
+  const { search: penSearch, setSearch: setPenSearch, debouncedSearch: penDebouncedSearch, resetSearch: resetPenSearch } = useDebouncedSearch("", () => setPenPage(1));
+  const [penStatusFilter, setPenStatusFilter] = useState("All");
+  const [penShowFilters, setPenShowFilters] = useState(false);
+  const [penSortField, setPenSortField] = useState<PenSortField>("created_at");
+  const [penSortDir, setPenSortDir] = useState<"asc" | "desc">("desc");
+  const [penSortActive, setPenSortActive] = useState(false);
+  const [penPage, setPenPage] = useState(1);
 
-  // ── Issued fines state ──
-  const [issuedFines] = useState<IssuedFine[]>(MOCK_ISSUED_FINES);
-  const [selectedFine, setSelectedFine] = useState<IssuedFine | null>(null);
-  const [fineSearch,         setFineSearch]         = useState("");
-  const [fineDSearch,        setFineDSearch]        = useState("");
-  const [finePenaltyFilter,  setFinePenaltyFilter]  = useState("All");
+  // Issued fines tab state
+  const [selectedFineId, setSelectedFineId] = useState<string | null>(null);
+  const [finePenaltyFilter, setFinePenaltyFilter] = useState("All");
   const [fineTerminalFilter, setFineTerminalFilter] = useState("All");
-  const [fineShowFilters,    setFineShowFilters]    = useState(false);
-  const [fineSortField,      setFineSortField]      = useState<string | null>("date_issued");
-  const [fineSortDir,        setFineSortDir]        = useState<"asc" | "desc">("desc");
-  const [finePage,           setFinePage]           = useState(1);
+  const [fineShowFilters, setFineShowFilters] = useState(false);
+  const [finePage, setFinePage] = useState(1);
 
-  // ── Disputes state ──
-  const [disputes, setDisputes] = useState<FineDispute[]>(MOCK_DISPUTES);
-  const [selectedDispute, setSelectedDispute]     = useState<FineDispute | null>(null);
-  const [resolvingDispute, setResolvingDispute]   = useState<FineDispute | null>(null);
-  const [dispSearch,         setDispSearch]        = useState("");
-  const [dispDSearch,        setDispDSearch]       = useState("");
-  const [dispStatusFilter,   setDispStatusFilter]  = useState("All");
-  const [dispOutcomeFilter,  setDispOutcomeFilter] = useState("All");
-  const [dispShowFilters,    setDispShowFilters]   = useState(false);
-  const [dispSortField,      setDispSortField]     = useState<string | null>("date_disputed");
-  const [dispSortDir,        setDispSortDir]       = useState<"asc" | "desc">("desc");
-  const [dispPage,           setDispPage]          = useState(1);
-  const [newDisputeStatus,   setNewDisputeStatus]  = useState<DisputeStatus>("PENDING_REVIEW");
-  const [newOutcome,         setNewOutcome]        = useState<ResolutionOutcome | "">("");
+  // Disputes tab state
+  const [selectedDisputeId, setSelectedDisputeId] = useState<string | null>(null);
+  const [resolvingDispute, setResolvingDispute] = useState<FineDispute | null>(null);
+  const { search: dispSearch, setSearch: setDispSearch, debouncedSearch: dispDebouncedSearch, resetSearch: resetDispSearch } = useDebouncedSearch("", () => setDispPage(1));
+  const [dispStatusFilter, setDispStatusFilter] = useState("All");
+  const [dispOutcomeFilter, setDispOutcomeFilter] = useState("All");
+  const [dispShowFilters, setDispShowFilters] = useState(false);
+  const [dispPage, setDispPage] = useState(1);
+  const [newDisputeStatus, setNewDisputeStatus] = useState<DisputeStatus>("PENDING_REVIEW");
+  const [newOutcome, setNewOutcome] = useState<ResolutionOutcome | "">("");
 
-  const lastRefresh = new Date().toLocaleString("en-NG", {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true,
-  });
+  const penListParams = {
+    page: penPage,
+    limit: PAGE_SIZE,
+    search: penDebouncedSearch || undefined,
+    status: penStatusFilter !== "All" ? penStatusFilter : undefined,
+    sort: penSortActive ? buildPenSortParam(penSortField, penSortDir) : undefined,
+  };
 
-  // ── Debounced search ──
-  const penDebRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fineDebRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dispDebRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fineListParams = {
+    page: finePage,
+    limit: PAGE_SIZE,
+    penalty_name: finePenaltyFilter !== "All" ? finePenaltyFilter : undefined,
+    terminal: fineTerminalFilter !== "All" ? fineTerminalFilter : undefined,
+  };
 
-  useEffect(() => {
-    penDebRef.current = setTimeout(() => { setPenDSearch(penSearch); setPenPage(1); }, 350);
-    return () => { if (penDebRef.current) clearTimeout(penDebRef.current); };
-  }, [penSearch]);
+  const dispListParams = {
+    page: dispPage,
+    limit: PAGE_SIZE,
+    search: dispDebouncedSearch || undefined,
+    dispute_status: dispStatusFilter !== "All" ? dispStatusFilter : undefined,
+    resolution_outcome: dispOutcomeFilter !== "All" ? dispOutcomeFilter : undefined,
+  };
 
-  useEffect(() => {
-    fineDebRef.current = setTimeout(() => { setFineDSearch(fineSearch); setFinePage(1); }, 350);
-    return () => { if (fineDebRef.current) clearTimeout(fineDebRef.current); };
-  }, [fineSearch]);
+  const { data: penaltiesSummary, isLoading: penSummaryLoading, dataUpdatedAt: penSummaryUpdatedAt } = usePenaltiesSummary();
+  const { data: issuedSummary, isLoading: issuedSummaryLoading, dataUpdatedAt: issuedSummaryUpdatedAt } = useIssuedFinesSummary();
+  const { data: disputesSummary, isLoading: dispSummaryLoading, dataUpdatedAt: dispSummaryUpdatedAt } = useDisputesSummary();
 
-  useEffect(() => {
-    dispDebRef.current = setTimeout(() => { setDispDSearch(dispSearch); setDispPage(1); }, 350);
-    return () => { if (dispDebRef.current) clearTimeout(dispDebRef.current); };
-  }, [dispSearch]);
+  const { data: penaltiesData, isLoading: penListLoading, isError: penListError, dataUpdatedAt: penListUpdatedAt } = usePenalties(penListParams, activeTab === "penalties");
+  const { data: issuedData, isLoading: fineListLoading, isError: fineListError, dataUpdatedAt: fineListUpdatedAt } = useIssuedFines(fineListParams, activeTab === "issued");
+  const { data: disputesData, isLoading: dispListLoading, isError: dispListError, dataUpdatedAt: dispListUpdatedAt } = useDisputes(dispListParams, activeTab === "disputes");
+
+  const { data: issuedOptionsData } = useIssuedFines({ page: 1, limit: 100 }, activeTab === "issued");
+  const { data: selectedFine, isLoading: fineDetailLoading } = useIssuedFine(selectedFineId, Boolean(selectedFineId));
+  const { data: selectedDispute, isLoading: disputeDetailLoading } = useDispute(selectedDisputeId, Boolean(selectedDisputeId));
+
+  const createPenalty = useCreatePenalty();
+  const editPenalty = useEditPenalty();
+  const archivePenalty = useArchivePenalty();
+  const exportPenalties = useExportPenalties();
+  const exportIssuedFines = useExportIssuedFines();
+  const resolveDispute = useResolveDispute();
+  const exportDisputes = useExportDisputes();
+
+  const penPaged = penaltiesData?.data ?? [];
+  const penMeta = penaltiesData?.meta;
+  const penTotalPages = penMeta?.total_pages ?? 1;
+  const penTotalCount = penMeta?.total ?? 0;
+  const penHasFilters = Boolean(penDebouncedSearch || penStatusFilter !== "All");
+
+  const finePaged = issuedData?.data ?? [];
+  const fineMeta = issuedData?.meta;
+  const fineTotalPages = fineMeta?.total_pages ?? 1;
+  const fineTotalCount = fineMeta?.total ?? 0;
+  const fineHasFilters = finePenaltyFilter !== "All" || fineTerminalFilter !== "All";
+
+  const dispPaged = disputesData?.data ?? [];
+  const dispMeta = disputesData?.meta;
+  const dispTotalPages = dispMeta?.total_pages ?? 1;
+  const dispTotalCount = dispMeta?.total ?? 0;
+  const dispHasFilters = Boolean(dispDebouncedSearch || dispStatusFilter !== "All" || dispOutcomeFilter !== "All");
+
+  const terminalOptions = useMemo(
+    () => [...new Set((issuedOptionsData?.data ?? []).map((f) => f.booking.terminal_destination))],
+    [issuedOptionsData],
+  );
+  const penaltyNameOptions = useMemo(
+    () => [...new Set((issuedOptionsData?.data ?? []).map((f) => f.penalty_name))],
+    [issuedOptionsData],
+  );
+
+  const lastRefresh = formatTimestamp(
+    new Date(
+      activeTab === "penalties"
+        ? (penListUpdatedAt || penSummaryUpdatedAt || Date.now())
+        : activeTab === "issued"
+          ? (fineListUpdatedAt || issuedSummaryUpdatedAt || Date.now())
+          : (dispListUpdatedAt || dispSummaryUpdatedAt || Date.now())
+    ).toISOString()
+  );
 
   function switchTab(tab: TabId) {
     setActiveTab(tab);
-    setPenSearch(""); setFineSearch(""); setDispSearch("");
-    setPenDSearch(""); setFineDSearch(""); setDispDSearch("");
-    setPenPage(1); setFinePage(1); setDispPage(1);
-    setPenShowFilters(false); setFineShowFilters(false); setDispShowFilters(false);
+    resetPenSearch();
+    resetDispSearch();
+    setPenPage(1);
+    setFinePage(1);
+    setDispPage(1);
+    setPenShowFilters(false);
+    setFineShowFilters(false);
+    setDispShowFilters(false);
   }
 
-  // ── Penalty helpers ──
   function handleAddPenalty(data: { name: string; description: string; fine_amount: number; status: PenaltyStatus }) {
-    const next: PenaltyDefinition = {
-      id: `pdef-${Date.now()}`,
-      penalty_code: `PEN-${String(penalties.length + 1).padStart(3, "0")}`,
-      ...data,
-      created_by: "SuperAdmin (SA-001)",
-      created_at: new Date().toISOString(),
-    };
-    setPenalties((prev) => [next, ...prev]);
-    setShowAddModal(false);
-    toast.success("Penalty successfully added.");
+    createPenalty.mutate(data, { onSuccess: () => setShowAddModal(false) });
   }
 
   function handleEditPenalty(data: { name: string; description: string; fine_amount: number; status: PenaltyStatus }) {
     if (!editingPenalty) return;
-    setPenalties((prev) => prev.map((p) => p.id === editingPenalty.id
-      ? { ...p, ...data, updated_by: "SuperAdmin (SA-001)", updated_at: new Date().toISOString() }
-      : p));
-    setEditingPenalty(null);
-    toast.success("Penalty updated successfully.");
+    editPenalty.mutate({ id: editingPenalty.id, payload: data }, { onSuccess: () => setEditingPenalty(null) });
   }
 
   function handleArchivePenalty() {
     if (!archivingPenalty) return;
-    setPenalties((prev) => prev.map((p) => p.id === archivingPenalty.id ? { ...p, status: "ARCHIVED" as const } : p));
-    setArchivingPenalty(null);
-    toast.success("Penalty archived.");
+    archivePenalty.mutate(archivingPenalty.id, { onSuccess: () => setArchivingPenalty(null) });
   }
 
-  function handlePenSort(field: string) {
+  function handlePenSort(field: PenSortField) {
+    setPenSortActive(true);
     if (penSortField === field) setPenSortDir((d) => (d === "asc" ? "desc" : "asc"));
     else { setPenSortField(field); setPenSortDir("asc"); }
     setPenPage(1);
   }
 
-  const filteredPenalties = useMemo(() => {
-    let list = [...penalties];
-    if (penDSearch) {
-      const q = penDSearch.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.penalty_code.toLowerCase().includes(q));
-    }
-    if (penStatusFilter !== "All") list = list.filter((p) => p.status === penStatusFilter);
-    if (penSortField) {
-      list.sort((a, b) => {
-        if (penSortField === "fine_amount") return penSortDir === "asc" ? a.fine_amount - b.fine_amount : b.fine_amount - a.fine_amount;
-        let av = "", bv = "";
-        if (penSortField === "name")       { av = a.name;       bv = b.name; }
-        if (penSortField === "created_at") { av = a.created_at; bv = b.created_at; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return penSortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return list;
-  }, [penalties, penDSearch, penStatusFilter, penSortField, penSortDir]);
+  function clearPenFilters() {
+    resetPenSearch();
+    setPenStatusFilter("All");
+    setPenSortActive(false);
+    setPenPage(1);
+  }
 
-  const penTotalPages = Math.max(1, Math.ceil(filteredPenalties.length / PAGE_SIZE));
-  const penPaged      = filteredPenalties.slice((penPage - 1) * PAGE_SIZE, penPage * PAGE_SIZE);
-  const penHasFilters = penDSearch || penStatusFilter !== "All";
-
-  // ── Issued fine helpers ──
-  const terminalOptions = useMemo(() => [...new Set(MOCK_ISSUED_FINES.map((f) => f.booking.terminal_destination))], []);
-  const penaltyNameOptions = useMemo(() => [...new Set(MOCK_ISSUED_FINES.map((f) => f.penalty_name))], []);
-
-  function handleFineSort(field: string) {
-    if (fineSortField === field) setFineSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setFineSortField(field); setFineSortDir("asc"); }
+  function clearFineFilters() {
+    setFinePenaltyFilter("All");
+    setFineTerminalFilter("All");
     setFinePage(1);
   }
 
-  const filteredFines = useMemo(() => {
-    let list = [...issuedFines];
-    if (fineDSearch) {
-      const q = fineDSearch.toLowerCase();
-      list = list.filter((f) =>
-        f.issued_fine_id.toLowerCase().includes(q) ||
-        f.penalty_code.toLowerCase().includes(q) ||
-        f.booking.booking_reference.toLowerCase().includes(q) ||
-        f.truck_plate_number.toLowerCase().includes(q) ||
-        f.transporter.company_name.toLowerCase().includes(q));
-    }
-    if (finePenaltyFilter !== "All")  list = list.filter((f) => f.penalty_name === finePenaltyFilter);
-    if (fineTerminalFilter !== "All") list = list.filter((f) => f.booking.terminal_destination === fineTerminalFilter);
-    if (fineSortField) {
-      list.sort((a, b) => {
-        if (fineSortField === "fine_amount") return fineSortDir === "asc" ? a.fine_amount - b.fine_amount : b.fine_amount - a.fine_amount;
-        let av = "", bv = "";
-        if (fineSortField === "date_issued") { av = a.date_issued; bv = b.date_issued; }
-        if (fineSortField === "penalty_name") { av = a.penalty_name; bv = b.penalty_name; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return fineSortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return list;
-  }, [issuedFines, fineDSearch, finePenaltyFilter, fineTerminalFilter, fineSortField, fineSortDir]);
-
-  const fineTotalPages = Math.max(1, Math.ceil(filteredFines.length / PAGE_SIZE));
-  const finePaged      = filteredFines.slice((finePage - 1) * PAGE_SIZE, finePage * PAGE_SIZE);
-  const fineHasFilters = fineDSearch || finePenaltyFilter !== "All" || fineTerminalFilter !== "All";
-
-  // ── Disputes helpers ──
-  function handleDispSort(field: string) {
-    if (dispSortField === field) setDispSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else { setDispSortField(field); setDispSortDir("asc"); }
+  function clearDispFilters() {
+    resetDispSearch();
+    setDispStatusFilter("All");
+    setDispOutcomeFilter("All");
     setDispPage(1);
   }
 
-  const filteredDisputes = useMemo(() => {
-    let list = [...disputes];
-    if (dispDSearch) {
-      const q = dispDSearch.toLowerCase();
-      list = list.filter((d) =>
-        d.dispute_id.toLowerCase().includes(q) ||
-        d.penalty_code.toLowerCase().includes(q) ||
-        d.booking.booking_reference.toLowerCase().includes(q) ||
-        d.truck_plate_number.toLowerCase().includes(q) ||
-        d.transporter.company_name.toLowerCase().includes(q));
-    }
-    if (dispStatusFilter !== "All")  list = list.filter((d) => d.dispute_status === dispStatusFilter);
-    if (dispOutcomeFilter !== "All") list = list.filter((d) => d.resolution_outcome === dispOutcomeFilter);
-    if (dispSortField) {
-      list.sort((a, b) => {
-        if (dispSortField === "fine_amount") return dispSortDir === "asc" ? a.fine_amount - b.fine_amount : b.fine_amount - a.fine_amount;
-        let av = "", bv = "";
-        if (dispSortField === "date_disputed") { av = a.date_disputed; bv = b.date_disputed; }
-        if (dispSortField === "penalty_name")  { av = a.penalty_name;  bv = b.penalty_name; }
-        const cmp = av.localeCompare(bv, undefined, { numeric: true });
-        return dispSortDir === "asc" ? cmp : -cmp;
-      });
-    }
-    return list;
-  }, [disputes, dispDSearch, dispStatusFilter, dispOutcomeFilter, dispSortField, dispSortDir]);
-
-  const dispTotalPages = Math.max(1, Math.ceil(filteredDisputes.length / PAGE_SIZE));
-  const dispPaged      = filteredDisputes.slice((dispPage - 1) * PAGE_SIZE, dispPage * PAGE_SIZE);
-  const dispHasFilters = dispDSearch || dispStatusFilter !== "All" || dispOutcomeFilter !== "All";
-
   function handleUpdateDisputeStatus() {
     if (!resolvingDispute) return;
-    const outcome = (newDisputeStatus === "RESOLVED" || newDisputeStatus === "REJECTED") && newOutcome ? newOutcome as ResolutionOutcome : undefined;
-    setDisputes((prev) => prev.map((d) => d.id === resolvingDispute.id
-      ? {
-          ...d,
+    const outcome = (newDisputeStatus === "RESOLVED" || newDisputeStatus === "REJECTED") && newOutcome
+      ? (newOutcome as ResolutionOutcome)
+      : undefined;
+    resolveDispute.mutate(
+      {
+        id: resolvingDispute.id,
+        payload: {
           dispute_status: newDisputeStatus,
           resolution_outcome: outcome,
-          resolution_date: ["RESOLVED","REJECTED"].includes(newDisputeStatus) ? new Date().toISOString() : d.resolution_date,
-          managed_by: d.managed_by ?? "NPA — Current User",
-          resolution_history: [...d.resolution_history, {
-            action: `Status updated to ${formatLabel(newDisputeStatus)}${outcome ? ` — ${formatLabel(outcome)}` : ""}`,
-            performed_by: "NPA — Current User",
-            timestamp: new Date().toISOString(),
-            notes: "Status updated by NPA user.",
-          }],
-        }
-      : d));
-    if (selectedDispute?.id === resolvingDispute.id) setSelectedDispute(null);
-    setResolvingDispute(null);
-    toast.success("Dispute status updated successfully.");
+          adjusted_amount: outcome === "FINE_ADJUSTED" ? resolvingDispute.adjusted_amount ?? 0 : 0,
+          notes: "Status updated by NPA user.",
+        },
+      },
+      {
+        onSuccess: () => {
+          if (selectedDisputeId === resolvingDispute.id) setSelectedDisputeId(null);
+          setResolvingDispute(null);
+        },
+      },
+    );
   }
 
-  // ── SortableTH helpers ──
-  function PenTH({ field, children }: { field: string; children: React.ReactNode }) {
+  function PenTH({ field, children }: { field: PenSortField; children: React.ReactNode }) {
     return (
       <th onClick={() => handlePenSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={penSortField} sortDir={penSortDir} /></span>
+        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={penSortActive ? penSortField : null} sortDir={penSortDir} /></span>
       </th>
     );
   }
-  function FineTH({ field, children }: { field: string; children: React.ReactNode }) {
-    return (
-      <th onClick={() => handleFineSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={fineSortField} sortDir={fineSortDir} /></span>
-      </th>
-    );
-  }
-  function DispTH({ field, children }: { field: string; children: React.ReactNode }) {
-    return (
-      <th onClick={() => handleDispSort(field)} className="cursor-pointer select-none px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-700">
-        <span className="inline-flex items-center">{children}<SortIcon field={field} sortField={dispSortField} sortDir={dispSortDir} /></span>
-      </th>
-    );
-  }
+
   const staticTH = (label: string) => <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">{label}</th>;
 
-  // ── Actions menu ──
   function ActionsMenu({ options }: { options: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }[] }) {
     const [open, setOpen] = useState(false);
     return (
@@ -705,9 +667,9 @@ export default function PenaltiesPage() {
   }
 
   const TAB_CONFIG: Record<TabId, { label: string; dot: string; count: number; description: string }> = {
-    penalties: { label: "All Penalties & Fines", dot: "bg-red-500",     count: penalties.length, description: "Master list of all penalty definitions and their associated fine amounts." },
-    issued:    { label: "Issued Fines",           dot: "bg-amber-500",   count: issuedFines.length, description: "All fines issued to transporters across the ETSS-Nigeria platform." },
-    disputes:  { label: "Manage Fine Disputes",   dot: "bg-blue-500",    count: disputes.length, description: "Transporter-raised disputes against issued fines — review and resolve." },
+    penalties: { label: "All Penalties & Fines", dot: "bg-red-500", count: penaltiesSummary?.total ?? 0, description: "Master list of all penalty definitions and their associated fine amounts." },
+    issued:    { label: "Issued Fines",           dot: "bg-amber-500", count: issuedSummary?.total ?? 0, description: "All fines issued to transporters across the ETSS-Nigeria platform." },
+    disputes:  { label: "Manage Fine Disputes",   dot: "bg-blue-500",  count: disputesSummary?.total ?? 0, description: "Transporter-raised disputes against issued fines — review and resolve." },
   };
   const TABS = (["penalties", "issued", "disputes"] as TabId[]);
 
@@ -715,14 +677,15 @@ export default function PenaltiesPage() {
   return (
     <div className="space-y-5 p-6">
       {/* ─── Dialogs ─── */}
-      {showAddModal    && <PenaltyFormModal onSave={handleAddPenalty}   onCancel={() => setShowAddModal(false)} />}
-      {editingPenalty  && <PenaltyFormModal initialData={editingPenalty} onSave={handleEditPenalty} onCancel={() => setEditingPenalty(null)} />}
+      {showAddModal && <PenaltyFormModal onSave={handleAddPenalty} onCancel={() => setShowAddModal(false)} isSaving={createPenalty.isPending} />}
+      {editingPenalty && <PenaltyFormModal initialData={editingPenalty} onSave={handleEditPenalty} onCancel={() => setEditingPenalty(null)} isSaving={editPenalty.isPending} />}
       {archivingPenalty && (
         <ConfirmDialog title="Archive Penalty" danger
           message={`Are you sure you want to archive "${archivingPenalty.name}"? It will be hidden from all users except SuperAdmin.`}
           confirmLabel="Archive Penalty"
           onConfirm={handleArchivePenalty}
           onCancel={() => setArchivingPenalty(null)}
+          isPending={archivePenalty.isPending}
         />
       )}
       {resolvingDispute && (
@@ -762,18 +725,27 @@ export default function PenaltiesPage() {
               )}
             </div>
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => setResolvingDispute(null)} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">Cancel</button>
-              <button onClick={handleUpdateDisputeStatus} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">Update Status</button>
+              <button onClick={() => setResolvingDispute(null)} disabled={resolveDispute.isPending} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button onClick={handleUpdateDisputeStatus} disabled={resolveDispute.isPending} className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+                {resolveDispute.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Update Status
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* ─── Issued Fine Drawer ─── */}
-      {selectedFine && (
+      {selectedFineId && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setSelectedFine(null)} />
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setSelectedFineId(null)} />
           <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col bg-white shadow-2xl">
+            {fineDetailLoading || !selectedFine ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+              </div>
+            ) : (
+              <>
             <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
               <div>
                 <p className="font-mono text-sm font-bold text-white">{selectedFine.issued_fine_id}</p>
@@ -781,7 +753,7 @@ export default function PenaltiesPage() {
               </div>
               <div className="flex items-center gap-2">
                 <FineBadge status={selectedFine.status} />
-                <button onClick={() => setSelectedFine(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
+                <button onClick={() => setSelectedFineId(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
               </div>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
@@ -845,17 +817,25 @@ export default function PenaltiesPage() {
               </div>
             </div>
             <div className="border-t border-gray-100 px-6 py-3">
-              <button onClick={() => setSelectedFine(null)} className="w-full rounded-lg border border-gray-200 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Close</button>
+              <button onClick={() => setSelectedFineId(null)} className="w-full rounded-lg border border-gray-200 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Close</button>
             </div>
+              </>
+            )}
           </div>
         </>
       )}
 
       {/* ─── Dispute Detail Drawer ─── */}
-      {selectedDispute && (
+      {selectedDisputeId && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setSelectedDispute(null)} />
+          <div className="fixed inset-0 z-40 bg-black/30" onClick={() => setSelectedDisputeId(null)} />
           <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
+            {disputeDetailLoading || !selectedDispute ? (
+              <div className="flex flex-1 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-emerald-600" />
+              </div>
+            ) : (
+              <>
             <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
               <div>
                 <p className="font-mono text-sm font-bold text-white">{selectedDispute.dispute_id}</p>
@@ -863,7 +843,7 @@ export default function PenaltiesPage() {
               </div>
               <div className="flex items-center gap-2">
                 <DisputeStatusBadge status={selectedDispute.dispute_status} />
-                <button onClick={() => setSelectedDispute(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
+                <button onClick={() => setSelectedDisputeId(null)} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button>
               </div>
             </div>
             <div className="flex-1 space-y-4 overflow-y-auto p-6">
@@ -951,13 +931,15 @@ export default function PenaltiesPage() {
             </div>
             <div className="border-t border-gray-100 px-6 py-3 flex gap-2">
               {selectedDispute.dispute_status !== "RESOLVED" && selectedDispute.dispute_status !== "REJECTED" && (
-                <button onClick={() => { setSelectedDispute(null); setNewDisputeStatus(selectedDispute.dispute_status); setNewOutcome(""); setResolvingDispute(selectedDispute); }}
+                <button onClick={() => { setSelectedDisputeId(null); setNewDisputeStatus(selectedDispute.dispute_status); setNewOutcome(""); setResolvingDispute(selectedDispute); }}
                   className="flex-1 rounded-lg bg-emerald-600 py-2 text-xs font-semibold text-white hover:bg-emerald-700">
                   Update Status
                 </button>
               )}
-              <button onClick={() => setSelectedDispute(null)} className="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Close</button>
+              <button onClick={() => setSelectedDisputeId(null)} className="flex-1 rounded-lg border border-gray-200 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50">Close</button>
             </div>
+              </>
+            )}
           </div>
         </>
       )}
@@ -972,9 +954,9 @@ export default function PenaltiesPage() {
       </nav>
 
       {/* ─── Summary Panel ─── */}
-      {activeTab === "penalties" && <PenaltiesSummaryPanel penalties={penalties} />}
-      {activeTab === "issued"    && <IssuedFinesSummaryPanel fines={issuedFines} />}
-      {activeTab === "disputes"  && <DisputesSummaryPanel disputes={disputes} />}
+      {activeTab === "penalties" && <PenaltiesSummaryPanel summary={penaltiesSummary} isLoading={penSummaryLoading} />}
+      {activeTab === "issued"    && <IssuedFinesSummaryPanel summary={issuedSummary} isLoading={issuedSummaryLoading} />}
+      {activeTab === "disputes"  && <DisputesSummaryPanel summary={disputesSummary} isLoading={dispSummaryLoading} />}
 
       {/* ─── Module Card with Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -1039,8 +1021,7 @@ export default function PenaltiesPage() {
                   <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
                 </button>
                 <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-                  <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
-                  <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" />PDF</button>
+                  <button onClick={() => exportPenalties.mutate(penListParams)} disabled={exportPenalties.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
                 </div>
               </div>
               <button onClick={() => setShowAddModal(true)}
@@ -1061,7 +1042,7 @@ export default function PenaltiesPage() {
                   </div>
                 </div>
                 {penHasFilters && (
-                  <button onClick={() => { setPenSearch(""); setPenDSearch(""); setPenStatusFilter("All"); setPenPage(1); }}
+                  <button onClick={clearPenFilters}
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50">
                     <X className="h-3 w-3" />Clear All
                   </button>
@@ -1074,12 +1055,6 @@ export default function PenaltiesPage() {
         {activeTab === "issued" && (
           <>
             <div className="flex flex-wrap items-center gap-3">
-              <div className="relative min-w-64 flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={fineSearch} onChange={(e) => setFineSearch(e.target.value)}
-                  placeholder="Search by ID, booking ref, plate, company..."
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm placeholder-gray-400 outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100" />
-              </div>
               <button onClick={() => setFineShowFilters(!fineShowFilters)}
                 className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${fineShowFilters || fineHasFilters ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                 <Filter className="h-4 w-4" />Filters
@@ -1089,8 +1064,7 @@ export default function PenaltiesPage() {
                   <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
                 </button>
                 <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-                  <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
-                  <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" />PDF</button>
+                  <button onClick={() => exportIssuedFines.mutate(fineListParams)} disabled={exportIssuedFines.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
                 </div>
               </div>
             </div>
@@ -1119,7 +1093,7 @@ export default function PenaltiesPage() {
                   </div>
                 </div>
                 {fineHasFilters && (
-                  <button onClick={() => { setFineSearch(""); setFineDSearch(""); setFinePenaltyFilter("All"); setFineTerminalFilter("All"); setFinePage(1); }}
+                  <button onClick={clearFineFilters}
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50">
                     <X className="h-3 w-3" />Clear All
                   </button>
@@ -1147,8 +1121,7 @@ export default function PenaltiesPage() {
                   <Download className="h-4 w-4" />Export<ChevronDown className="h-3 w-3" />
                 </button>
                 <div className="absolute right-0 top-full z-20 mt-1 hidden w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg group-hover:block">
-                  <button onClick={() => toast.info("Exporting CSV...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
-                  <button onClick={() => toast.info("Exporting PDF...")} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><FileText className="h-3.5 w-3.5 text-red-500" />PDF</button>
+                  <button onClick={() => exportDisputes.mutate(dispListParams)} disabled={exportDisputes.isPending} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"><FileText className="h-3.5 w-3.5 text-gray-400" />CSV</button>
                 </div>
               </div>
             </div>
@@ -1175,7 +1148,7 @@ export default function PenaltiesPage() {
                   </div>
                 </div>
                 {dispHasFilters && (
-                  <button onClick={() => { setDispSearch(""); setDispDSearch(""); setDispStatusFilter("All"); setDispOutcomeFilter("All"); setDispPage(1); }}
+                  <button onClick={clearDispFilters}
                     className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50">
                     <X className="h-3 w-3" />Clear All
                   </button>
@@ -1189,13 +1162,13 @@ export default function PenaltiesPage() {
       {/* ─── Results count ─── */}
       <div className="flex items-center justify-between">
         {activeTab === "penalties" && (
-          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{filteredPenalties.length}</span> penalt{filteredPenalties.length !== 1 ? "ies" : "y"}{penHasFilters ? " matching your filters" : ""}</p>
+          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{penTotalCount}</span> penalt{penTotalCount !== 1 ? "ies" : "y"}{penHasFilters ? " matching your filters" : ""}</p>
         )}
         {activeTab === "issued" && (
-          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{filteredFines.length}</span> issued fine{filteredFines.length !== 1 ? "s" : ""}{fineHasFilters ? " matching your filters" : ""}</p>
+          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{fineTotalCount}</span> issued fine{fineTotalCount !== 1 ? "s" : ""}{fineHasFilters ? " matching your filters" : ""}</p>
         )}
         {activeTab === "disputes" && (
-          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{filteredDisputes.length}</span> dispute{filteredDisputes.length !== 1 ? "s" : ""}{dispHasFilters ? " matching your filters" : ""}</p>
+          <p className="text-xs text-gray-500">Showing <span className="font-semibold text-gray-800">{dispTotalCount}</span> dispute{dispTotalCount !== 1 ? "s" : ""}{dispHasFilters ? " matching your filters" : ""}</p>
         )}
       </div>
 
@@ -1221,13 +1194,28 @@ export default function PenaltiesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {penPaged.length === 0 ? (
+                {penListLoading ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-12 text-center">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-600" />
+                    </td>
+                  </tr>
+                ) : penListError ? (
+                  <tr>
+                    <td colSpan={10} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-red-600">
+                        <AlertCircle className="h-8 w-8" />
+                        <p className="text-sm font-medium">Failed to load penalties</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : penPaged.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Gavel className="h-8 w-8 text-gray-300" />
                         <p className="text-sm font-medium text-gray-400">No penalties match your filters</p>
-                        {penHasFilters && <button onClick={() => { setPenSearch(""); setPenDSearch(""); setPenStatusFilter("All"); }} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
+                        {penHasFilters && <button onClick={clearPenFilters} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
                       </div>
                     </td>
                   </tr>
@@ -1260,7 +1248,7 @@ export default function PenaltiesPage() {
           </div>
           {penTotalPages > 1 && (
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-              <p className="text-xs text-gray-500">Page {penPage} of {penTotalPages} · {filteredPenalties.length} results</p>
+              <p className="text-xs text-gray-500">Page {penPage} of {penTotalPages} · {penTotalCount} results</p>
               <div className="flex gap-1">
                 <button onClick={() => setPenPage(Math.max(1, penPage - 1))} disabled={penPage === 1}
                   className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
@@ -1289,9 +1277,9 @@ export default function PenaltiesPage() {
                   {staticTH("Truck Plate")}
                   {staticTH("Driver")}
                   {staticTH("Booked By")}
-                  <FineTH field="penalty_name">Penalty Name</FineTH>
-                  <FineTH field="fine_amount">Fine Amount</FineTH>
-                  <FineTH field="date_issued">Date Issued</FineTH>
+                  {staticTH("Penalty Name")}
+                  {staticTH("Fine Amount")}
+                  {staticTH("Date Issued")}
                   {staticTH("Issued By")}
                   {staticTH("Category")}
                   {staticTH("Booking Status")}
@@ -1301,13 +1289,28 @@ export default function PenaltiesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {finePaged.length === 0 ? (
+                {fineListLoading ? (
+                  <tr>
+                    <td colSpan={15} className="px-4 py-12 text-center">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-600" />
+                    </td>
+                  </tr>
+                ) : fineListError ? (
+                  <tr>
+                    <td colSpan={15} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-red-600">
+                        <AlertCircle className="h-8 w-8" />
+                        <p className="text-sm font-medium">Failed to load issued fines</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : finePaged.length === 0 ? (
                   <tr>
                     <td colSpan={15} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <ReceiptText className="h-8 w-8 text-gray-300" />
                         <p className="text-sm font-medium text-gray-400">No issued fines match your filters</p>
-                        {fineHasFilters && <button onClick={() => { setFineSearch(""); setFineDSearch(""); setFinePenaltyFilter("All"); setFineTerminalFilter("All"); }} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
+                        {fineHasFilters && <button onClick={clearFineFilters} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
                       </div>
                     </td>
                   </tr>
@@ -1337,7 +1340,7 @@ export default function PenaltiesPage() {
                     <td className="px-3 py-3 whitespace-nowrap"><FineBadge status={f.status} /></td>
                     <td className="px-3 py-3 text-center">
                       <ActionsMenu options={[
-                        { label: "View Booking Details", icon: <Eye className="h-3.5 w-3.5" />, onClick: () => setSelectedFine(f) },
+                        { label: "View Booking Details", icon: <Eye className="h-3.5 w-3.5" />, onClick: () => setSelectedFineId(f.id) },
                       ]} />
                     </td>
                   </tr>
@@ -1347,7 +1350,7 @@ export default function PenaltiesPage() {
           </div>
           {fineTotalPages > 1 && (
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-              <p className="text-xs text-gray-500">Page {finePage} of {fineTotalPages} · {filteredFines.length} results</p>
+              <p className="text-xs text-gray-500">Page {finePage} of {fineTotalPages} · {fineTotalCount} results</p>
               <div className="flex gap-1">
                 <button onClick={() => setFinePage(Math.max(1, finePage - 1))} disabled={finePage === 1}
                   className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">
@@ -1377,10 +1380,10 @@ export default function PenaltiesPage() {
                   {staticTH("Truck Plate")}
                   {staticTH("Driver")}
                   {staticTH("Transporter")}
-                  <DispTH field="penalty_name">Penalty Type</DispTH>
-                  <DispTH field="fine_amount">Fine Amount</DispTH>
+                  {staticTH("Penalty Type")}
+                  {staticTH("Fine Amount")}
                   {staticTH("Date Issued")}
-                  <DispTH field="date_disputed">Date Disputed</DispTH>
+                  {staticTH("Date Disputed")}
                   {staticTH("Dispute Status")}
                   {staticTH("Resolution")}
                   {staticTH("Managed By")}
@@ -1388,22 +1391,37 @@ export default function PenaltiesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {dispPaged.length === 0 ? (
+                {dispListLoading ? (
+                  <tr>
+                    <td colSpan={15} className="px-4 py-12 text-center">
+                      <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-600" />
+                    </td>
+                  </tr>
+                ) : dispListError ? (
+                  <tr>
+                    <td colSpan={15} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-red-600">
+                        <AlertCircle className="h-8 w-8" />
+                        <p className="text-sm font-medium">Failed to load disputes</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : dispPaged.length === 0 ? (
                   <tr>
                     <td colSpan={15} className="px-4 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Scale className="h-8 w-8 text-gray-300" />
                         <p className="text-sm font-medium text-gray-400">No disputes match your filters</p>
-                        {dispHasFilters && <button onClick={() => { setDispSearch(""); setDispDSearch(""); setDispStatusFilter("All"); setDispOutcomeFilter("All"); }} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
+                        {dispHasFilters && <button onClick={clearDispFilters} className="text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>}
                       </div>
                     </td>
                   </tr>
                 ) : dispPaged.map((d, idx) => (
-                  <tr key={d.id} className="cursor-pointer transition-colors hover:bg-gray-50/80" onClick={() => setSelectedDispute(d)}>
+                  <tr key={d.id} className="cursor-pointer transition-colors hover:bg-gray-50/80" onClick={() => setSelectedDisputeId(d.id)}>
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(dispPage - 1) * PAGE_SIZE + idx + 1}</td>
                     <td className="px-3 py-3 whitespace-nowrap">
                       <button className="flex items-center gap-1 font-mono text-xs font-bold text-emerald-700 hover:underline"
-                        onClick={(e) => { e.stopPropagation(); setSelectedDispute(d); }}>
+                        onClick={(e) => { e.stopPropagation(); setSelectedDisputeId(d.id); }}>
                         <Hash className="h-3 w-3" />{d.dispute_id}
                       </button>
                     </td>
@@ -1423,7 +1441,7 @@ export default function PenaltiesPage() {
                     <td className="px-3 py-3 max-w-36"><p className="truncate text-xs text-gray-500">{d.managed_by ?? "—"}</p></td>
                     <td className="px-3 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <ActionsMenu options={[
-                        { label: "View Dispute Details", icon: <Eye className="h-3.5 w-3.5" />, onClick: () => setSelectedDispute(d) },
+                        { label: "View Dispute Details", icon: <Eye className="h-3.5 w-3.5" />, onClick: () => setSelectedDisputeId(d.id) },
                         ...(d.dispute_status !== "RESOLVED" && d.dispute_status !== "REJECTED"
                           ? [{ label: "Update Status", icon: <CheckCircle className="h-3.5 w-3.5" />, onClick: () => { setNewDisputeStatus(d.dispute_status); setNewOutcome(""); setResolvingDispute(d); } }]
                           : []),
@@ -1436,7 +1454,7 @@ export default function PenaltiesPage() {
           </div>
           {dispTotalPages > 1 && (
             <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-              <p className="text-xs text-gray-500">Page {dispPage} of {dispTotalPages} · {filteredDisputes.length} results</p>
+              <p className="text-xs text-gray-500">Page {dispPage} of {dispTotalPages} · {dispTotalCount} results</p>
               <div className="flex gap-1">
                 <button onClick={() => setDispPage(Math.max(1, dispPage - 1))} disabled={dispPage === 1}
                   className="flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-40">

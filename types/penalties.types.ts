@@ -7,7 +7,7 @@ export type BookingCategory = "IMPORT" | "EXPORT" | "EMPTY";
 
 export type TruckBookingStatus =
   | "AVAILABLE" | "ON_TRIP" | "IN_FACILITY" | "MATCHED"
-  | "IN_PREGATE" | "IN_TERMINAL" | "LEFT_TERMINAL" | "FLAGGED";
+  | "IN_PREGATE" | "IN_TERMINAL" | "LEFT_TERMINAL" | "FLAGGED" | "LIVE";
 
 export type DisputeStatus =
   | "PENDING_REVIEW"
@@ -127,4 +127,82 @@ export interface DisputesSummary {
   fine_adjusted: number;
   total_amount_in_dispute: number;
   total_amount_waived_adjusted: number;
+}
+
+export type PenaltiesSummaryResponse = PenaltiesSummary;
+export type IssuedFinesSummaryResponse = IssuedFinesSummary;
+export type DisputesSummaryResponse = DisputesSummary;
+
+export interface PenaltiesListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: PenaltyStatus | string;
+  sort?: string;
+}
+
+export interface IssuedFinesListParams {
+  page?: number;
+  limit?: number;
+  penalty_name?: string;
+  terminal?: string;
+}
+
+export interface DisputesListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  dispute_status?: DisputeStatus | string;
+  resolution_outcome?: ResolutionOutcome | string;
+}
+
+export interface PaginatedListMeta {
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+export interface PenaltiesListResponse {
+  data: PenaltyDefinition[];
+  meta: PaginatedListMeta;
+}
+
+export interface IssuedFinesListResponse {
+  data: IssuedFine[];
+  meta: PaginatedListMeta;
+}
+
+export interface DisputesListResponse {
+  data: FineDispute[];
+  meta: PaginatedListMeta;
+}
+
+export interface PenaltyPayload {
+  name: string;
+  description: string;
+  fine_amount: number;
+  status: PenaltyStatus;
+}
+
+export interface ResolveDisputePayload {
+  dispute_status: DisputeStatus;
+  resolution_outcome?: ResolutionOutcome;
+  adjusted_amount?: number;
+  notes?: string;
+}
+
+export interface PenaltyActionResponse {
+  message: string;
+  data?: PenaltyDefinition;
+}
+
+export interface IssuedFineActionResponse {
+  message: string;
+  data?: IssuedFine;
+}
+
+export interface DisputeActionResponse {
+  message: string;
+  data?: FineDispute;
 }
