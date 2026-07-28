@@ -79,6 +79,7 @@ export interface Truck {
   // Verified only
   truck_status?: TruckStatus;
   mss_verification_number?: string;
+  mss_expiry_date?: string;
   verification_timestamp?: string;
   rfid_tag_number?: string;
   // Flagged only
@@ -91,6 +92,7 @@ export interface Truck {
 export interface TrucksSummary {
   total: number;
   mss_verified: number;
+  mss_expired: number;
   unverified: number;
   verification_requested: number;
   flagged: number;

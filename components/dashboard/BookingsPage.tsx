@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   BookOpen,
   Search,
@@ -12,17 +13,17 @@ import {
   Clock,
   Eye,
   Ban,
-  MoreHorizontal,
   Shield,
   Truck,
   RefreshCw,
-  History,
   CheckCircle2,
   XCircle,
   RotateCcw,
   Loader2,
   AlertCircle,
   Download,
+  MapPin,
+  Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
@@ -45,6 +46,8 @@ import type {
   BookingsListParams,
   BookingsManifestParams,
 } from "@/types/bookings.types";
+import { BookingETicketModal } from "@/components/dashboard/BookingETicket";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 const PAGE_SIZE = 10;
 
@@ -107,6 +110,148 @@ function formatTimestamp(ts: string) {
 
 function formatLabel(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatDateShort(ts: string) {
+  return new Date(ts).toLocaleDateString("en-NG", {
+    day: "numeric", month: "short", year: "numeric",
+  });
+}
+
+function truckStatusLabel(booking: Booking): string {
+  if (booking.truck?.truck_status) return formatLabel(booking.truck.truck_status);
+  if (booking.status === "LIVE") return "On-Trip";
+  return formatLabel(booking.status);
+}
+
+function truckStatusBadgeCls(booking: Booking): string {
+  if (booking.truck?.truck_status === "ON_TRIP" || booking.status === "LIVE") {
+    return "bg-blue-50 text-blue-700 border-blue-200";
+  }
+  if (booking.status === "COMPLETED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (booking.status === "CANCELLED") return "bg-red-50 text-red-700 border-red-200";
+  return "bg-gray-100 text-gray-600 border-gray-200";
+}
+
+function TruckPreviewCard({ booking }: { booking: Booking }) {
+  const truck = booking.truck;
+  const displayType = truck?.truck_type ? formatLabel(truck.truck_type) : "—";
+
+  return (
+    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+      <div className="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Plate Number</p>
+            <p className="font-mono text-sm font-bold text-gray-900">{booking.truck_plate_number}</p>
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Type</p>
+            <p className="text-xs font-bold text-gray-800">{displayType}</p>
+          </div>
+          <div className="shrink-0 scale-110">
+            <TruckAvatar color={booking.truck_color} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px bg-gray-100">
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Brand</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck?.brand ?? "—"}</p>
+        </div>
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Model</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck?.model ?? "—"}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px border-t border-gray-100 bg-gray-100">
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">MSS Verification No</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck?.mss_verification_number ?? "—"}</p>
+        </div>
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">MSS Expiry Date</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">
+            {truck?.mss_expiry_date ? formatDateShort(truck.mss_expiry_date) : "—"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Owned By</p>
+          <p className="truncate text-sm font-bold text-gray-900">{booking.truck_owned_by}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${truckStatusBadgeCls(booking)}`}>
+          {truckStatusLabel(booking)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function TruckPreviewTrigger({ booking, children }: { booking: Booking; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cardWidth = 288;
+    const cardHeight = 280;
+    const padding = 8;
+    let left = rect.left;
+    let top = rect.bottom + padding;
+    if (left + cardWidth > window.innerWidth - padding) {
+      left = window.innerWidth - cardWidth - padding;
+    }
+    if (top + cardHeight > window.innerHeight - padding) {
+      top = rect.top - cardHeight - padding;
+    }
+    setPosition({ top, left });
+  }, []);
+
+  const show = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    updatePosition();
+    setOpen(true);
+  }, [updatePosition]);
+
+  const hide = useCallback(() => {
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  }, []);
+
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }, []);
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        className="inline-flex cursor-pointer"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {children}
+      </div>
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-[100]"
+          style={{ top: position.top, left: position.left }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={hide}
+        >
+          <TruckPreviewCard booking={booking} />
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 function TruckAvatar({ color }: { color: string }) {
@@ -209,109 +354,311 @@ function ActivityIcon({ className }: { className?: string }) {
   );
 }
 
+const CATEGORY_DISPLAY: Record<string, string> = {
+  IMPORT: "Import Container",
+  EXPORT: "Export Container",
+  EMPTY: "Empty Container",
+  DOMESTIC: "Domestic Container",
+};
+
+function formatNaira(amount: number) {
+  return `₦${amount.toLocaleString("en-NG", { minimumFractionDigits: 2 })}`;
+}
+
+function displayValue(value?: string | null) {
+  return value?.trim() ? value : "N/A";
+}
+
+function DetailStatusBadge({ status }: { status: BookingStatus }) {
+  const map: Record<BookingStatus, { cls: string; label: string }> = {
+    LIVE: { cls: "bg-blue-50 text-blue-700 border-blue-200", label: "Live" },
+    COMPLETED: { cls: "bg-amber-50 text-amber-800 border-amber-200", label: "Completed" },
+    CANCELLED: { cls: "bg-red-50 text-red-700 border-red-200", label: "Cancelled" },
+    EXPIRED: { cls: "bg-gray-100 text-gray-500 border-gray-200", label: "Expired" },
+  };
+  const { cls, label } = map[status];
+  return (
+    <span className={`inline-flex items-center rounded-md border px-3 py-1 text-xs font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function ContainerBanner({ booking }: { booking: Booking }) {
+  const categoryLabel = CATEGORY_DISPLAY[booking.booking_category] ?? formatLabel(booking.booking_category);
+  const hasTep = Boolean(booking.tep_code);
+
+  return (
+    <div
+      className="relative overflow-hidden rounded-lg border border-gray-200 px-6 py-8 text-center"
+      style={{
+        backgroundImage: "repeating-linear-gradient(90deg, #e5e7eb 0, #e5e7eb 2px, transparent 2px, transparent 14px)",
+        backgroundColor: "#f9fafb",
+      }}
+    >
+      <div className="relative space-y-1">
+        {hasTep && (
+          <>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Truck Entry Permit</p>
+            <p className="font-mono text-sm font-bold text-gray-800">{booking.tep_code}</p>
+          </>
+        )}
+        <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">{categoryLabel}</p>
+      </div>
+    </div>
+  );
+}
+
+function DetailField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[11px] font-medium text-gray-500">{label}</p>
+      <div className="mt-1 text-sm font-semibold text-gray-900">{children}</div>
+    </div>
+  );
+}
+
+function TruckStatusDot({ status }: { status: string }) {
+  const normalized = status.toLowerCase();
+  const isAvailable = normalized.includes("available");
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-emerald-500" : "bg-blue-500"}`} />
+      {formatLabel(status.replace(/_/g, " "))}
+    </span>
+  );
+}
+
+function BookingActivityTimeline({ booking }: { booking: Booking }) {
+  const entries = [...(booking.timeline ?? [])].reverse();
+  if (entries.length === 0) {
+    return <p className="py-8 text-center text-sm text-gray-400">No activity recorded yet</p>;
+  }
+
+  return (
+    <div className="relative space-y-0">
+      {entries.map((entry, index) => {
+        const isLatest = entry.is_latest ?? index === 0;
+        const fromStatus = entry.from_status ?? (entries[index + 1] ? formatLabel(entries[index + 1].status) : undefined);
+        const performer = entry.performed_by ?? "System";
+
+        return (
+          <div key={entry.id} className="relative flex gap-3 pb-6 last:pb-0">
+            {index < entries.length - 1 && (
+              <span className="absolute left-[13px] top-7 bottom-0 w-px bg-gray-200" />
+            )}
+            <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0f1e2e]">
+              <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1 rounded-lg border border-gray-100 bg-gray-50/50 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-bold text-gray-900">{formatLabel(entry.status)}</p>
+                {isLatest && (
+                  <span className="rounded bg-[#0f1e2e] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                    Latest
+                  </span>
+                )}
+              </div>
+              {fromStatus && (
+                <p className="mt-1 text-xs text-gray-600">
+                  <span className="text-gray-400">From:</span> {fromStatus}
+                </p>
+              )}
+              <p className="mt-0.5 text-xs text-gray-600">
+                <span className="text-gray-400">Updated by:</span> {performer}
+              </p>
+              {entry.location && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-gray-600">
+                  <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
+                  {entry.location}
+                </p>
+              )}
+              <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+                <Calendar className="h-3 w-3 shrink-0 text-gray-400" />
+                {formatTimestamp(entry.timestamp)}
+              </p>
+              {entry.tat_duration && (
+                <div className="mt-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Turn Around Time</p>
+                  <p className="text-xs font-bold text-gray-800">{entry.tat_duration}</p>
+                </div>
+              )}
+              {entry.notes && !entry.tat_duration && (
+                <p className="mt-1 text-[11px] text-gray-500">{entry.notes}</p>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClose: () => void }) {
   const { data: booking, isLoading, isError } = useBooking(bookingId);
+  const [showETicket, setShowETicket] = useState(false);
+
+  const facilityDisplay = booking?.facility_name
+    ? `${booking.facility_name}${booking.facility_code ? ` (${booking.facility_code})` : ""}`
+    : booking?.terminal_name;
+
+  const transitParkDisplay = booking?.transit_park_name
+    ? `${booking.transit_park_name}${booking.transit_park_code ? ` (${booking.transit_park_code})` : ""}`
+    : undefined;
+
+  const currentTruckStatus = booking?.current_truck_status
+    ?? booking?.truck?.truck_status
+    ?? (booking?.status === "LIVE" ? "ON_TRIP" : "AVAILABLE");
 
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
-        <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
-          <div>
-            <p className="font-mono text-sm font-bold text-white">{booking?.booking_id ?? "Loading..."}</p>
-            <p className="text-[11px] text-gray-400">{booking?.journey_code ?? ""}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {booking && <StatusBadge status={booking.status} />}
-            <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-4xl flex-col bg-gray-50 shadow-2xl">
+        {/* Drawer header */}
+        <div className="shrink-0 border-b border-gray-200 bg-white px-6 py-4">
+          <nav className="mb-2 flex items-center gap-1.5 text-xs text-gray-500">
+            <span>Bookings</span>
+            <Chevron className="h-3 w-3" />
+            <span className="font-semibold text-gray-800">Details</span>
+          </nav>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Booking Details</h2>
+              <p className="text-xs text-gray-500">View complete booking information</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {booking && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => toast.info("Update truck status coming soon")}
+                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Truck className="h-3.5 w-3.5" />
+                    Update Truck Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowETicket(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download E-Ticket
+                  </button>
+                </>
+              )}
+              <button onClick={onClose} className="rounded-lg border border-gray-200 p-2 text-gray-500 hover:bg-gray-50">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
-        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+
+        <div className="flex-1 overflow-y-auto p-6">
           {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-12">
+            <div className="flex flex-col items-center gap-2 py-16">
               <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
               <p className="text-sm text-gray-400">Loading booking details...</p>
             </div>
           ) : isError || !booking ? (
-            <div className="flex flex-col items-center gap-2 py-12">
+            <div className="flex flex-col items-center gap-2 py-16">
               <AlertCircle className="h-8 w-8 text-red-300" />
               <p className="text-sm text-gray-400">Failed to load booking details</p>
             </div>
           ) : (
-            <>
-          <div className="flex items-center gap-3 rounded-xl border border-gray-100 p-4">
-            <TruckAvatar color={booking.truck_color} />
-            <div>
-              <p className="font-mono text-sm font-bold text-gray-900">{booking.truck_plate_number}</p>
-              <p className="text-xs text-gray-600">{booking.driver_name} · {booking.driver_id}</p>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-gray-100">
-            <p className="border-b border-gray-100 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Transporter &amp; Terminal</p>
-            <div className="divide-y divide-gray-50">
-              {[
-                ["Transporter", booking.transporter_company],
-                ["Terminal", booking.terminal_name],
-                ["Destination", booking.terminal_destination],
-                ["Transfer Type", TRANSFER_LABELS[booking.transfer_type]],
-                ["Booked By", booking.truck_booked_by],
-                ["Owned By", booking.truck_owned_by],
-              ].map(([label, value]) => (
-                <div key={String(label)} className="flex justify-between gap-4 px-4 py-2.5">
-                  <p className="text-xs text-gray-500">{String(label)}</p>
-                  <p className="text-right text-xs font-medium text-gray-800">{String(value)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {(booking.exceptions?.length ?? 0) > 0 && (
-            <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-600">Penalties, Delays &amp; Exceptions</p>
-              {booking.exceptions!.map((ex) => (
-                <div key={ex.id} className="mt-2 rounded-lg bg-white p-3">
-                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{ex.type}</span>
-                  <p className="mt-1 text-xs text-gray-700">{ex.description}</p>
-                  <p className="mt-0.5 text-[10px] text-gray-400">{formatTimestamp(ex.timestamp)}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {booking.tow_truck_request && (
-            <div className="rounded-xl border border-violet-100 bg-violet-50/50 p-4">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-violet-600">Tow Truck Request</p>
-              <p className="text-xs text-gray-700">{booking.tow_truck_request.reason}</p>
-              <p className="mt-1 text-[11px] text-gray-500">Requested by {booking.tow_truck_request.requested_by}</p>
-              {booking.tow_truck_request.tow_company && (
-                <p className="text-[11px] text-gray-500">Tow company: {booking.tow_truck_request.tow_company}</p>
-              )}
-              <p className="mt-0.5 text-[10px] text-gray-400">{formatTimestamp(booking.tow_truck_request.requested_at)}</p>
-            </div>
-          )}
-
-          <div className="rounded-xl border border-gray-100">
-            <p className="border-b border-gray-100 px-4 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              <History className="mr-1 inline h-3.5 w-3.5" /> Booking Timeline
-            </p>
-            <div className="divide-y divide-gray-50">
-              {[...(booking.timeline ?? [])].reverse().map((entry) => (
-                <div key={entry.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-gray-800">{formatLabel(entry.status)}</p>
-                    <span className="text-[10px] text-gray-400">{formatTimestamp(entry.timestamp)}</span>
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_300px]">
+              {/* Left — booking information card */}
+              <div className="space-y-5">
+                <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+                  <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-mono text-lg font-bold text-gray-900">{booking.booking_id}</p>
+                      <p className="mt-0.5 font-mono text-xs text-gray-500">{booking.journey_code}</p>
+                    </div>
+                    <DetailStatusBadge status={booking.status} />
                   </div>
-                  {entry.notes && <p className="mt-0.5 text-[11px] text-gray-500">{entry.notes}</p>}
-                  {entry.performed_by && <p className="text-[10px] text-gray-400">{entry.performed_by}</p>}
+
+                  <ContainerBanner booking={booking} />
+
+                  <div className="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
+                    <DetailField label="Truck Plate Number">
+                      <div className="flex items-center gap-2">
+                        <TruckPreviewTrigger booking={booking}>
+                          <TruckAvatar color={booking.truck_color} />
+                        </TruckPreviewTrigger>
+                        <span className="font-mono">{booking.truck_plate_number}</span>
+                      </div>
+                    </DetailField>
+                    <DetailField label="Name of Transporter">{booking.transporter_company}</DetailField>
+                    <DetailField label="TEP Code">{displayValue(booking.tep_code)}</DetailField>
+                    <DetailField label="Port Terminal Destination">
+                      {displayValue(booking.terminal_destination || booking.terminal_name)}
+                    </DetailField>
+                    <DetailField label="Current Truck Status">
+                      <TruckStatusDot status={currentTruckStatus} />
+                    </DetailField>
+                    <DetailField label="Booking Category">
+                      {CATEGORY_DISPLAY[booking.booking_category] ?? formatLabel(booking.booking_category)}
+                    </DetailField>
+                    <DetailField label="Facility">{displayValue(facilityDisplay)}</DetailField>
+                    <DetailField label="Transit Park (Pregate)">{displayValue(transitParkDisplay)}</DetailField>
+                    <DetailField label="Booking Fee">
+                      {booking.booking_fee != null ? formatNaira(booking.booking_fee) : "N/A"}
+                    </DetailField>
+                    <DetailField label="Arrival Date">
+                      {booking.arrival_date ? formatDateShort(booking.arrival_date) : formatDateShort(booking.created_at)}
+                    </DetailField>
+                    <DetailField label="Driver">
+                      <span>{booking.driver_name}</span>
+                      {booking.driver_phone && (
+                        <p className="mt-0.5 text-xs font-normal text-gray-500">{booking.driver_phone}</p>
+                      )}
+                    </DetailField>
+                    <DetailField label="Time Slot">{displayValue(booking.time_slot)}</DetailField>
+                    <DetailField label="Booked By">{booking.truck_booked_by}</DetailField>
+                    <DetailField label="Transfer Type">{TRANSFER_LABELS[booking.transfer_type]}</DetailField>
+                  </div>
                 </div>
-              ))}
+
+                {(booking.exceptions?.length ?? 0) > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-600">Penalties, Delays &amp; Exceptions</p>
+                    {booking.exceptions!.map((ex) => (
+                      <div key={ex.id} className="mt-2 rounded-lg bg-white p-3">
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{ex.type}</span>
+                        <p className="mt-1 text-xs text-gray-700">{ex.description}</p>
+                        <p className="mt-0.5 text-[10px] text-gray-400">{formatTimestamp(ex.timestamp)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {booking.tow_truck_request && (
+                  <div className="rounded-xl border border-violet-200 bg-violet-50/50 p-4">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-violet-600">Tow Truck Request</p>
+                    <p className="text-xs text-gray-700">{booking.tow_truck_request.reason}</p>
+                    <p className="mt-1 text-[11px] text-gray-500">Requested by {booking.tow_truck_request.requested_by}</p>
+                    {booking.tow_truck_request.tow_company && (
+                      <p className="text-[11px] text-gray-500">Tow company: {booking.tow_truck_request.tow_company}</p>
+                    )}
+                    <p className="mt-0.5 text-[10px] text-gray-400">{formatTimestamp(booking.tow_truck_request.requested_at)}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Right — booking activity */}
+              <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm lg:sticky lg:top-0 lg:self-start">
+                <h3 className="mb-4 text-sm font-bold text-gray-900">Booking Activity</h3>
+                <BookingActivityTimeline booking={booking} />
+              </div>
             </div>
-          </div>
-            </>
           )}
         </div>
       </div>
+
+      {showETicket && booking && (
+        <BookingETicketModal booking={booking} onClose={() => setShowETicket(false)} />
+      )}
     </>
   );
 }
@@ -482,39 +829,29 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
   }
 
   function InManifestActions({ booking }: { booking: Booking }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
+      <TableActionsDropdown>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Booking Details</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Remove From Manifest", message: `Remove ${booking.truck_plate_number} from IN-MANIFEST?`, confirmLabel: "Remove", danger: true, onConfirm: () => handleRemoveFromManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Remove From Manifest</button>
-            </div>
+            <button onClick={() => { close(); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Booking Details</button>
+            <button onClick={() => { close(); setConfirm({ title: "Remove From Manifest", message: `Remove ${booking.truck_plate_number} from IN-MANIFEST?`, confirmLabel: "Remove", danger: true, onConfirm: () => handleRemoveFromManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Remove From Manifest</button>
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
   function LeftManifestActions({ booking }: { booking: Booking }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
+      <TableActionsDropdown width={240}>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Tow Truck Request Details</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Add to Manifest", message: `Re-list ${booking.truck_plate_number} in IN-MANIFEST?`, confirmLabel: "Add to Manifest", onConfirm: () => handleAddToManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Add to Manifest</button>
-              <button onClick={() => { setOpen(false); setConfirm({ title: "Cancel Booking", message: `Cancel booking ${booking.booking_id}?`, confirmLabel: "Cancel Booking", danger: true, onConfirm: () => handleCancelBooking(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Cancel Booking</button>
-            </div>
+            <button onClick={() => { close(); setDetailBookingId(booking.id); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Tow Truck Request Details</button>
+            <button onClick={() => { close(); setConfirm({ title: "Add to Manifest", message: `Re-list ${booking.truck_plate_number} in IN-MANIFEST?`, confirmLabel: "Add to Manifest", onConfirm: () => handleAddToManifest(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><RotateCcw className="h-3.5 w-3.5" /> Add to Manifest</button>
+            <button onClick={() => { close(); setConfirm({ title: "Cancel Booking", message: `Cancel booking ${booking.booking_id}?`, confirmLabel: "Cancel Booking", danger: true, onConfirm: () => handleCancelBooking(booking) }); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Cancel Booking</button>
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -717,7 +1054,11 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                           <button onClick={() => setDetailBookingId(b.id)} className="font-mono text-xs font-bold text-emerald-700 hover:underline">{b.booking_id}</button>
                           <p className="text-[10px] text-gray-400">{b.journey_code}</p>
                         </td>
-                        <td className="px-3 py-3"><TruckAvatar color={b.truck_color} /></td>
+                        <td className="px-3 py-3">
+                          <TruckPreviewTrigger booking={b}>
+                            <TruckAvatar color={b.truck_color} />
+                          </TruckPreviewTrigger>
+                        </td>
                         <td className="px-3 py-3 font-mono text-xs font-semibold text-gray-800">{b.truck_plate_number}</td>
                         <td className="px-3 py-3"><p className="text-xs font-medium text-gray-800">{b.driver_name}</p></td>
                         <td className="px-3 py-3 text-xs text-gray-700">{b.transporter_company}</td>
@@ -836,7 +1177,14 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                   manifestBookings.map((b) => (
                     <tr key={b.id} className="hover:bg-gray-50/80">
                       <td className="px-3 py-3 font-mono text-xs font-bold text-emerald-700">{b.booking_id}</td>
-                      <td className="px-3 py-3 font-mono text-xs font-semibold text-gray-800">{b.truck_plate_number}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <TruckPreviewTrigger booking={b}>
+                            <TruckAvatar color={b.truck_color} />
+                          </TruckPreviewTrigger>
+                          <span className="font-mono text-xs font-semibold text-gray-800">{b.truck_plate_number}</span>
+                        </div>
+                      </td>
                       <td className="px-3 py-3"><span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium">{CATEGORY_LABELS[b.booking_category]}</span></td>
                       <td className="px-3 py-3 text-[11px] text-gray-500">{b.left_pregate_at ? formatTimestamp(b.left_pregate_at) : "—"}</td>
                       {manifestTab === "left" && <td className="px-3 py-3 text-[11px] text-gray-500">{b.left_manifest_at ? formatTimestamp(b.left_manifest_at) : "—"}</td>}
@@ -873,11 +1221,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
         </>
       )}
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All booking updates and SuperAdmin interactions (filters, record views, manifest actions) are logged for audit purposes.
-        </p>
-      </div>
+   
     </div>
   );
 }

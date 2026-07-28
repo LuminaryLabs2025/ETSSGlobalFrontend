@@ -16,7 +16,6 @@ import {
   Ban,
   Download,
   FileText,
-  MoreHorizontal,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -47,6 +46,7 @@ import {
   useExportUtilityTickets,
   useDownloadUtilityETicket,
 } from "@/hooks/utility-tickets/useUtilityTicketActions";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   UtilityTicket,
   UtilityTicketStatus,
@@ -637,67 +637,60 @@ export function UtilityTicketsPage() {
   }
 
   function ActionsMenu({ ticket }: { ticket: UtilityTicket }) {
-    const [open, setOpen] = useState(false);
     const canEdit = !ticket.super_admin_approved && ticket.status !== "CLOSED";
     const canCancel = ticket.status !== "CLOSED";
 
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
+      <TableActionsDropdown width={240}>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-60 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+            <button
+              onClick={() => { close(); setDetailTicketId(ticket.id); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Eye className="h-3.5 w-3.5" /> View Utility Request Details
+            </button>
+            {canEdit && (
+              <>
+                <button
+                  onClick={() => { close(); setEditTicket(ticket); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  <Edit2 className="h-3.5 w-3.5" /> Edit
+                </button>
+                <button
+                  onClick={() => { close(); setApproveTicket(ticket); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Approve Ticket
+                </button>
+              </>
+            )}
+            {canCancel && (
               <button
-                onClick={() => { setOpen(false); setDetailTicketId(ticket.id); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={() => { close(); setCancelTarget(ticket); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"
               >
-                <Eye className="h-3.5 w-3.5" /> View Utility Request Details
+                <Ban className="h-3.5 w-3.5" /> Cancel
               </button>
-              {canEdit && (
-                <>
-                  <button
-                    onClick={() => { setOpen(false); setEditTicket(ticket); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" /> Edit
-                  </button>
-                  <button
-                    onClick={() => { setOpen(false); setApproveTicket(ticket); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve Ticket
-                  </button>
-                </>
-              )}
-              {canCancel && (
-                <button
-                  onClick={() => { setOpen(false); setCancelTarget(ticket); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"
-                >
-                  <Ban className="h-3.5 w-3.5" /> Cancel
-                </button>
-              )}
-              {ticket.e_ticket_available && (
-                <button
-                  onClick={() => {
-                    setOpen(false);
-                    downloadETicket.mutate(ticket.id, {
-                      onSuccess: () => toast.success(`E-Utility Ticket ${ticket.ticket_id} downloaded.`),
-                    });
-                  }}
-                  disabled={downloadETicket.isPending}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50 disabled:opacity-50"
-                >
-                  <Download className="h-3.5 w-3.5" /> Download E-Utility Ticket
-                </button>
-              )}
-            </div>
+            )}
+            {ticket.e_ticket_available && (
+              <button
+                onClick={() => {
+                  close();
+                  downloadETicket.mutate(ticket.id, {
+                    onSuccess: () => toast.success(`E-Utility Ticket ${ticket.ticket_id} downloaded.`),
+                  });
+                }}
+                disabled={downloadETicket.isPending}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" /> Download E-Utility Ticket
+              </button>
+            )}
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -1061,11 +1054,7 @@ export function UtilityTicketsPage() {
         </p>
       </div>
 
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All SuperAdmin actions (export, filter, record view, edit, approve, cancel) are logged for audit purposes.
-        </p>
-      </div>
+    
     </div>
   );
 }

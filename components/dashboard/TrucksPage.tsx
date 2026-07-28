@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Truck,
   Search,
@@ -18,14 +19,12 @@ import {
   Power,
   Ban,
   Eye,
-  MoreHorizontal,
   Shield,
   AlertTriangle,
   FileText,
   Building2,
   RefreshCw,
   AlertCircle,
-  SlidersHorizontal,
   Loader2,
   Send,
 } from "lucide-react";
@@ -51,11 +50,13 @@ import {
   useExportTrucks,
 } from "@/hooks/trucks/useTruckActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
 
-type TabId = "all" | "verified" | "unverified" | "flagged" | "disabled";
+type TabId = "all" | "verified" | "mss_expired" | "unverified" | "flagged" | "disabled";
 
 const TRUCK_STATUS_OPTIONS = [
   "All", "AVAILABLE", "ON_TRIP", "IN_FACILITY", "MATCHED",
@@ -115,6 +116,63 @@ function formatLabel(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function isMssExpired(truck: TruckType): boolean {
+  if (!truck.mss_expiry_date) return false;
+  return new Date(truck.mss_expiry_date) < new Date();
+}
+
+type TruckActionCategory = "verified" | "mss_expired" | "unverified" | "disabled" | "flagged";
+
+function resolveTruckActionCategory(truck: TruckType, activeTab: TabId): TruckActionCategory {
+  if (activeTab === "flagged" || truck.registration_status === "FLAGGED") return "flagged";
+  if (activeTab === "disabled" || truck.registration_status === "DISABLED") return "disabled";
+  if (
+    activeTab === "unverified"
+    || truck.registration_status === "UNVERIFIED"
+    || truck.registration_status === "VERIFICATION_REQUESTED"
+  ) {
+    return "unverified";
+  }
+  if (activeTab === "mss_expired" || (truck.registration_status === "MSS_VERIFIED" && isMssExpired(truck))) {
+    return "mss_expired";
+  }
+  return "verified";
+}
+
+function formatDateShort(ts: string) {
+  return new Date(ts).toLocaleDateString("en-NG", {
+    day: "numeric", month: "short", year: "numeric",
+  });
+}
+
+function fleetTruckStatusLabel(truck: TruckType): string {
+  if (truck.truck_status) return formatLabel(truck.truck_status);
+  return formatLabel(truck.registration_status);
+}
+
+function fleetTruckStatusBadgeCls(truck: TruckType): string {
+  if (truck.truck_status) {
+    const map: Record<TruckStatus, string> = {
+      AVAILABLE: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      ON_TRIP: "bg-blue-50 text-blue-700 border-blue-200",
+      IN_FACILITY: "bg-violet-50 text-violet-700 border-violet-200",
+      MATCHED: "bg-cyan-50 text-cyan-700 border-cyan-200",
+      GTG_FACILITY: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      LEFT_FACILITY: "bg-teal-50 text-teal-700 border-teal-200",
+      IN_PREGATE: "bg-orange-50 text-orange-700 border-orange-200",
+      GTG_PREGATE: "bg-lime-50 text-lime-700 border-lime-200",
+      LEFT_PREGATE: "bg-yellow-50 text-yellow-700 border-yellow-200",
+      IN_TERMINAL: "bg-purple-50 text-purple-700 border-purple-200",
+      LEFT_TERMINAL: "bg-rose-50 text-rose-700 border-rose-200",
+    };
+    return map[truck.truck_status];
+  }
+  if (truck.registration_status === "DISABLED") return "bg-gray-100 text-gray-500 border-gray-200";
+  if (truck.registration_status === "UNVERIFIED") return "bg-amber-50 text-amber-700 border-amber-200";
+  if (truck.registration_status === "MSS_VERIFIED") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  return "bg-gray-100 text-gray-600 border-gray-200";
+}
+
 // ─── Truck Image Placeholder ───
 function TruckAvatar({ color }: { color: string }) {
   const colorMap: Record<string, string> = {
@@ -131,6 +189,124 @@ function TruckAvatar({ color }: { color: string }) {
     <div className={`flex h-9 w-14 shrink-0 items-center justify-center rounded-lg border border-gray-200 ${colorMap[color] ?? "bg-gray-100"}`}>
       <Truck className={`h-4 w-4 ${iconMap[color] ?? "text-gray-400"}`} />
     </div>
+  );
+}
+
+function FleetTruckPreviewCard({ truck }: { truck: TruckType }) {
+  return (
+    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+      <div className="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Plate Number</p>
+            <p className="font-mono text-sm font-bold text-gray-900">{truck.plate_number}</p>
+            <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Type</p>
+            <p className="text-xs font-bold text-gray-800">{formatLabel(truck.truck_type)}</p>
+          </div>
+          <div className="shrink-0 scale-110">
+            <TruckAvatar color={truck.color} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px bg-gray-100">
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Brand</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck.brand || "—"}</p>
+        </div>
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Model</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck.model || "—"}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-px border-t border-gray-100 bg-gray-100">
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">MSS Verification No</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">{truck.mss_verification_number ?? "—"}</p>
+        </div>
+        <div className="bg-white px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">MSS Expiry Date</p>
+          <p className="mt-0.5 text-sm font-bold text-gray-900">
+            {truck.mss_expiry_date ? formatDateShort(truck.mss_expiry_date) : "—"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Owned By</p>
+          <p className="truncate text-sm font-bold text-gray-900">{truck.registered_by.company_name}</p>
+        </div>
+        <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${fleetTruckStatusBadgeCls(truck)}`}>
+          {fleetTruckStatusLabel(truck)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function FleetTruckPreviewTrigger({ truck, children }: { truck: TruckType; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cardWidth = 288;
+    const cardHeight = 280;
+    const padding = 8;
+    let left = rect.left;
+    let top = rect.bottom + padding;
+    if (left + cardWidth > window.innerWidth - padding) {
+      left = window.innerWidth - cardWidth - padding;
+    }
+    if (top + cardHeight > window.innerHeight - padding) {
+      top = rect.top - cardHeight - padding;
+    }
+    setPosition({ top, left });
+  }, []);
+
+  const show = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    updatePosition();
+    setOpen(true);
+  }, [updatePosition]);
+
+  const hide = useCallback(() => {
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  }, []);
+
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }, []);
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        className="inline-flex cursor-pointer"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {children}
+      </div>
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-100"
+          style={{ top: position.top, left: position.left }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={hide}
+        >
+          <FleetTruckPreviewCard truck={truck} />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -397,13 +573,6 @@ export function TrucksPage() {
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
 
   const listParams = buildListParams(
     activeTab,
@@ -448,6 +617,7 @@ export function TrucksPage() {
   const tabCounts = {
     all:        summary?.total ?? 0,
     verified:   summary?.mss_verified ?? 0,
+    mss_expired: summary?.mss_expired ?? 0,
     unverified: (summary?.unverified ?? 0) + (summary?.verification_requested ?? 0),
     flagged:    summary?.flagged ?? 0,
     disabled:   summary?.disabled ?? 0,
@@ -546,168 +716,55 @@ export function TrucksPage() {
     });
   }
 
-  // ─── Actions Menus per tab ───
-  function AllActionsMenu({ truck }: { truck: TruckType }) {
-    const [open, setOpen] = useState(false);
+  // ─── Actions Menu (categorization-specific) ───
+  function TruckActionsMenu({ truck }: { truck: TruckType }) {
+    const category = resolveTruckActionCategory(truck, activeTab);
+    const canRequestVerification =
+      truck.registration_status === "UNVERIFIED" || category === "mss_expired";
+    const canOverridePenalty =
+      category === "flagged"
+      && (truck.penalty?.payment_status === "UNPAID" || truck.penalty?.payment_status === "DISPUTED");
+
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
+      <TableActionsDropdown>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                <Eye className="h-3.5 w-3.5" /> View Details
+            <button onClick={() => { close(); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              <Eye className="h-3.5 w-3.5" /> View Truck Details
+            </button>
+
+            {category === "verified" && (
+              <button onClick={() => { close(); handleDisable(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50">
+                <Ban className="h-3.5 w-3.5" /> Disable Truck
               </button>
-              {truck.registration_status === "MSS_VERIFIED" && (
-                <button onClick={() => { setOpen(false); handleDisable(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50">
-                  <Ban className="h-3.5 w-3.5" /> Disable Truck
-                </button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            )}
 
-  function VerifiedActionsMenu({ truck }: { truck: TruckType }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              <button onClick={() => { setOpen(false); handleDisable(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Disable Truck</button>
-              <button onClick={() => { setOpen(false); handleArchive(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Archive className="h-3.5 w-3.5" /> Archive Truck</button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {(category === "mss_expired" || category === "unverified") && canRequestVerification && (
+              <button onClick={() => { close(); handleRequestVerification(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50">
+                <Send className="h-3.5 w-3.5" /> Request MSS Verification
+              </button>
+            )}
 
-  function UnverifiedActionsMenu({ truck }: { truck: TruckType }) {
-    const [open, setOpen] = useState(false);
-    const canRequest = truck.registration_status === "UNVERIFIED";
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {canRequest && (
-                <button onClick={() => { setOpen(false); handleRequestVerification(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50"><Send className="h-3.5 w-3.5" /> Request MSS Verification</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {category === "disabled" && (
+              <button onClick={() => { close(); handleReEnable(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50">
+                <Power className="h-3.5 w-3.5" /> Enable Truck / Make Active
+              </button>
+            )}
 
-  function FlaggedActionsMenu({ truck }: { truck: TruckType }) {
-    const [open, setOpen] = useState(false);
-    const canOverride = truck.penalty?.payment_status === "UNPAID" || truck.penalty?.payment_status === "DISPUTED";
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {canOverride && (
-                <button onClick={() => { setOpen(false); handleOverridePenalty(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-700 hover:bg-gray-50"><Shield className="h-3.5 w-3.5" /> Override Penalty</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {canOverridePenalty && (
+              <button onClick={() => { close(); handleOverridePenalty(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-700 hover:bg-gray-50">
+                <Shield className="h-3.5 w-3.5" /> Override Penalty
+              </button>
+            )}
 
-  function DisabledActionsMenu({ truck }: { truck: TruckType }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTruck(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Truck Details</button>
-              <button onClick={() => { setOpen(false); handleReEnable(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><Power className="h-3.5 w-3.5" /> Re-enable Truck</button>
-            </div>
+            {category !== "flagged" && (
+              <button onClick={() => { close(); handleArchive(truck); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50">
+                <Archive className="h-3.5 w-3.5" /> Archive Truck
+              </button>
+            )}
           </>
         )}
-      </div>
-    );
-  }
-
-  function DisplayOptionsMenu() {
-    const [open, setOpen] = useState(false);
-    const hiddenCount = ALL_COLUMN_KEYS.length - visibleColumns.size;
-    return (
-      <div className="relative">
-        <button
-          onClick={() => setOpen(!open)}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-            hiddenCount > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Display Options
-          {hiddenCount > 0 && (
-            <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{hiddenCount} hidden</span>
-          )}
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg">
-              <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
-                <p className="text-xs font-bold text-gray-700">Display Columns</p>
-                <button
-                  onClick={() => setVisibleColumns(visibleColumns.size === ALL_COLUMN_KEYS.length ? new Set() : new Set(ALL_COLUMN_KEYS))}
-                  className="text-[11px] font-medium text-emerald-600 hover:underline"
-                >
-                  {visibleColumns.size === ALL_COLUMN_KEYS.length ? "Hide all" : "Show all"}
-                </button>
-              </div>
-              <div className="py-1">
-                {TOGGLEABLE_COLUMNS.map((column) => (
-                  <label key={column.key} className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.has(column.key)}
-                      onChange={() => toggleColumn(column.key)}
-                      className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
-                    />
-                    {column.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -724,19 +781,21 @@ export function TrucksPage() {
 
   // ─── Tab Config ───
   const TAB_CONFIG: Record<TabId, { label: string; color: string; dot: string }> = {
-    all:        { label: "All Trucks",      color: "text-gray-700",    dot: "bg-gray-500" },
-    verified:   { label: "MSS Verified",    color: "text-emerald-700", dot: "bg-emerald-500" },
-    unverified: { label: "Unverified",      color: "text-amber-700",   dot: "bg-amber-500" },
-    flagged:    { label: "Flagged",         color: "text-red-700",     dot: "bg-red-500" },
-    disabled:   { label: "Disabled",        color: "text-gray-600",    dot: "bg-gray-400" },
+    all:         { label: "All Trucks",       color: "text-gray-700",    dot: "bg-gray-500" },
+    verified:    { label: "MSS Verified",     color: "text-emerald-700", dot: "bg-emerald-500" },
+    mss_expired: { label: "MSS Expired",      color: "text-orange-700",  dot: "bg-orange-500" },
+    unverified:  { label: "Unverified",       color: "text-amber-700",   dot: "bg-amber-500" },
+    flagged:     { label: "Flagged",          color: "text-red-700",     dot: "bg-red-500" },
+    disabled:    { label: "Disabled",         color: "text-gray-600",    dot: "bg-gray-400" },
   };
 
   const searchPlaceholders: Record<TabId, string> = {
-    all:        "Search plate number, chassis, transporter...",
-    verified:   "Search plate number, chassis, transporter, MSS number...",
-    unverified: "Search plate number, chassis or transporter name...",
-    flagged:    "Search plate number, transporter or penalty ID...",
-    disabled:   "Search plate number, chassis or MSS number...",
+    all:         "Search plate number, chassis, transporter...",
+    verified:    "Search plate number, chassis, transporter, MSS number...",
+    mss_expired: "Search plate number, chassis or MSS number...",
+    unverified:  "Search plate number, chassis or transporter name...",
+    flagged:     "Search plate number, transporter or penalty ID...",
+    disabled:    "Search plate number, chassis or MSS number...",
   };
 
   return (
@@ -788,6 +847,7 @@ export function TrucksPage() {
                   {[
                     ["Chassis Number", selectedTruck.chassis_number, true],
                     ["MSS Verification No.", selectedTruck.mss_verification_number ?? "—", true],
+                    ...(selectedTruck.mss_expiry_date ? [["MSS Expiry Date", formatTimestamp(selectedTruck.mss_expiry_date), false]] : []),
                     ["RFID Tag", selectedTruck.rfid_tag_number ?? "—", true],
                     ["Registered By", `${selectedTruck.registered_by.company_name} / ${selectedTruck.registered_by.user_account}`, false],
                     ["Created At", formatTimestamp(selectedTruck.created_at), false],
@@ -849,7 +909,7 @@ export function TrucksPage() {
             </div>
           </div>
           <div className="flex gap-0.5 overflow-x-auto">
-            {(["all", "verified", "unverified", "flagged", "disabled"] as TabId[]).map((tab) => {
+            {(["all", "verified", "mss_expired", "unverified", "flagged", "disabled"] as TabId[]).map((tab) => {
               const tc = TAB_CONFIG[tab];
               const isActive = activeTab === tab;
               return (
@@ -875,6 +935,7 @@ export function TrucksPage() {
         <div className="flex items-center justify-between px-6 py-2.5">
           <p className="text-xs text-gray-500">
             {activeTab === "verified" && "Trucks with valid MSS Verification Numbers — real-time logistics cycle status."}
+            {activeTab === "mss_expired" && "MSS Verified trucks whose verification has expired — request re-verification or archive."}
             {activeTab === "unverified" && "Registered trucks pending MSS verification from the NPA system."}
             {activeTab === "flagged" && "Trucks with unpaid penalties issued by Enforcement Officers."}
             {activeTab === "disabled" && "Trucks disabled by NPA or SuperAdmin — re-enable requires NPA confirmation."}
@@ -911,7 +972,12 @@ export function TrucksPage() {
             Filters
           </button>
 
-          <DisplayOptionsMenu />
+          <DisplayOptionsMenu
+            columns={TOGGLEABLE_COLUMNS}
+            allColumnKeys={ALL_COLUMN_KEYS}
+            visibleColumns={visibleColumns}
+            onApply={setVisibleColumns}
+          />
 
           <div className="relative group">
             <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
@@ -935,7 +1001,7 @@ export function TrucksPage() {
         {showFilters && (
           <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-gray-100 pt-3">
             {/* All + Verified: Truck Status */}
-            {(activeTab === "all" || activeTab === "verified") && (
+            {(activeTab === "all" || activeTab === "verified" || activeTab === "mss_expired") && (
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Status</label>
                 <div className="relative">
@@ -961,7 +1027,7 @@ export function TrucksPage() {
             )}
 
             {/* Visibility: verified, unverified, disabled */}
-            {(activeTab === "verified" || activeTab === "unverified" || activeTab === "disabled" || activeTab === "flagged") && (
+            {(activeTab === "verified" || activeTab === "mss_expired" || activeTab === "unverified" || activeTab === "disabled" || activeTab === "flagged") && (
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Visibility</label>
                 <div className="relative">
@@ -1047,11 +1113,13 @@ export function TrucksPage() {
                 {col("truck_capacity") && staticTH("Capacity")}
                 {staticTH("Created")}
                 {staticTH("Reg. Status")}
-                {(activeTab === "verified" || activeTab === "all") && staticTH("Truck Status")}
+                {(activeTab === "verified" || activeTab === "mss_expired" || activeTab === "all") && staticTH("Truck Status")}
                 {staticTH("Registered By")}
                 {staticTH("Visibility")}
                 {activeTab === "verified" && staticTH("MSS Verif. No.")}
                 {activeTab === "verified" && staticTH("Verification Date")}
+                {activeTab === "mss_expired" && staticTH("MSS Verif. No.")}
+                {activeTab === "mss_expired" && staticTH("MSS Expiry Date")}
                 {activeTab === "unverified" && staticTH("MSS Status")}
                 {activeTab === "flagged" && staticTH("Penalty ID")}
                 {activeTab === "flagged" && staticTH("Penalty Type")}
@@ -1103,7 +1171,13 @@ export function TrucksPage() {
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
 
                     {/* Truck image */}
-                    {col("truck_image") && <td className="px-3 py-3"><TruckAvatar color={t.color} /></td>}
+                    {col("truck_image") && (
+                      <td className="px-3 py-3">
+                        <FleetTruckPreviewTrigger truck={t}>
+                          <TruckAvatar color={t.color} />
+                        </FleetTruckPreviewTrigger>
+                      </td>
+                    )}
 
                     {/* Plate Number — always visible */}
                     <td className="px-3 py-3">
@@ -1156,7 +1230,7 @@ export function TrucksPage() {
                     <td className="px-3 py-3"><RegStatusBadge status={t.registration_status} /></td>
 
                     {/* Truck Status (all + verified) */}
-                    {(activeTab === "verified" || activeTab === "all") && (
+                    {(activeTab === "verified" || activeTab === "mss_expired" || activeTab === "all") && (
                       <td className="px-3 py-3">
                         {t.truck_status ? <TruckStatusBadge status={t.truck_status} /> : <span className="text-xs text-gray-400">—</span>}
                       </td>
@@ -1181,11 +1255,23 @@ export function TrucksPage() {
                       <td className="px-3 py-3"><span className="font-mono text-[11px] text-gray-600">{t.mss_verification_number ?? "—"}</span></td>
                     )}
 
-                    {/* Verification Date (verified tab) */}
                     {activeTab === "verified" && (
                       <td className="px-3 py-3">
                         <span className="flex items-center gap-1 text-[11px] text-gray-500">
                           <Clock className="h-3 w-3" />{t.verification_timestamp ? formatTimestamp(t.verification_timestamp) : "—"}
+                        </span>
+                      </td>
+                    )}
+
+                    {activeTab === "mss_expired" && (
+                      <td className="px-3 py-3"><span className="font-mono text-[11px] text-gray-600">{t.mss_verification_number ?? "—"}</span></td>
+                    )}
+
+                    {activeTab === "mss_expired" && (
+                      <td className="px-3 py-3">
+                        <span className="flex items-center gap-1 text-[11px] font-medium text-orange-600">
+                          <AlertTriangle className="h-3 w-3" />
+                          {t.mss_expiry_date ? formatTimestamp(t.mss_expiry_date) : "—"}
                         </span>
                       </td>
                     )}
@@ -1220,13 +1306,9 @@ export function TrucksPage() {
                     {activeTab === "disabled" && <td className="px-3 py-3"><span className="flex items-center gap-1 text-[11px] text-gray-500"><Clock className="h-3 w-3" />{t.disable_info ? formatTimestamp(t.disable_info.disable_timestamp) : "—"}</span></td>}
 
                     {/* Actions */}
-                    <td className="px-3 py-3 text-center">
-                      {activeTab === "all"        && <AllActionsMenu truck={t} />}
-                      {activeTab === "verified"   && <VerifiedActionsMenu truck={t} />}
-                      {activeTab === "unverified" && <UnverifiedActionsMenu truck={t} />}
-                      {activeTab === "flagged"    && <FlaggedActionsMenu truck={t} />}
-                      {activeTab === "disabled"   && <DisabledActionsMenu truck={t} />}
-                    </td>
+                      <td className="px-3 py-3 text-center">
+                        <TruckActionsMenu truck={t} />
+                      </td>
                   </tr>
                 ))
               )}
@@ -1251,13 +1333,7 @@ export function TrucksPage() {
         </div>
       </div>
 
-      {/* ─── Audit Notice ─── */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All truck management actions (Disable, Archive, Request Verification, Override Penalty, Re-enable) are
-          automatically logged with Truck ID, Action Type, Performed By (SuperAdmin/NPA), Reason, and Timestamp. Penalty overrides require a mandatory reason.
-        </p>
-      </div>
+ 
     </div>
   );
 }

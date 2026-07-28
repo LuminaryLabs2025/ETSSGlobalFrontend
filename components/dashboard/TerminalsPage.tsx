@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Landmark,
   Search,
@@ -18,7 +18,6 @@ import {
   Ban,
   Eye,
   Edit2,
-  MoreHorizontal,
   MapPin,
   Truck,
   Timer,
@@ -27,7 +26,6 @@ import {
   AlertCircle,
   Anchor,
   Warehouse,
-  SlidersHorizontal,
   Loader2,
 } from "lucide-react";
 import {
@@ -59,6 +57,8 @@ import {
   useArchiveTerminal,
 } from "@/hooks/terminals/useTerminalActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -88,6 +88,7 @@ const TOGGLEABLE_COLUMNS = [
 ] as const;
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
+const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
 
 // ─── Helpers ───
 function formatTimestamp(ts: string) {
@@ -311,63 +312,6 @@ function TerminalDetailDrawer({
   );
 }
 
-// ─── Display Options Dropdown ───
-function DisplayOptionsMenu({
-  visibleColumns,
-  onToggle,
-}: {
-  visibleColumns: Set<ColumnKey>;
-  onToggle: (key: ColumnKey) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-          open ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-        }`}
-      >
-        <SlidersHorizontal className="h-4 w-4" />
-        Display
-        <ChevronDown className="h-3 w-3" />
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-xl border border-gray-200 bg-white py-2 shadow-lg">
-          <p className="mb-1 px-3 pt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Toggle Columns
-          </p>
-          {TOGGLEABLE_COLUMNS.map((col) => (
-            <label
-              key={col.key}
-              className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50"
-            >
-              <input
-                type="checkbox"
-                checked={visibleColumns.has(col.key)}
-                onChange={() => onToggle(col.key)}
-                className="h-3.5 w-3.5 rounded accent-emerald-600"
-              />
-              <span className="text-xs text-gray-700">{col.label}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Actions Menu ───
 function ActionsMenu({
   terminal,
@@ -376,8 +320,6 @@ function ActionsMenu({
   terminal: Terminal;
   onAction: (action: string, t: Terminal) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   const displayStatus = getTerminalDisplayStatus(terminal);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
@@ -396,34 +338,24 @@ function ActionsMenu({
   }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-
-      {open && (
+    <TableActionsDropdown width={208}>
+      {(close) => (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-            {actions.map((a) => (
-              <button
-                key={a.action}
-                onClick={() => { setOpen(false); onAction(a.action, terminal); }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${
-                  a.danger ? "text-red-600" : "text-gray-700"
-                }`}
-              >
-                <a.icon className="h-3.5 w-3.5" />
-                {a.label}
-              </button>
-            ))}
-          </div>
+          {actions.map((a) => (
+            <button
+              key={a.action}
+              onClick={() => { close(); onAction(a.action, terminal); }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${
+                a.danger ? "text-red-600" : "text-gray-700"
+              }`}
+            >
+              <a.icon className="h-3.5 w-3.5" />
+              {a.label}
+            </button>
+          ))}
         </>
       )}
-    </div>
+    </TableActionsDropdown>
   );
 }
 
@@ -623,15 +555,6 @@ export function TerminalsPage() {
     setPage(1);
   }
 
-  // ─── Toggle column ───
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-
   // ─── Actions ───
   function handleAction(action: string, terminal: Terminal) {
     if (action === "view") {
@@ -765,7 +688,14 @@ export function TerminalsPage() {
           </button>
 
           {/* Display Options */}
-          <DisplayOptionsMenu visibleColumns={visibleColumns} onToggle={toggleColumn} />
+          <DisplayOptionsMenu
+            columns={TOGGLEABLE_COLUMNS}
+            allColumnKeys={ALL_COLUMN_KEYS}
+            visibleColumns={visibleColumns}
+            onApply={setVisibleColumns}
+            label="Display"
+            showHiddenCount={false}
+          />
 
           {/* Export */}
           <div className="relative group">
@@ -1112,14 +1042,7 @@ export function TerminalsPage() {
         </div>
       </div>
 
-      {/* ─── Audit Notice ─── */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] text-amber-700 leading-relaxed">
-          <span className="font-semibold">Audit Notice:</span> All terminal management actions (Add, Edit, Enable, Disable, Archive) are
-          automatically logged with Terminal ID, Action Type, Performed By (SuperAdmin Name/ID), and Timestamp for compliance and
-          accountability purposes.
-        </p>
-      </div>
+ 
     </div>
   );
 }

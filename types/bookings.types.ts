@@ -17,6 +17,10 @@ export interface BookingTimelineEntry {
   timestamp: string;
   performed_by?: string;
   notes?: string;
+  from_status?: string;
+  location?: string;
+  tat_duration?: string;
+  is_latest?: boolean;
 }
 
 export interface BookingException {
@@ -34,17 +38,38 @@ export interface TowTruckRequest {
   status: "PENDING" | "ASSIGNED" | "COMPLETED";
 }
 
+export interface BookingTruckPreview {
+  truck_type?: string;
+  brand?: string;
+  model?: string;
+  mss_verification_number?: string;
+  mss_expiry_date?: string;
+  truck_status?: string;
+  image_url?: string;
+}
+
 export interface Booking {
   id: string;
   booking_id: string;
   journey_code: string;
   truck_plate_number: string;
   truck_color: string;
+  truck?: BookingTruckPreview;
   driver_name: string;
   driver_id: string;
+  driver_phone?: string;
   transporter_company: string;
   terminal_name: string;
   terminal_destination: string;
+  tep_code?: string;
+  booking_fee?: number;
+  arrival_date?: string;
+  time_slot?: string;
+  facility_name?: string;
+  facility_code?: string;
+  transit_park_name?: string;
+  transit_park_code?: string;
+  current_truck_status?: string;
   transfer_type: TransferType;
   booking_category: BookingCategory;
   status: BookingStatus;
