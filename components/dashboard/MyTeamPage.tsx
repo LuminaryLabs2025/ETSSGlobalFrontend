@@ -24,7 +24,6 @@ import {
   Ban,
   Power,
   Send,
-  MoreHorizontal,
   Building2,
   Briefcase,
   Loader2,
@@ -38,6 +37,7 @@ import {
   useResendTeamInvite,
 } from "@/hooks/team/useTeamActions";
 import { toast } from "sonner";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type { TeamMember, TeamSummaryResponse } from "@/types/team.types";
 
 // ─── Filter Options ───
@@ -223,8 +223,6 @@ function ActionsMenu({
   member: TeamMember;
   onAction: (action: string, member: TeamMember) => void;
 }) {
-  const [open, setOpen] = useState(false);
-
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [];
 
   if (member.status === "ACTIVE") {
@@ -241,36 +239,27 @@ function ActionsMenu({
   }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open && (
+    <TableActionsDropdown width={208}>
+      {(close) => (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-            {actions.map((a) => (
-              <button
-                key={a.action}
-                onClick={() => {
-                  setOpen(false);
-                  onAction(a.action, member);
-                }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${
-                  a.danger ? "text-red-600" : "text-gray-700"
-                }`}
-              >
-                <a.icon className="h-3.5 w-3.5" />
-                {a.label}
-              </button>
-            ))}
-          </div>
+          {actions.map((a) => (
+            <button
+              key={a.action}
+              onClick={() => {
+                close();
+                onAction(a.action, member);
+              }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${
+                a.danger ? "text-red-600" : "text-gray-700"
+              }`}
+            >
+              <a.icon className="h-3.5 w-3.5" />
+              {a.label}
+            </button>
+          ))}
         </>
       )}
-    </div>
+    </TableActionsDropdown>
   );
 }
 

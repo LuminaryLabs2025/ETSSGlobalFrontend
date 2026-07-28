@@ -15,7 +15,6 @@ import {
   CheckCircle2,
   XCircle,
   Eye,
-  MoreHorizontal,
   AlertTriangle,
   FileText,
   Building2,
@@ -25,13 +24,14 @@ import {
   LinkIcon,
   Activity,
   Upload,
-  SlidersHorizontal,
   Hash,
   Ban,
   Loader2,
   AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   TEP,
   TEPClassification,
@@ -380,13 +380,6 @@ export function TEPsPage() {
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
 
   const listParams = buildListParams(
     activeTab,
@@ -465,59 +458,17 @@ export function TEPsPage() {
 
   // ─── Action Menu ───
   function ActionsMenu({ tep }: { tep: TEP }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
+      <TableActionsDropdown width={208}>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedTEP(tep); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {tep.status === "ACTIVE" && (
-                <button onClick={() => { setOpen(false); handleRevoke(tep); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Revoke TEP</button>
-              )}
-            </div>
+            <button onClick={() => { close(); setSelectedTEP(tep); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
+            {tep.status === "ACTIVE" && (
+              <button onClick={() => { close(); handleRevoke(tep); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Revoke TEP</button>
+            )}
           </>
         )}
-      </div>
-    );
-  }
-
-  // ─── Display Options Menu ───
-  function DisplayOptionsMenu() {
-    const [open, setOpen] = useState(false);
-    const hiddenCount = ALL_COLUMN_KEYS.length - visibleColumns.size;
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${hiddenCount > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-          <SlidersHorizontal className="h-4 w-4" />
-          Display Options
-          {hiddenCount > 0 && <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{hiddenCount} hidden</span>}
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg">
-              <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
-                <p className="text-xs font-bold text-gray-700">Display Columns</p>
-                <button onClick={() => setVisibleColumns(visibleColumns.size === ALL_COLUMN_KEYS.length ? new Set() : new Set(ALL_COLUMN_KEYS))} className="text-[11px] font-medium text-emerald-600 hover:underline">
-                  {visibleColumns.size === ALL_COLUMN_KEYS.length ? "Hide all" : "Show all"}
-                </button>
-              </div>
-              <div className="py-1">
-                {TOGGLEABLE_COLUMNS.map((column) => (
-                  <label key={column.key} className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                    <input type="checkbox" checked={visibleColumns.has(column.key)} onChange={() => toggleColumn(column.key)} className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600" />
-                    {column.label}
-                  </label>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -709,7 +660,12 @@ export function TEPsPage() {
             <Filter className="h-4 w-4" />Filters
           </button>
 
-          <DisplayOptionsMenu />
+          <DisplayOptionsMenu
+            columns={TOGGLEABLE_COLUMNS}
+            allColumnKeys={ALL_COLUMN_KEYS}
+            visibleColumns={visibleColumns}
+            onApply={setVisibleColumns}
+          />
 
           <button onClick={() => toast.info("Bulk upload template opening...")}
             className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
@@ -954,13 +910,7 @@ export function TEPsPage() {
         </div>
       </div>
 
-      {/* ─── Audit Notice ─── */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All SuperAdmin TEP actions (view, export, filter, detailed view access, revocation) are automatically
-          logged with TEP Reference Number, Action Type, Performed By (SuperAdmin Name/ID), and Timestamp.
-        </p>
-      </div>
+   
     </div>
   );
 }

@@ -12,13 +12,11 @@ import {
   X,
   Clock,
   AlertTriangle,
-  MoreHorizontal,
   Edit2,
   History,
   Settings2,
   Truck,
   Upload,
-  FileText,
   Landmark,
   Zap,
   Hand,
@@ -34,18 +32,17 @@ import { useAuthStore } from "@/store/auth.store";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { useDttr } from "@/hooks/dttr/useDttr";
 import { useDttrSummary } from "@/hooks/dttr/useDttrSummary";
-import { useDttrEditAudit } from "@/hooks/dttr/useDttrEditAudit";
 import { useDttrSubmissions } from "@/hooks/dttr/useDttrSubmissions";
 import {
   useSubmitDttrRequest,
   useEditDttr,
   useConfigureDttrMode,
 } from "@/hooks/dttr/useDttrActions";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   DTTRTerminalRequest,
   DTTRTransferBreakdown,
   DTTRRequestMode,
-  DTTREditAuditEntry,
   DTTRSummaryResponse,
   EditDttrPayload,
   ConfigureModePayload,
@@ -582,69 +579,6 @@ function HistoryDrawer({
   );
 }
 
-function EditAuditDrawer({
-  entries,
-  isLoading,
-  isError,
-  onClose,
-}: {
-  entries: DTTREditAuditEntry[];
-  isLoading?: boolean;
-  isError?: boolean;
-  onClose: () => void;
-}) {
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
-        <div className="flex items-center justify-between bg-[#0f1e2e] px-6 py-4">
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-amber-400" />
-            <p className="text-sm font-bold text-white">SuperAdmin Edit Audit Log</p>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10"><X className="h-4 w-4" /></button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4">
-          {isLoading ? (
-            <div className="flex flex-col items-center gap-2 py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
-              <p className="text-sm text-gray-400">Loading audit log...</p>
-            </div>
-          ) : isError ? (
-            <div className="flex flex-col items-center gap-2 py-8">
-              <AlertCircle className="h-8 w-8 text-red-300" />
-              <p className="text-sm text-gray-400">Failed to load audit log</p>
-            </div>
-          ) : entries.length === 0 ? (
-            <p className="py-8 text-center text-sm text-gray-400">No edit records yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {[...entries].reverse().map((e) => (
-                <div key={e.id} className="rounded-xl border border-amber-100 bg-amber-50/30 p-4">
-                  <p className="text-xs font-bold text-gray-900">{e.terminal_name}</p>
-                  <p className="mt-0.5 text-[11px] text-gray-500">{formatTimestamp(e.edited_at)} · {e.performed_by}</p>
-                  <p className="mt-2 text-[11px] text-gray-600">
-                    <span className="font-semibold">Fields:</span> {e.edited_fields.join(", ")}
-                  </p>
-                  <p className="mt-1 text-[11px] text-gray-600">{e.justification}</p>
-                  {e.approval_reference && (
-                    <p className="mt-1 text-[11px] text-emerald-700">Ref: {e.approval_reference}</p>
-                  )}
-                  {e.approval_document_name && (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
-                      <FileText className="h-3 w-3" /> {e.approval_document_name}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
 export function DTTRPage() {
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
@@ -659,7 +593,6 @@ export function DTTRPage() {
   const [editTarget, setEditTarget] = useState<DTTRTerminalRequest | null>(null);
   const [configTarget, setConfigTarget] = useState<DTTRTerminalRequest | null>(null);
   const [historyTarget, setHistoryTarget] = useState<DTTRTerminalRequest | null>(null);
-  const [showAuditLog, setShowAuditLog] = useState(false);
 
   const listParams: DTTRListParams = {
     page,
@@ -671,9 +604,6 @@ export function DTTRPage() {
 
   const { data: summary, isLoading: summaryLoading } = useDttrSummary();
   const { data: dttrData, isLoading, isError } = useDttr(listParams);
-  const { data: editLog = [], isLoading: auditLoading, isError: auditError } = useDttrEditAudit(
-    showAuditLog && isSuperAdmin,
-  );
 
   const submitRequest = useSubmitDttrRequest();
   const editDttr = useEditDttr();
@@ -732,48 +662,41 @@ export function DTTRPage() {
   }
 
   function ActionsMenu({ terminal }: { terminal: DTTRTerminalRequest }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600">
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-        {open && (
+      <TableActionsDropdown>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button
-                onClick={() => { setOpen(false); setSubmitTarget(terminal); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <Plus className="h-3.5 w-3.5" /> Submit Daily Request
-              </button>
-              <button
-                onClick={() => { setOpen(false); setHistoryTarget(terminal); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <History className="h-3.5 w-3.5" /> Submission History
-              </button>
-              {isSuperAdmin && (
-                <>
-                  <button
-                    onClick={() => { setOpen(false); setEditTarget(terminal); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-700 hover:bg-gray-50"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" /> Edit Request (SuperAdmin)
-                  </button>
-                  <button
-                    onClick={() => { setOpen(false); setConfigTarget(terminal); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-sm text-violet-700 hover:bg-gray-50"
-                  >
-                    <Settings2 className="h-3.5 w-3.5" /> Configure Mode
-                  </button>
-                </>
-              )}
-            </div>
+            <button
+              onClick={() => { close(); setSubmitTarget(terminal); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Plus className="h-3.5 w-3.5" /> Submit Daily Request
+            </button>
+            <button
+              onClick={() => { close(); setHistoryTarget(terminal); }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <History className="h-3.5 w-3.5" /> Submission History
+            </button>
+            {isSuperAdmin && (
+              <>
+                <button
+                  onClick={() => { close(); setEditTarget(terminal); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-700 hover:bg-gray-50"
+                >
+                  <Edit2 className="h-3.5 w-3.5" /> Edit Request (SuperAdmin)
+                </button>
+                <button
+                  onClick={() => { close(); setConfigTarget(terminal); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-violet-700 hover:bg-gray-50"
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Configure Mode
+                </button>
+              </>
+            )}
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -810,14 +733,6 @@ export function DTTRPage() {
       {historyTarget && (
         <HistoryDrawer terminal={historyTarget} onClose={() => setHistoryTarget(null)} />
       )}
-      {showAuditLog && isSuperAdmin && (
-        <EditAuditDrawer
-          entries={editLog}
-          isLoading={auditLoading}
-          isError={auditError}
-          onClose={() => setShowAuditLog(false)}
-        />
-      )}
 
       <nav className="flex items-center gap-1.5 text-xs text-gray-500">
         <span>Operations</span>
@@ -828,7 +743,7 @@ export function DTTRPage() {
       <SummaryPanel summary={summary} isLoading={summaryLoading} />
 
       <div className="rounded-xl border border-gray-200 bg-white">
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+        <div className="flex items-center border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
               <ClipboardList className="h-4 w-4 text-emerald-400" />
@@ -838,14 +753,6 @@ export function DTTRPage() {
               <p className="text-xs text-gray-500">Daily truck request records by terminal — exports, imports, empties &amp; gatepass</p>
             </div>
           </div>
-          {isSuperAdmin && (
-            <button
-              onClick={() => setShowAuditLog(true)}
-              className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-            >
-              <Shield className="h-3.5 w-3.5" /> Edit Audit Log
-            </button>
-          )}
         </div>
       </div>
 
@@ -1014,25 +921,6 @@ export function DTTRPage() {
             <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-gray-200 p-1.5 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
-      </div>
-
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <p className="mb-2 text-xs font-bold text-blue-700">Request Mode Guide</p>
-        <div className="grid gap-2 md:grid-cols-2">
-          <div className="text-[11px] text-blue-700">
-            <span className="font-semibold">Manual Mode:</span> Terminal users must submit daily truck requests before bookings are validated against capacity limits.
-          </div>
-          <div className="text-[11px] text-blue-700">
-            <span className="font-semibold">Automated Mode:</span> System auto-populates daily requests from a predefined template stored in the terminal configuration.
-          </div>
-        </div>
-      </div>
-
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All SuperAdmin edits require justification and Port Authority approval reference or document.
-          Submitted data is used by the backend to validate transporter bookings and restrict truck dispatches to approved daily limits.
-        </p>
       </div>
     </div>
   );

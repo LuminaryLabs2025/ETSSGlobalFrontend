@@ -76,6 +76,7 @@ export const MOCK_TRUCKS: Truck[] = [
     visibility: "PUBLIC",
     truck_status: "AVAILABLE",
     mss_verification_number: "MSS-2024-003456",
+    mss_expiry_date: "2025-12-31T00:00:00Z",
     verification_timestamp: "2024-04-18T10:00:00Z",
     rfid_tag_number: "RFID-ETSS-003456",
   },
@@ -506,10 +507,17 @@ export const MOCK_TRUCKS: Truck[] = [
 ];
 
 // ─── Derived Summary ───
+function isTruckMssExpired(truck: Truck): boolean {
+  if (!truck.mss_expiry_date) return false;
+  return new Date(truck.mss_expiry_date) < new Date();
+}
+
 export function buildTrucksSummary(trucks: Truck[]): TrucksSummary {
+  const verifiedTrucks = trucks.filter((t) => t.registration_status === "MSS_VERIFIED");
   return {
     total: trucks.length,
-    mss_verified: trucks.filter((t) => t.registration_status === "MSS_VERIFIED").length,
+    mss_verified: verifiedTrucks.filter((t) => !isTruckMssExpired(t)).length,
+    mss_expired: verifiedTrucks.filter((t) => isTruckMssExpired(t)).length,
     unverified: trucks.filter((t) => t.registration_status === "UNVERIFIED").length,
     verification_requested: trucks.filter((t) => t.registration_status === "VERIFICATION_REQUESTED").length,
     flagged: trucks.filter((t) => t.registration_status === "FLAGGED").length,

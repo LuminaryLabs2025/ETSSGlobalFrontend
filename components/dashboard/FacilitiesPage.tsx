@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Warehouse,
   Truck,
@@ -21,14 +21,12 @@ import {
   Ban,
   Eye,
   Edit2,
-  MoreHorizontal,
   MapPin,
   Timer,
   Package,
   FileText,
   Plus,
   Layers,
-  SlidersHorizontal,
   BarChart3,
   TrendingUp,
   AlertCircle,
@@ -51,6 +49,8 @@ import {
   useArchiveFacility,
 } from "@/hooks/facilities/useFacilityActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -95,6 +95,7 @@ const TOGGLEABLE_COLUMNS = [
 ] as const;
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
+const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
 
 // ─── Tab Config ───
 const TAB_CONFIG: Record<TabId, {
@@ -386,59 +387,6 @@ function FacilityDetailDrawer({
   );
 }
 
-// ─── Display Options Dropdown ───
-function DisplayOptionsMenu({
-  visibleColumns,
-  onToggle,
-}: {
-  visibleColumns: Set<ColumnKey>;
-  onToggle: (key: ColumnKey) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-          open ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-        }`}
-      >
-        <SlidersHorizontal className="h-4 w-4" />
-        Display
-        <ChevronDown className="h-3 w-3" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-58 rounded-xl border border-gray-200 bg-white py-2 shadow-lg">
-          <p className="mb-1 px-3 pt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-            Toggle Columns
-          </p>
-          {TOGGLEABLE_COLUMNS.map((col) => (
-            <label key={col.key} className="flex cursor-pointer items-center gap-2.5 px-3 py-2 hover:bg-gray-50">
-              <input
-                type="checkbox"
-                checked={visibleColumns.has(col.key)}
-                onChange={() => onToggle(col.key)}
-                className="h-3.5 w-3.5 rounded accent-emerald-600"
-              />
-              <span className="text-xs text-gray-700">{col.label}</span>
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Actions Menu ───
 function ActionsMenu({
   facility,
@@ -449,7 +397,6 @@ function ActionsMenu({
   tab: TabId;
   onAction: (action: string, f: Facility) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const cfg = TAB_CONFIG[tab];
   const displayStatus = getFacilityDisplayStatus(facility);
 
@@ -469,31 +416,22 @@ function ActionsMenu({
   }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-      >
-        <MoreHorizontal className="h-4 w-4" />
-      </button>
-      {open && (
+    <TableActionsDropdown width={208}>
+      {(close) => (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-            {actions.map((a) => (
-              <button
-                key={a.action}
-                onClick={() => { setOpen(false); onAction(a.action, facility); }}
-                className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${a.danger ? "text-red-600" : "text-gray-700"}`}
-              >
-                <a.icon className="h-3.5 w-3.5" />
-                {a.label}
-              </button>
-            ))}
-          </div>
+          {actions.map((a) => (
+            <button
+              key={a.action}
+              onClick={() => { close(); onAction(a.action, facility); }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-gray-50 ${a.danger ? "text-red-600" : "text-gray-700"}`}
+            >
+              <a.icon className="h-3.5 w-3.5" />
+              {a.label}
+            </button>
+          ))}
         </>
       )}
-    </div>
+    </TableActionsDropdown>
   );
 }
 
@@ -593,14 +531,6 @@ export function FacilitiesPage() {
     setStatusFilter("All");
     setFacilityTypeFilter("All");
     setLocationFilter("All");
-  }
-
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
   }
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
@@ -736,9 +666,17 @@ export function FacilitiesPage() {
         <span className="font-semibold text-gray-800">{cfg.label}</span>
       </nav>
 
-      {/* ─── Module Header + Tab Bar ─── */}
+      {/* ─── Summary Panel ─── */}
+      <SummaryPanel
+        summary={summary}
+        tab={activeTab}
+        isLoading={summaryLoading}
+        onAdd={() => toast.info(`${cfg.addLabel} form — coming soon.`)}
+      />
+
+      {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
-        <div className="border-b border-gray-100 px-6 pb-0 pt-5">
+        <div className="border-b border-gray-100 px-6 pb-0 pt-4">
           <div className="mb-4 flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
               <BarChart3 className="h-4 w-4 text-emerald-400" />
@@ -751,8 +689,7 @@ export function FacilitiesPage() {
             </div>
           </div>
 
-          {/* 3-Tab Navigation */}
-          <div className="flex gap-1">
+          <div className="flex gap-0.5 overflow-x-auto">
             {TABS.map((tab) => {
               const tcfg = TAB_CONFIG[tab];
               const isActive = activeTab === tab;
@@ -760,7 +697,7 @@ export function FacilitiesPage() {
                 <button
                   key={tab}
                   onClick={() => switchTab(tab)}
-                  className={`flex items-center gap-2 rounded-t-lg border-b-2 px-5 py-3 text-xs font-semibold transition-colors ${
+                  className={`flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-4 py-3 text-xs font-semibold transition-colors ${
                     isActive
                       ? "border-emerald-600 text-emerald-700"
                       : "border-transparent text-gray-500 hover:text-gray-700"
@@ -779,19 +716,10 @@ export function FacilitiesPage() {
           </div>
         </div>
 
-        {/* Contextual description */}
-        <div className="px-6 py-3">
+        <div className="px-6 py-2.5">
           <p className="text-xs text-gray-500">{cfg.description}</p>
         </div>
       </div>
-
-      {/* ─── Summary Panel ─── */}
-      <SummaryPanel
-        summary={summary}
-        tab={activeTab}
-        isLoading={summaryLoading}
-        onAdd={() => toast.info(`${cfg.addLabel} form — coming soon.`)}
-      />
 
       {/* ─── Toolbar ─── */}
       <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -828,7 +756,14 @@ export function FacilitiesPage() {
           </button>
 
           {/* Display Options */}
-          <DisplayOptionsMenu visibleColumns={visibleColumns} onToggle={toggleColumn} />
+          <DisplayOptionsMenu
+            columns={TOGGLEABLE_COLUMNS}
+            allColumnKeys={ALL_COLUMN_KEYS}
+            visibleColumns={visibleColumns}
+            onApply={setVisibleColumns}
+            label="Display"
+            showHiddenCount={false}
+          />
 
           {/* Export */}
           <div className="relative group">
@@ -1162,14 +1097,7 @@ export function FacilitiesPage() {
         </div>
       </div>
 
-      {/* ─── Audit Notice ─── */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All Facility management actions (Add, Edit, Enable, Disable, Archive)
-          are automatically logged with Facility ID, Action Type, Performed By (SuperAdmin Name/ID), and Timestamp for compliance
-          and accountability.
-        </p>
-      </div>
+   
     </div>
   );
 }

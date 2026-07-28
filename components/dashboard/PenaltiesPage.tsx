@@ -14,7 +14,6 @@ import {
   XCircle,
   Archive,
   Eye,
-  MoreHorizontal,
   AlertTriangle,
   FileText,
   ArrowUp,
@@ -45,6 +44,7 @@ import { useDisputes } from "@/hooks/disputes/useDisputes";
 import { useDisputesSummary } from "@/hooks/disputes/useDisputesSummary";
 import { useDispute } from "@/hooks/disputes/useDispute";
 import { useResolveDispute, useExportDisputes } from "@/hooks/disputes/useDisputeActions";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   PenaltyDefinition,
   PenaltyStatus,
@@ -645,24 +645,19 @@ export default function PenaltiesPage() {
   const staticTH = (label: string) => <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500 whitespace-nowrap">{label}</th>;
 
   function ActionsMenu({ options }: { options: { label: string; icon: React.ReactNode; onClick: () => void; danger?: boolean }[] }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
+      <TableActionsDropdown width={208}>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              {options.map((opt, i) => (
-                <button key={i} onClick={() => { setOpen(false); opt.onClick(); }}
-                  className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 ${opt.danger ? "text-red-600" : "text-gray-700"}`}>
-                  {opt.icon}{opt.label}
-                </button>
-              ))}
-            </div>
+            {options.map((opt, i) => (
+              <button key={i} onClick={() => { close(); opt.onClick(); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 ${opt.danger ? "text-red-600" : "text-gray-700"}`}>
+                {opt.icon}{opt.label}
+              </button>
+            ))}
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   Users,
   Search,
@@ -18,7 +19,6 @@ import {
   Power,
   Ban,
   Eye,
-  MoreHorizontal,
   Shield,
   AlertTriangle,
   FileText,
@@ -26,12 +26,13 @@ import {
   RefreshCw,
   Send,
   AlertCircle,
-  SlidersHorizontal,
   UserCheck,
   Flag,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
+import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   Driver,
   DriverVerificationStatus,
@@ -122,14 +123,170 @@ function formatLabel(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function driverFullName(driver: Driver) {
+  return `${driver.first_name} ${driver.last_name}`;
+}
+
+function driverInitials(driver: Driver) {
+  return `${driver.first_name[0]}${driver.last_name[0]}`.toUpperCase();
+}
+
+function driverAvatarColorClass(driver: Driver) {
+  const colorIdx = driver.id.charCodeAt(driver.id.length - 1) % AVATAR_COLORS.length;
+  return AVATAR_COLORS[colorIdx]!;
+}
+
+function formatPreviewDate(d: string) {
+  return new Date(d).toLocaleDateString("en-US", {
+    month: "numeric",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+type DriverActionCategory = "verified" | "unverified" | "flagged" | "disabled";
+
+function resolveDriverActionCategory(driver: Driver, activeTab: TabId): DriverActionCategory {
+  if (activeTab === "flagged" || driver.verification_status === "FLAGGED") return "flagged";
+  if (activeTab === "disabled" || driver.verification_status === "DISABLED") return "disabled";
+  if (
+    activeTab === "unverified"
+    || driver.verification_status === "UNVERIFIED"
+    || driver.verification_status === "VERIFICATION_IN_PROGRESS"
+  ) {
+    return "unverified";
+  }
+  return "verified";
+}
+
+function previewStatusBadge(driver: Driver) {
+  const map: Record<DriverVerificationStatus, { cls: string; label: string }> = {
+    VERIFIED: { cls: "bg-[#1e4d3a] text-white", label: "Verified" },
+    UNVERIFIED: { cls: "bg-amber-100 text-amber-800", label: "Unverified" },
+    VERIFICATION_IN_PROGRESS: { cls: "bg-blue-100 text-blue-800", label: "In Progress" },
+    FLAGGED: { cls: "bg-red-100 text-red-800", label: "Flagged" },
+    DISABLED: { cls: "bg-gray-200 text-gray-700", label: "Disabled" },
+    ARCHIVED: { cls: "bg-gray-100 text-gray-500", label: "Archived" },
+  };
+  return map[driver.verification_status] ?? { cls: "bg-gray-100 text-gray-600", label: formatLabel(driver.verification_status) };
+}
+
 // ─── Driver Avatar ───
 function DriverAvatar({ driver }: { driver: Driver }) {
-  const initials = `${driver.first_name[0]}${driver.last_name[0]}`.toUpperCase();
-  const colorIdx = driver.id.charCodeAt(driver.id.length - 1) % AVATAR_COLORS.length;
   return (
-    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${AVATAR_COLORS[colorIdx]}`}>
-      {initials}
+    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ${driverAvatarColorClass(driver)}`}>
+      {driverInitials(driver)}
     </div>
+  );
+}
+
+function DriverPreviewCard({ driver }: { driver: Driver }) {
+  const status = previewStatusBadge(driver);
+
+  return (
+    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+      <div className="border-b border-gray-100 px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-gray-500">Driver</p>
+            <p className="mt-0.5 text-base font-bold text-gray-900">{driverFullName(driver)}</p>
+            <p className="mt-1 text-sm text-gray-600">
+              License: <span className="font-semibold text-gray-800">{driver.license_number}</span>
+            </p>
+          </div>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-orange-200 text-sm font-bold text-gray-900">
+            {driverInitials(driver)}
+          </div>
+        </div>
+      </div>
+
+      <div className="divide-y divide-gray-100 px-4 py-1">
+        <div className="flex items-center justify-between gap-4 py-3">
+          <span className="text-sm text-gray-500">License expiry</span>
+          <span className="text-sm font-semibold text-gray-900">{formatPreviewDate(driver.license_expiry_date)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4 py-3">
+          <span className="text-sm text-gray-500">Phone</span>
+          <span className="text-sm font-semibold text-gray-900">{driver.mobile_number}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4 py-3">
+          <span className="text-sm text-gray-500">Company</span>
+          <span className="max-w-[9rem] truncate text-right text-sm font-semibold text-gray-900">
+            {driver.registered_by.company_name}
+          </span>
+        </div>
+      </div>
+
+      <div className="px-4 pb-4">
+        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${status.cls}`}>
+          {status.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DriverPreviewTrigger({ driver, children }: { driver: Driver; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const updatePosition = useCallback(() => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cardWidth = 288;
+    const cardHeight = 260;
+    const padding = 8;
+    let left = rect.left;
+    let top = rect.bottom + padding;
+    if (left + cardWidth > window.innerWidth - padding) {
+      left = window.innerWidth - cardWidth - padding;
+    }
+    if (top + cardHeight > window.innerHeight - padding) {
+      top = rect.top - cardHeight - padding;
+    }
+    setPosition({ top, left });
+  }, []);
+
+  const show = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    updatePosition();
+    setOpen(true);
+  }, [updatePosition]);
+
+  const hide = useCallback(() => {
+    hideTimerRef.current = setTimeout(() => setOpen(false), 120);
+  }, []);
+
+  const cancelHide = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  }, []);
+
+  return (
+    <>
+      <div
+        ref={triggerRef}
+        className="inline-flex cursor-pointer"
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
+      >
+        {children}
+      </div>
+      {open && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed z-100"
+          style={{ top: position.top, left: position.left }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={hide}
+        >
+          <DriverPreviewCard driver={driver} />
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -395,13 +552,6 @@ export function DriversPage() {
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
-  function toggleColumn(key: ColumnKey) {
-    setVisibleColumns((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-  }
 
   const listParams = buildListParams(
     activeTab,
@@ -503,29 +653,30 @@ export function DriversPage() {
     });
   }
 
-  function handleStartVerification(driver: Driver) {
+  function handleStartRegistration(driver: Driver) {
     setConfirm({
-      title: "Start Verification",
-      message: `Initiate verification process for ${driver.first_name} ${driver.last_name}?`,
-      confirmLabel: "Start Verification",
+      title: "Start Registration",
+      message: `Start registration for ${driverFullName(driver)}?`,
+      confirmLabel: "Start Registration",
       onConfirm: () => {
         setConfirm(null);
         startVerification.mutate(driver.id, {
-          onSuccess: () => toast.success(`Verification initiated for ${driver.first_name} ${driver.last_name}.`),
+          onSuccess: () => toast.success(`Registration started for ${driverFullName(driver)}.`),
         });
       },
     });
   }
 
-  function handleClearFlag(driver: Driver) {
+  function handleOverridePenalty(driver: Driver) {
     setReasonDialog({
-      title: `Clear Flag — ${driver.first_name} ${driver.last_name}`,
-      description: `Flag ID: ${driver.flag?.flag_id ?? "—"}. Provide a reason for clearing this flag. This action will be logged.`,
-      confirmLabel: "Clear Flag",
+      title: `Override Penalty — ${driverFullName(driver)}`,
+      description: `Flag ID: ${driver.flag?.flag_id ?? "—"}. Provide a reason for overriding this penalty. This action will be logged.`,
+      confirmLabel: "Override Penalty",
+      danger: true,
       onConfirm: (reason) => {
         setReasonDialog(null);
         clearFlag.mutate({ id: driver.id, reason }, {
-          onSuccess: () => toast.success(`Flag for ${driver.first_name} ${driver.last_name} cleared.`),
+          onSuccess: () => toast.success(`Penalty overridden for ${driverFullName(driver)}.`),
         });
       },
     });
@@ -545,154 +696,52 @@ export function DriversPage() {
     });
   }
 
-  // ─── Action Menus ───
-  function AllActionsMenu({ driver }: { driver: Driver }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {driver.verification_status === "VERIFIED" && (
-                <button onClick={() => { setOpen(false); handleDisable(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Disable Driver</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+  // ─── Action Menu (categorization-specific) ───
+  function DriverActionsMenu({ driver }: { driver: Driver }) {
+    const category = resolveDriverActionCategory(driver, activeTab);
+    const canStartRegistration = driver.verification_status === "UNVERIFIED";
+    const canOverridePenalty =
+      category === "flagged"
+      && (driver.flag?.flag_status === "ACTIVE" || driver.flag?.flag_status === "UNDER_REVIEW");
 
-  function VerifiedActionsMenu({ driver }: { driver: Driver }) {
-    const [open, setOpen] = useState(false);
     return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
+      <TableActionsDropdown>
+        {(close) => (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              <button onClick={() => { setOpen(false); handleDisable(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Ban className="h-3.5 w-3.5" /> Disable Driver</button>
-              <button onClick={() => { setOpen(false); handleArchive(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50"><Archive className="h-3.5 w-3.5" /> Archive Driver</button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            <button onClick={() => { close(); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
+              <Eye className="h-3.5 w-3.5" /> View Driver&apos;s Details
+            </button>
 
-  function UnverifiedActionsMenu({ driver }: { driver: Driver }) {
-    const [open, setOpen] = useState(false);
-    const canStart = driver.verification_status === "UNVERIFIED";
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {canStart && (
-                <button onClick={() => { setOpen(false); handleStartVerification(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50"><Send className="h-3.5 w-3.5" /> Start Verification</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {category === "verified" && (
+              <button onClick={() => { close(); handleDisable(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50">
+                <Ban className="h-3.5 w-3.5" /> Disable Driver
+              </button>
+            )}
 
-  function FlaggedActionsMenu({ driver }: { driver: Driver }) {
-    const [open, setOpen] = useState(false);
-    const canClear = driver.flag?.flag_status === "ACTIVE" || driver.flag?.flag_status === "UNDER_REVIEW";
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              {canClear && (
-                <button onClick={() => { setOpen(false); handleClearFlag(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><Shield className="h-3.5 w-3.5" /> Clear Flag</button>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {category === "unverified" && canStartRegistration && (
+              <button onClick={() => { close(); handleStartRegistration(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-gray-50">
+                <Send className="h-3.5 w-3.5" /> Start Registration
+              </button>
+            )}
 
-  function DisabledActionsMenu({ driver }: { driver: Driver }) {
-    const [open, setOpen] = useState(false);
-    return (
-      <div className="relative">
-        <button onClick={() => setOpen(!open)} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"><MoreHorizontal className="h-4 w-4" /></button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-              <button onClick={() => { setOpen(false); setSelectedDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"><Eye className="h-3.5 w-3.5" /> View Details</button>
-              <button onClick={() => { setOpen(false); handleEnableDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50"><Power className="h-3.5 w-3.5" /> Enable Driver</button>
-            </div>
-          </>
-        )}
-      </div>
-    );
-  }
+            {canOverridePenalty && (
+              <button onClick={() => { close(); handleOverridePenalty(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-amber-700 hover:bg-gray-50">
+                <Shield className="h-3.5 w-3.5" /> Override Penalty
+              </button>
+            )}
 
-  function DisplayOptionsMenu() {
-    const [open, setOpen] = useState(false);
-    const hiddenCount = ALL_COLUMN_KEYS.length - visibleColumns.size;
-    return (
-      <div className="relative">
-        <button
-          onClick={() => setOpen(!open)}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-            hiddenCount > 0 ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-          }`}
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Display Options
-          {hiddenCount > 0 && (
-            <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{hiddenCount} hidden</span>
-          )}
-          <ChevronDown className="h-3 w-3" />
-        </button>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg">
-              <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
-                <p className="text-xs font-bold text-gray-700">Display Columns</p>
-                <button
-                  onClick={() => setVisibleColumns(visibleColumns.size === ALL_COLUMN_KEYS.length ? new Set() : new Set(ALL_COLUMN_KEYS))}
-                  className="text-[11px] font-medium text-emerald-600 hover:underline"
-                >
-                  {visibleColumns.size === ALL_COLUMN_KEYS.length ? "Hide all" : "Show all"}
-                </button>
-              </div>
-              <div className="py-1">
-                {TOGGLEABLE_COLUMNS.map((column) => (
-                  <label key={column.key} className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.has(column.key)}
-                      onChange={() => toggleColumn(column.key)}
-                      className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
-                    />
-                    {column.label}
-                  </label>
-                ))}
-              </div>
-            </div>
+            {category === "disabled" && (
+              <button onClick={() => { close(); handleEnableDriver(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-emerald-700 hover:bg-gray-50">
+                <Power className="h-3.5 w-3.5" /> Enable Driver
+              </button>
+            )}
+
+            <button onClick={() => { close(); handleArchive(driver); }} className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-gray-50">
+              <Archive className="h-3.5 w-3.5" /> Archive Driver
+            </button>
           </>
         )}
-      </div>
+      </TableActionsDropdown>
     );
   }
 
@@ -887,7 +936,12 @@ export function DriversPage() {
             Filters
           </button>
 
-          <DisplayOptionsMenu />
+          <DisplayOptionsMenu
+            columns={TOGGLEABLE_COLUMNS}
+            allColumnKeys={ALL_COLUMN_KEYS}
+            visibleColumns={visibleColumns}
+            onApply={setVisibleColumns}
+          />
 
           <div className="relative group">
             <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
@@ -1055,7 +1109,13 @@ export function DriversPage() {
                     <td className="px-3 py-3 text-xs font-medium text-gray-400">{(page - 1) * PAGE_SIZE + idx + 1}</td>
 
                     {/* Avatar */}
-                    {col("driver_image") && <td className="px-3 py-3"><DriverAvatar driver={d} /></td>}
+                    {col("driver_image") && (
+                      <td className="px-3 py-3">
+                        <DriverPreviewTrigger driver={d}>
+                          <DriverAvatar driver={d} />
+                        </DriverPreviewTrigger>
+                      </td>
+                    )}
 
                     {/* Name */}
                     <td className="px-3 py-3">
@@ -1158,11 +1218,7 @@ export function DriversPage() {
 
                     {/* Actions */}
                     <td className="px-3 py-3 text-center">
-                      {activeTab === "all"        && <AllActionsMenu driver={d} />}
-                      {activeTab === "verified"   && <VerifiedActionsMenu driver={d} />}
-                      {activeTab === "unverified" && <UnverifiedActionsMenu driver={d} />}
-                      {activeTab === "flagged"    && <FlaggedActionsMenu driver={d} />}
-                      {activeTab === "disabled"   && <DisabledActionsMenu driver={d} />}
+                      <DriverActionsMenu driver={d} />
                     </td>
                   </tr>
                 ))
@@ -1188,13 +1244,7 @@ export function DriversPage() {
         </div>
       </div>
 
-      {/* ─── Audit Notice ─── */}
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          <span className="font-semibold">Audit Notice:</span> All driver management actions (Disable, Archive, Start Verification, Clear Flag, Enable) are
-          automatically logged with Driver ID, Action Type, Reason, Performed By (SuperAdmin/NPA), and Timestamp.
-        </p>
-      </div>
+    
     </div>
   );
 }
