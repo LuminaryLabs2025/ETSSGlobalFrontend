@@ -125,6 +125,10 @@ export const sidebarNav: NavItem[] = [
   {
     label: "Manage Bookings",
     children: [
+      { label: "Book Fish (Assist Transporter)", href: "/dashboard/bookings/book-fish" },
+      { label: "Book EPT (Assist Transporter)", href: "/dashboard/bookings/book-ept" },
+      { label: "Book Bonded Terminal (Assist Transporter)", href: "/dashboard/bookings/book-bonded-terminal" },
+      { label: "Book Truck Park (Assist Transporter)", href: "/dashboard/bookings/book-truck-park" },
       { label: "Today's Manifest (In-Manifest & Left-Manifest)", href: "/dashboard/bookings/manifest" },
       { label: "All Bookings (Live, Completed & Cancelled)", href: "/dashboard/bookings/all" },
     ],

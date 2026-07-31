@@ -210,5 +210,6 @@ export function buildBookingsSummary(bookings: Booking[]): BookingsSummary {
     completed: bookings.filter((b) => b.status === "COMPLETED").length,
     cancelled: bookings.filter((b) => b.status === "CANCELLED").length,
     expired: bookings.filter((b) => b.status === "EXPIRED").length,
+    flagged: bookings.filter((b) => (b.exceptions?.length ?? 0) > 0 || b.current_truck_status === "FLAGGED").length,
   };
 }

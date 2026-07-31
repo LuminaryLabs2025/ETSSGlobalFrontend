@@ -92,6 +92,14 @@ export interface BookingsSummary {
   completed: number;
   cancelled: number;
   expired: number;
+  flagged: number;
+}
+
+export function isFlaggedBooking(booking: Booking): boolean {
+  return (
+    (booking.exceptions?.length ?? 0) > 0
+    || booking.current_truck_status === "FLAGGED"
+  );
 }
 
 export type BookingsSummaryResponse = BookingsSummary;
@@ -105,6 +113,7 @@ export interface BookingsListParams {
   truck_plate_number?: string;
   driver_name?: string;
   status?: BookingStatus | string;
+  flagged?: boolean;
   terminal_name?: string;
   transfer_type?: TransferType | string;
   transporter_company?: string;

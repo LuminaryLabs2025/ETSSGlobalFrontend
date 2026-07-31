@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   BookOpen,
@@ -24,6 +25,11 @@ import {
   Download,
   MapPin,
   Calendar,
+  Fish,
+  Warehouse,
+  ParkingCircle,
+  Flag,
+  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
@@ -52,8 +58,50 @@ import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdow
 const PAGE_SIZE = 10;
 
 type MainSection = "all" | "manifest";
-type StatusTab = "all" | BookingStatus;
+type StatusTab = "all" | "COMPLETED" | "CANCELLED" | "FLAGGED";
 type ManifestTab = "in" | "left";
+
+const BOOKING_SHORTCUTS = [
+  {
+    key: "fish",
+    label: "Book Fish",
+    description: "Fish-van park booking",
+    Icon: Fish,
+    iconBg: "bg-teal-100",
+    iconColor: "text-teal-600",
+  },
+  {
+    key: "ept",
+    label: "Book EPT",
+    description: "Export processing terminal",
+    Icon: Truck,
+    iconBg: "bg-violet-100",
+    iconColor: "text-violet-600",
+  },
+  {
+    key: "bonded",
+    label: "Book Bonded Terminal",
+    description: "Bonded terminal booking",
+    Icon: Warehouse,
+    iconBg: "bg-orange-100",
+    iconColor: "text-orange-600",
+  },
+  {
+    key: "truck-park",
+    label: "Book Truck Park",
+    description: "Truck park booking",
+    Icon: ParkingCircle,
+    iconBg: "bg-blue-100",
+    iconColor: "text-blue-600",
+  },
+] as const;
+
+const STATUS_TABS: { id: StatusTab; label: string }[] = [
+  { id: "all", label: "All Bookings" },
+  { id: "COMPLETED", label: "Completed" },
+  { id: "CANCELLED", label: "Cancelled" },
+  { id: "FLAGGED", label: "Flagged Bookings" },
+];
 
 const TERMINAL_OPTIONS = [
   "All",
@@ -72,14 +120,6 @@ const TRANSPORTER_OPTIONS = [
   "Mikano Logistics",
   "Shina & Sons Logistics",
   "Calabar Haulage Co.",
-];
-
-const STATUS_TABS: { id: StatusTab; label: string }[] = [
-  { id: "all", label: "All Bookings" },
-  { id: "LIVE", label: "Live" },
-  { id: "COMPLETED", label: "Completed" },
-  { id: "CANCELLED", label: "Cancelled" },
-  { id: "EXPIRED", label: "Expired" },
 ];
 
 const TRANSFER_TYPE_OPTIONS: (TransferType | "All")[] = [
@@ -289,25 +329,37 @@ function SummaryPanel({
   summary,
   isLoading,
   lastRefresh,
+  activeStatusTab,
+  onSelectStatusTab,
+  onBookShortcut,
 }: {
   summary?: BookingsSummaryResponse;
   isLoading?: boolean;
   lastRefresh: string;
+  activeStatusTab: StatusTab;
+  onSelectStatusTab: (tab: StatusTab) => void;
+  onBookShortcut: (key: string, label: string) => void;
 }) {
-  const cards = [
-    { label: "Total Bookings", value: summary?.total ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: BookOpen },
-    { label: "Live", value: summary?.live ?? 0, color: "text-cyan-400", bg: "bg-cyan-400/10", Icon: ActivityIcon },
-    { label: "Completed", value: summary?.completed ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
-    { label: "Cancelled", value: summary?.cancelled ?? 0, color: "text-red-400", bg: "bg-red-400/10", Icon: XCircle },
-    { label: "Expired", value: summary?.expired ?? 0, color: "text-gray-400", bg: "bg-gray-400/10", Icon: Clock },
+  const overviewCards: {
+    id: StatusTab;
+    label: string;
+    value: number;
+    color: string;
+    bg: string;
+    Icon: React.ElementType;
+  }[] = [
+    { id: "all", label: "All Bookings", value: summary?.total ?? 0, color: "text-blue-400", bg: "bg-blue-400/10", Icon: BookOpen },
+    { id: "COMPLETED", label: "Completed", value: summary?.completed ?? 0, color: "text-emerald-400", bg: "bg-emerald-400/10", Icon: CheckCircle2 },
+    { id: "CANCELLED", label: "Cancelled", value: summary?.cancelled ?? 0, color: "text-red-400", bg: "bg-red-400/10", Icon: XCircle },
+    { id: "FLAGGED", label: "Flagged Bookings", value: summary?.flagged ?? 0, color: "text-amber-400", bg: "bg-amber-400/10", Icon: Flag },
   ];
 
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-white">Bookings Database</h1>
-          <p className="text-xs text-gray-400">Real-time view of all truck bookings across the ETSS platform</p>
+          <h1 className="text-xl font-bold text-white">Booking Overview</h1>
+          <p className="text-xs text-gray-400">All bookings, completed, cancelled, and flagged bookings at a glance</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-[10px] text-gray-400">
@@ -323,34 +375,60 @@ function SummaryPanel({
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {isLoading ? (
           <div className="col-span-full flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-emerald-400" />
           </div>
         ) : (
-          cards.map((card) => (
-            <div key={card.label} className="rounded-xl bg-white/5 p-4 transition-colors hover:bg-white/10">
-              <div className="mb-2">
-                <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
-                  <card.Icon className={`h-4 w-4 ${card.color}`} />
+          overviewCards.map((card) => {
+            const isActive = activeStatusTab === card.id;
+            return (
+              <button
+                key={card.id}
+                type="button"
+                onClick={() => onSelectStatusTab(card.id)}
+                className={`rounded-xl p-4 text-left transition-colors ${
+                  isActive ? "bg-emerald-500/15 ring-1 ring-emerald-400/40" : "bg-white/5 hover:bg-white/10"
+                }`}
+              >
+                <div className="mb-2">
+                  <div className={`inline-flex rounded-lg p-1.5 ${card.bg}`}>
+                    <card.Icon className={`h-4 w-4 ${card.color}`} />
+                  </div>
                 </div>
-              </div>
-              <p className="text-2xl font-bold text-white">{card.value}</p>
-              <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
-            </div>
-          ))
+                <p className="text-2xl font-bold text-white">{card.value}</p>
+                <p className="mt-0.5 text-[11px] font-medium uppercase tracking-wider text-gray-500">{card.label}</p>
+              </button>
+            );
+          })
         )}
       </div>
-    </div>
-  );
-}
 
-function ActivityIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
+      <div className="mt-5 border-t border-white/10 pt-5">
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Quick Book</p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {BOOKING_SHORTCUTS.map((shortcut) => (
+            <button
+              key={shortcut.key}
+              type="button"
+              onClick={() => onBookShortcut(shortcut.key, shortcut.label)}
+              className="group flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3 text-left transition-colors hover:border-emerald-400/30 hover:bg-white/10"
+            >
+              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${shortcut.iconBg}`}>
+                <shortcut.Icon className={`h-5 w-5 ${shortcut.iconColor}`} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white">{shortcut.label}</p>
+                <p className="truncate text-[11px] text-gray-400">{shortcut.description}</p>
+              </div>
+              <ArrowRight className="h-4 w-4 shrink-0 text-gray-500 transition-transform group-hover:translate-x-0.5 group-hover:text-emerald-400" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -688,6 +766,7 @@ function ConfirmDialog({
 }
 
 export function BookingsPage({ initialSection = "all" }: { initialSection?: MainSection }) {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -716,7 +795,8 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
     page,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
-    status: statusTab !== "all" ? statusTab : undefined,
+    status: statusTab === "COMPLETED" || statusTab === "CANCELLED" ? statusTab : undefined,
+    flagged: statusTab === "FLAGGED" ? true : undefined,
     terminal_name: terminalFilter !== "All" ? terminalFilter : undefined,
     transfer_type: transferFilter !== "All" ? transferFilter : undefined,
     transporter_company: transporterFilter !== "All" ? transporterFilter : undefined,
@@ -773,11 +853,36 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
 
   const statusTabCounts = {
     all: summary?.total ?? 0,
-    LIVE: summary?.live ?? 0,
     COMPLETED: summary?.completed ?? 0,
     CANCELLED: summary?.cancelled ?? 0,
-    EXPIRED: summary?.expired ?? 0,
+    FLAGGED: summary?.flagged ?? 0,
   };
+
+  function handleSelectStatusTab(tab: StatusTab) {
+    setMainSection("all");
+    setStatusTab(tab);
+    setPage(1);
+  }
+
+  function handleBookShortcut(key: string, label: string) {
+    if (key === "fish") {
+      router.push("/dashboard/bookings/book-fish");
+      return;
+    }
+    if (key === "ept") {
+      router.push("/dashboard/bookings/book-ept");
+      return;
+    }
+    if (key === "bonded") {
+      router.push("/dashboard/bookings/book-bonded-terminal");
+      return;
+    }
+    if (key === "truck-park") {
+      router.push("/dashboard/bookings/book-truck-park");
+      return;
+    }
+    toast.info(`${label} — coming soon.`);
+  }
 
   const hasActiveFilters =
     debouncedSearch || terminalFilter !== "All" || transferFilter !== "All" ||
@@ -880,7 +985,14 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
         <span className="font-semibold text-gray-800">Bookings</span>
       </nav>
 
-      <SummaryPanel summary={summary} isLoading={summaryLoading} lastRefresh={lastRefresh} />
+      <SummaryPanel
+        summary={summary}
+        isLoading={summaryLoading}
+        lastRefresh={lastRefresh}
+        activeStatusTab={mainSection === "all" ? statusTab : "all"}
+        onSelectStatusTab={handleSelectStatusTab}
+        onBookShortcut={handleBookShortcut}
+      />
 
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-6 pb-0 pt-4">
@@ -918,7 +1030,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
             {STATUS_TABS.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => { setStatusTab(tab.id); setPage(1); }}
+                onClick={() => { setStatusTab(tab.id); setPage(1); setMainSection("all"); }}
                 className={`flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${
                   statusTab === tab.id ? "bg-emerald-50 text-emerald-700" : "text-gray-500 hover:bg-gray-50"
                 }`}
