@@ -149,7 +149,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               )}
               <div className="space-y-0.5">
                 {group.items.map((item) => {
-                  const active = pathname === item.href;
+                  const active =
+                    item.href === "/dashboard/bookings/all"
+                      ? pathname === item.href || pathname.startsWith("/dashboard/bookings/")
+                      : pathname === item.href;
                   return (
                     <Link
                       key={item.href}
