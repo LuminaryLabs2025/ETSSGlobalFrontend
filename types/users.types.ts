@@ -20,6 +20,14 @@ export interface UserCompany {
   updated_at: string;
 }
 
+export interface UserSubAccount {
+  id: string;
+  name: string;
+  email?: string | null;
+  user_type?: string | null;
+  status?: string | null;
+}
+
 // ─── Platform User ───
 export interface PlatformUser {
   id: string;
@@ -38,6 +46,11 @@ export interface PlatformUser {
   invited_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserDetail extends PlatformUser {
+  sub_accounts?: UserSubAccount[];
+  sub_accounts_count?: number;
 }
 
 // ─── Users List Response ───

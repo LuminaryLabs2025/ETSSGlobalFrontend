@@ -7,6 +7,7 @@ import type {
   TerminalsSummaryResponse,
   TerminalActionResponse,
   Terminal,
+  TerminalDetail,
   UpdateTerminalPayload,
 } from "@/types/terminals.types";
 
@@ -23,8 +24,8 @@ export const terminalsService = {
     return data.data;
   },
 
-  getById: async (id: string): Promise<Terminal> => {
-    const { data } = await apiClient.get<ApiResponse<Terminal>>(TERMINALS.BY_ID(id));
+  getById: async (id: string): Promise<TerminalDetail> => {
+    const { data } = await apiClient.get<ApiResponse<TerminalDetail>>(TERMINALS.BY_ID(id));
     return data.data;
   },
 

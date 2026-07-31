@@ -28,6 +28,57 @@ export interface Terminal {
   updated_at: string;
 }
 
+// ─── Terminal Detail (extended view) ───
+export interface TerminalPrimaryAccountUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface TerminalOperationalHours {
+  all_day?: boolean;
+  opens_at?: string | null;
+  closes_at?: string | null;
+}
+
+export type TerminalBarrierStatus = "ONLINE" | "OFFLINE";
+
+export interface TerminalBarrier {
+  id: string;
+  status: TerminalBarrierStatus;
+}
+
+export interface TerminalMovementTime {
+  booking_category: string;
+  transit_park?: string | null;
+  from_time?: string | null;
+  to_time?: string | null;
+}
+
+export interface TerminalSubAccount {
+  id: string;
+  name: string;
+  email?: string | null;
+  user_type?: string | null;
+  status?: string | null;
+}
+
+export interface TerminalManifestByCategory {
+  booking_category: string;
+  count: number;
+}
+
+export interface TerminalDetail extends Terminal {
+  primary_account_user?: TerminalPrimaryAccountUser | null;
+  operational_hours?: TerminalOperationalHours | null;
+  linked_booking_categories?: string[];
+  linked_transit_parks?: string[];
+  entry_barriers?: TerminalBarrier[];
+  exit_barriers?: TerminalBarrier[];
+  movement_times?: TerminalMovementTime[];
+  sub_accounts?: TerminalSubAccount[];
+  trucks_in_manifest?: TerminalManifestByCategory[];
+}
+
 // ─── Display status (includes archived) ───
 export type TerminalDisplayStatus = TerminalStatus | "ARCHIVED";
 
@@ -91,6 +142,16 @@ export interface UpdateTerminalPayload {
   hourly_truck_tat_minutes: number;
   status: TerminalStatus;
   booking_status: TerminalBookingStatus;
+}
+
+// ─── Edit Terminal Information ───
+export type TerminalHoursMode = "ALL_DAY" | "CUSTOM";
+
+export interface EditTerminalInformationPayload {
+  approved_daily_truck_capacity: number;
+  operational_hours_mode: TerminalHoursMode;
+  operational_hours?: TerminalOperationalHours | null;
+  linked_booking_categories: string[];
 }
 
 // ─── Action Response ───

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { transitParksService } from "@/services/transit-parks.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
-import type { TransitPark, UpdateTransitParkPayload } from "@/types/transit-parks.types";
+import type { TransitPark, UpdateTransitParkPayload, EditTransitParkInformationPayload } from "@/types/transit-parks.types";
 import { AxiosError } from "axios";
 
 function invalidateTransitParks(queryClient: ReturnType<typeof useQueryClient>) {
@@ -83,6 +83,31 @@ export function useDeleteTransitPark() {
     onSuccess: () => invalidateTransitParks(queryClient),
     onError: (error: AxiosError<ApiError>) => {
       toast.error(error.response?.data?.message ?? "Failed to delete transit park");
+    },
+  });
+}
+
+export function useEditTransitParkInformation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id: _id,
+      payload: _payload,
+    }: {
+      id: string;
+      payload: EditTransitParkInformationPayload;
+    }) => {
+      // Mock until dedicated edit-information endpoint is available.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return { message: "Transit park information updated successfully." };
+    },
+    onSuccess: (response) => {
+      invalidateTransitParks(queryClient);
+      toast.success(response.message);
+    },
+    onError: () => {
+      toast.error("Failed to update transit park information");
     },
   });
 }

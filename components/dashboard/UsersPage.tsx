@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -32,13 +32,19 @@ import {
   MapPin,
   Warehouse,
   Loader2,
+  Eye,
+  Phone,
+  UsersRound,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useUsers } from "@/hooks/users/useUsers";
+import { useUser } from "@/hooks/users/useUser";
 import { useUsersSummary } from "@/hooks/users/useUsersSummary";
 import { useDisableUser, useEnableUser, useArchiveUser, useResendInvite } from "@/hooks/users/useUserActions";
+import { usersService } from "@/services/users.service";
 import { toast } from "sonner";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
-import type { PlatformUser, UsersSummaryResponse } from "@/types/users.types";
+import type { PlatformUser, UserSubAccount, UsersSummaryResponse } from "@/types/users.types";
 
 // ─── Filter Options ───
 const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
@@ -70,6 +76,30 @@ function formatLabel(value: string) {
   return value
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Show value or em dash when empty */
+function displayOrDash(value: string | null | undefined) {
+  if (value == null || value === "") return "—";
+  return value;
+}
+
+function toSubAccountSummary(user: PlatformUser): UserSubAccount {
+  return {
+    id: user.id,
+    name: `${user.first_name} ${user.last_name}`.trim(),
+    email: user.email,
+    user_type: user.user_type?.name ?? null,
+    status: user.status,
+  };
+}
+
+function formatSubAccountStatus(status: string) {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function isPrimaryLikeAccount(accountType: string) {
+  return accountType === "PRIMARY" || accountType === "SYSTEM";
 }
 
 // ─── Status Badge ───
@@ -181,6 +211,248 @@ function ConfirmDialog({
   );
 }
 
+// ─── User Detail Drawer ───
+function UserDetailDrawer({
+  user: fallbackUser,
+  onClose,
+  formatTimestamp,
+}: {
+  user: PlatformUser;
+  onClose: () => void;
+  formatTimestamp: (ts: string) => string;
+}) {
+  const { data: detail, isLoading, isError } = useUser(fallbackUser.id);
+  const user = detail ?? fallbackUser;
+  const fullName = `${user.first_name} ${user.last_name}`;
+  const canHaveSubAccounts = isPrimaryLikeAccount(user.account_type);
+
+  const shouldFetchCompanySubAccounts =
+    canHaveSubAccounts &&
+    !!user.company_id &&
+    detail !== undefined &&
+    detail.sub_accounts === undefined;
+
+  const { data: companyUsersData, isLoading: subAccountsLoading } = useQuery({
+    queryKey: ["users", "company-sub-accounts", user.company_id],
+    queryFn: () =>
+      usersService.list({
+        company_id: user.company_id!,
+        account_type: "SUB_ACCOUNT",
+        limit: 100,
+      }),
+    enabled: shouldFetchCompanySubAccounts,
+  });
+
+  const subAccounts = useMemo<UserSubAccount[]>(() => {
+    if (detail?.sub_accounts) return detail.sub_accounts;
+    if (companyUsersData?.data) {
+      return companyUsersData.data.map(toSubAccountSummary);
+    }
+    return [];
+  }, [detail?.sub_accounts, companyUsersData?.data]);
+
+  const subAccountCount = detail?.sub_accounts_count ?? subAccounts.length;
+  const subAccountsPending = (isLoading && !detail) || (shouldFetchCompanySubAccounts && subAccountsLoading);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600/20 text-sm font-bold text-emerald-400">
+              {`${user.first_name[0] ?? ""}${user.last_name[0] ?? ""}`}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-bold text-white">{fullName}</h2>
+              <p className="truncate text-[11px] text-gray-400">{user.email}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading user details...
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Some detail fields may be unavailable. Showing cached user data.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={user.status} />
+            <UserTypeBadge type={user.user_type?.name ?? "—"} />
+            <AccountBadge type={user.account_type} />
+            {user.is_super_admin && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+                <Shield className="h-3 w-3" />
+                Super Admin
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="rounded-lg bg-blue-100 p-1.5"><Mail className="h-3.5 w-3.5 text-blue-600" /></div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Email</p>
+              </div>
+              <p className="truncate text-xs font-medium text-gray-900">{user.email}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="rounded-lg bg-emerald-100 p-1.5"><Phone className="h-3.5 w-3.5 text-emerald-600" /></div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Phone</p>
+              </div>
+              <p className="text-xs font-medium text-gray-900">{displayOrDash(user.phone)}</p>
+            </div>
+            {canHaveSubAccounts && (
+              <div className="col-span-2 rounded-xl border border-gray-100 bg-gray-50 p-4">
+                <div className="mb-2 flex items-center gap-2">
+                  <div className="rounded-lg bg-violet-100 p-1.5"><UsersRound className="h-3.5 w-3.5 text-violet-600" /></div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Linked Sub-Accounts</p>
+                </div>
+                {subAccountsPending ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-500">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                    Loading sub-accounts...
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-2xl font-bold text-gray-900">{subAccountCount}</p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">
+                      {subAccountCount === 1 ? "sub-account linked" : "sub-accounts linked"}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">User Details</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {[
+                { label: "User ID", value: user.id, mono: true },
+                { label: "First Name", value: user.first_name },
+                { label: "Last Name", value: user.last_name },
+                { label: "Email", value: user.email },
+                { label: "Phone", value: displayOrDash(user.phone) },
+                { label: "User Type", value: displayOrDash(user.user_type?.name) },
+                { label: "User Type Category", value: displayOrDash(user.user_type?.category) },
+                { label: "Account Type", value: formatLabel(user.account_type) },
+                { label: "Super Admin", value: user.is_super_admin ? "Yes" : "No" },
+                { label: "Invited By", value: displayOrDash(user.invited_by) },
+              ].map(({ label, value, mono }) => (
+                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
+                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Linked Company</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {[
+                { label: "Company Name", value: displayOrDash(user.company?.name) },
+                { label: "Address", value: displayOrDash(user.company?.address) },
+                { label: "Company Phone", value: displayOrDash(user.company?.phone) },
+                { label: "Company ID", value: displayOrDash(user.company_id), mono: true },
+              ].map(({ label, value, mono }) => (
+                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
+                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Linked Sub-Accounts</p>
+              {canHaveSubAccounts && !subAccountsPending && (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                  {subAccountCount}
+                </span>
+              )}
+            </div>
+            {!canHaveSubAccounts ? (
+              <div className="px-4 py-3">
+                <p className="text-xs text-gray-400">This user is a sub-account under a primary organization.</p>
+              </div>
+            ) : subAccountsPending ? (
+              <div className="flex items-center gap-2 px-4 py-4 text-xs text-gray-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                Loading linked sub-accounts...
+              </div>
+            ) : subAccounts.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {subAccounts.map((account) => (
+                  <div key={account.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{account.name}</p>
+                        <p className="truncate text-xs text-gray-500">{displayOrDash(account.email)}</p>
+                      </div>
+                      {account.status && (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                          {formatSubAccountStatus(account.status)}
+                        </span>
+                      )}
+                    </div>
+                    {account.user_type && (
+                      <p className="mt-1 text-[11px] text-gray-400">{account.user_type}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3">
+                <p className="text-xs text-gray-400">No linked sub-accounts for this user.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Timestamps</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              <div className="flex items-center justify-between px-4 py-3">
+                <p className="text-xs text-gray-500">Created At</p>
+                <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(user.created_at)}
+                </p>
+              </div>
+              <div className="flex items-center justify-between px-4 py-3">
+                <p className="text-xs text-gray-500">Last Updated</p>
+                <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(user.updated_at)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
 
 // ─── Summary Panel ───
 function SummaryPanel({ summary }: { summary: UsersSummaryResponse | undefined; }) {
@@ -251,7 +523,9 @@ function ActionsMenu({
   user: PlatformUser;
   onAction: (action: string, user: PlatformUser) => void;
 }) {
-  const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [];
+  const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
+    { label: "View Details", icon: Eye, action: "view" },
+  ];
 
   if (user.status === "ACTIVE") {
     actions.push({ label: "Disable User", icon: Ban, action: "disable", danger: true });
@@ -319,6 +593,7 @@ export function UsersPage() {
     danger?: boolean;
     onConfirm: () => void;
   } | null>(null);
+  const [selectedUser, setSelectedUser] = useState<PlatformUser | null>(null);
 
   // ─── API Hooks ───
   const { data: summary } = useUsersSummary();
@@ -382,6 +657,10 @@ export function UsersPage() {
   // ─── Actions ───
   const handleAction = (action: string, user: PlatformUser) => {
     const fullName = `${user.first_name} ${user.last_name}`;
+    if (action === "view") {
+      setSelectedUser(user);
+      return;
+    }
     if (action === "disable") {
       setConfirm({
         title: "Disable User",
@@ -446,6 +725,14 @@ export function UsersPage() {
           danger={confirm.danger}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {selectedUser && (
+        <UserDetailDrawer
+          user={selectedUser}
+          onClose={() => setSelectedUser(null)}
+          formatTimestamp={formatTimestamp}
         />
       )}
 

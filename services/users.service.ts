@@ -6,6 +6,7 @@ import type {
   UsersSummaryResponse,
   UserActionResponse,
   CreateUserPayload,
+  UserDetail,
 } from "@/types/users.types";
 
 export const usersService = {
@@ -23,6 +24,11 @@ export const usersService = {
 
   summary: async (): Promise<UsersSummaryResponse> => {
     const { data } = await apiClient.get<UsersSummaryResponse>(USERS.SUMMARY);
+    return data;
+  },
+
+  getById: async (id: string): Promise<UserDetail> => {
+    const { data } = await apiClient.get<UserDetail>(USERS.BY_ID(id));
     return data;
   },
 

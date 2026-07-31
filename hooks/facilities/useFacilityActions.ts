@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { facilitiesService } from "@/services/facilities.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
-import type { Facility, UpdateFacilityPayload } from "@/types/facilities.types";
+import type { Facility, UpdateFacilityPayload, EditFacilityInformationPayload } from "@/types/facilities.types";
 import { AxiosError } from "axios";
 
 function invalidateFacilities(queryClient: ReturnType<typeof useQueryClient>) {
@@ -83,6 +83,31 @@ export function useDeleteFacility() {
     onSuccess: () => invalidateFacilities(queryClient),
     onError: (error: AxiosError<ApiError>) => {
       toast.error(error.response?.data?.message ?? "Failed to delete facility");
+    },
+  });
+}
+
+export function useEditFacilityInformation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id: _id,
+      payload: _payload,
+    }: {
+      id: string;
+      payload: EditFacilityInformationPayload;
+    }) => {
+      // Mock until dedicated edit-information endpoint is available.
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return { message: "Facility information updated successfully." };
+    },
+    onSuccess: (response) => {
+      invalidateFacilities(queryClient);
+      toast.success(response.message);
+    },
+    onError: () => {
+      toast.error("Failed to update facility information");
     },
   });
 }

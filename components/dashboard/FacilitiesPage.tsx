@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Warehouse,
   Truck,
@@ -31,22 +31,36 @@ import {
   TrendingUp,
   AlertCircle,
   Loader2,
+  User,
+  Mail,
+  CalendarClock,
+  Tags,
+  Landmark,
+  ParkingCircle,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
   Facility,
+  FacilityDetail,
   FacilityDisplayStatus,
   FacilityParkType,
   FacilitySubType,
+  FacilityBarrierStatus,
   FacilitiesSummaryResponse,
+  EditFacilityInformationPayload,
+  FacilityHoursMode,
 } from "@/types/facilities.types";
 import { getFacilityDisplayStatus } from "@/types/facilities.types";
 import { useFacilities } from "@/hooks/facilities/useFacilities";
+import { useFacility } from "@/hooks/facilities/useFacility";
 import { useFacilitiesSummary } from "@/hooks/facilities/useFacilitiesSummary";
 import {
   useEnableFacility,
   useDisableFacility,
   useArchiveFacility,
+  useEditFacilityInformation,
 } from "@/hooks/facilities/useFacilityActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
@@ -96,6 +110,24 @@ const TOGGLEABLE_COLUMNS = [
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
+
+const LINKED_TRANSIT_PARK_OPTIONS = [
+  { value: "Apapa PG-A", label: "Apapa PG-A (Pregate)" },
+  { value: "Apapa PG-B", label: "Apapa PG-B (Pregate)" },
+  { value: "Tincan PG-A", label: "Tincan PG-A (Pregate)" },
+  { value: "Tincan PG-B", label: "Tincan PG-B (Pregate)" },
+  { value: "Mile 2 PG", label: "Mile 2 PG (Pregate)" },
+  { value: "Kirikiri PG", label: "Kirikiri PG (Pregate)" },
+  { value: "Maza Maza", label: "Maza Maza (Pregate)" },
+  { value: "Orile PG", label: "Orile PG (Pregate)" },
+  { value: "Apapa EPT-1", label: "Apapa EPT-1 (EPT)" },
+  { value: "Apapa EPT-2", label: "Apapa EPT-2 (EPT)" },
+  { value: "Tincan EPT-1", label: "Tincan EPT-1 (EPT)" },
+  { value: "Tincan EPT-2", label: "Tincan EPT-2 (EPT)" },
+  { value: "Mile 2 EPT", label: "Mile 2 EPT (EPT)" },
+  { value: "Kirikiri EPT", label: "Kirikiri EPT (EPT)" },
+  { value: "Orile EPT", label: "Orile EPT (EPT)" },
+] as const;
 
 // ─── Tab Config ───
 const TAB_CONFIG: Record<TabId, {
@@ -184,6 +216,97 @@ function formatLocation(location: string) {
   return location;
 }
 
+function displayOrDash(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "—";
+}
+
+function formatCategoryLabel(category: string) {
+  const map: Record<string, string> = {
+    IMPORT: "Import",
+    EXPORT: "Export",
+    EMPTY: "Empty",
+    DOMESTIC: "Domestic",
+  };
+  return map[category] ?? category.replace(/_/g, " ");
+}
+
+function formatTimeWindow(
+  from?: string | null,
+  to?: string | null,
+  allDay?: boolean,
+) {
+  if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
+  if (!from?.trim() || !to?.trim()) return "—";
+  return `${from} to ${to}`;
+}
+
+function resolveHoursMode(hours?: FacilityDetail["operational_hours"]): FacilityHoursMode {
+  if (hours?.all_day) return "ALL_DAY";
+  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
+  return "ALL_DAY";
+}
+
+function buildTransitParkOptions(linked: string[]) {
+  const known = new Set<string>(LINKED_TRANSIT_PARK_OPTIONS.map((option) => option.value));
+  const extras = linked
+    .filter((name) => name.trim() && !known.has(name))
+    .map((name) => ({ value: name, label: name }));
+  return [...LINKED_TRANSIT_PARK_OPTIONS, ...extras];
+}
+
+function DrawerSection({
+  title,
+  children,
+  noPadding,
+}: {
+  title: string;
+  children: React.ReactNode;
+  noPadding?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white">
+      <div className="border-b border-gray-100 px-4 py-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</p>
+      </div>
+      <div className={noPadding ? undefined : "px-4 py-3"}>{children}</div>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-3">
+      <p className="shrink-0 text-xs text-gray-500">{label}</p>
+      <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function BarrierStatusBadge({ status }: { status: FacilityBarrierStatus }) {
+  const isOnline = status === "ONLINE";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      isOnline ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
+    }`}>
+      {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+      {isOnline ? "Online" : "Offline"}
+    </span>
+  );
+}
+
+function EmptySectionNote({ message = "—" }: { message?: string }) {
+  return <p className="text-xs text-gray-400">{message}</p>;
+}
+
 // ─── Status Badge ───
 function StatusBadge({ status }: { status: FacilityDisplayStatus }) {
   const map: Record<FacilityDisplayStatus, { cls: string; Icon: React.ElementType; label: string }> = {
@@ -258,40 +381,82 @@ function ConfirmDialog({
 
 // ─── Facility Detail Drawer ───
 function FacilityDetailDrawer({
-  facility,
+  facility: fallbackFacility,
   tab,
   onClose,
+  onRequestEnable,
+  onRequestDisable,
+  isStatusUpdating,
 }: {
   facility: Facility;
   tab: TabId;
   onClose: () => void;
+  onRequestEnable: (facility: Facility) => void;
+  onRequestDisable: (facility: Facility) => void;
+  isStatusUpdating?: boolean;
 }) {
   const cfg = TAB_CONFIG[tab];
+  const { data: detail, isLoading, isError } = useFacility(fallbackFacility.id);
+  const facility: FacilityDetail = detail ?? fallbackFacility;
   const displayStatus = getFacilityDisplayStatus(facility);
   const approvedCapacity = getApprovedCapacity(facility, tab);
+  const primaryAccount = facility.primary_account_user;
+  const operationalHours = facility.operational_hours;
+  const linkedCategories = facility.linked_booking_categories ?? [];
+  const linkedTransitParks = facility.linked_transit_parks ?? [];
+  const linkedTerminalOperators = facility.linked_terminal_operators ?? [];
+  const entryBarriers = facility.entry_barriers ?? [];
+  const exitBarriers = facility.exit_barriers ?? [];
+  const movementTimes = facility.movement_times ?? [];
+  const subAccounts = facility.sub_accounts ?? [];
+  const canToggleStatus = displayStatus === "ACTIVE" || displayStatus === "INACTIVE";
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/20">
-              <cfg.Icon className="h-5 w-5 text-emerald-400" />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
+        <div className="border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600/20">
+                <cfg.Icon className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white">{facility.name}</h2>
+                <p className="font-mono text-[11px] text-emerald-400">{facility.facility_code}</p>
+                <div className="mt-2 space-y-0.5">
+                  <p className="flex items-center gap-1.5 text-xs text-gray-300">
+                    <User className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.name)}</span>
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <Mail className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.email)}</span>
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500">Primary Account User</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">{facility.name}</h2>
-              <p className="font-mono text-[11px] text-emerald-400">{facility.facility_code}</p>
-            </div>
+            <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
-          {/* Badges */}
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading facility details...
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Some detail fields may be unavailable. Showing cached facility data.
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={displayStatus} />
             <FacilityTypeBadge type={facility.facility_type} />
@@ -306,7 +471,6 @@ function FacilityDetailDrawer({
             )}
           </div>
 
-          {/* Capacity Cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
               <div className="mb-2 flex items-center gap-2">
@@ -334,53 +498,492 @@ function FacilityDetailDrawer({
             </div>
           </div>
 
-          {/* Details */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Facility Details</p>
+          <DrawerSection title="Facility Operational Hours">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-900">
+                {formatTimeWindow(
+                  operationalHours?.opens_at,
+                  operationalHours?.closes_at,
+                  operationalHours?.all_day,
+                )}
+              </p>
             </div>
-            <div className="divide-y divide-gray-50">
-              {[
-                { label: "Record ID",       value: facility.id,              mono: true },
-                { label: cfg.idLabel,       value: facility.facility_code,   mono: true },
-                { label: "Name",            value: facility.name },
-                { label: "Category",        value: cfg.entityLabel },
-                { label: "Facility Type",   value: formatFacilityType(facility.facility_type) },
-                { label: "Location",        value: facility.location },
-                { label: "Address",         value: facility.address },
-              ].map(({ label, value, mono }) => (
-                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
-                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
-                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          </DrawerSection>
 
-          {/* Timestamps */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Timestamps</p>
+          <DrawerSection title="Linked Booking Categories">
+            {linkedCategories.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {linkedCategories.map((category) => (
+                  <span
+                    key={category}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <Tags className="h-3 w-3" />
+                    {formatCategoryLabel(category)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Linked Transit Parks">
+            {linkedTransitParks.length > 0 ? (
+              <ul className="space-y-2">
+                {linkedTransitParks.map((park) => (
+                  <li key={park} className="flex items-center gap-2 text-sm text-gray-800">
+                    <ParkingCircle className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {park}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Linked Terminal Operators">
+            {linkedTerminalOperators.length > 0 ? (
+              <ul className="space-y-2">
+                {linkedTerminalOperators.map((operator) => (
+                  <li key={operator} className="flex items-center gap-2 text-sm text-gray-800">
+                    <Landmark className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {operator}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Entry Barrier ID Number(s) & Status" noPadding>
+            {entryBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {entryBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Exit Barrier ID Number(s) & Status" noPadding>
+            {exitBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {exitBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Movement Times" noPadding>
+            {movementTimes.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60 text-[10px] uppercase tracking-wider text-gray-500">
+                      <th className="px-4 py-2.5 text-left font-semibold">Booking Category</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Transit Park</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Authorised Timeframe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {movementTimes.map((row, index) => (
+                      <tr key={`${row.booking_category}-${row.transit_park ?? index}`}>
+                        <td className="px-4 py-3 font-medium text-gray-800">{formatCategoryLabel(row.booking_category)}</td>
+                        <td className="px-4 py-3 text-gray-600">{displayOrDash(row.transit_park)}</td>
+                        <td className="px-4 py-3 text-gray-800">{formatTimeWindow(row.from_time, row.to_time)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Sub-Accounts Linked to Facility" noPadding>
+            {subAccounts.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {subAccounts.map((account) => (
+                  <div key={account.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{account.name}</p>
+                        <p className="truncate text-xs text-gray-500">{displayOrDash(account.email)}</p>
+                      </div>
+                      {account.status && (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                          {account.status}
+                        </span>
+                      )}
+                    </div>
+                    {account.user_type && (
+                      <p className="mt-1 text-[11px] text-gray-400">{account.user_type}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Facility Details" noPadding>
+            <div className="divide-y divide-gray-50">
+              <DetailRow label="Record ID" value={facility.id} mono />
+              <DetailRow label={cfg.idLabel} value={facility.facility_code} mono />
+              <DetailRow label="Name" value={facility.name} />
+              <DetailRow label="Category" value={cfg.entityLabel} />
+              <DetailRow label="Facility Type" value={formatFacilityType(facility.facility_type)} />
+              <DetailRow label="Location" value={facility.location} />
+              <DetailRow label="Address" value={facility.address} />
             </div>
+          </DrawerSection>
+
+          <DrawerSection title="Timestamps" noPadding>
             <div className="divide-y divide-gray-50">
               <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-gray-500">Created At</p>
                 <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
-                  <Clock className="h-3 w-3 text-gray-400" />{formatTimestamp(facility.created_at)}
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(facility.created_at)}
                 </p>
               </div>
               <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-gray-500">Last Updated</p>
                 <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
-                  <Clock className="h-3 w-3 text-gray-400" />{formatTimestamp(facility.updated_at)}
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(facility.updated_at)}
                 </p>
               </div>
             </div>
+          </DrawerSection>
+        </div>
+
+        <div className="space-y-3 border-t border-gray-100 px-6 py-4">
+          {canToggleStatus && (
+            <div className="flex gap-2">
+              {displayStatus === "INACTIVE" ? (
+                <button
+                  type="button"
+                  onClick={() => onRequestEnable(facility)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                  Activate {cfg.entityLabel}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRequestDisable(facility)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                  Deactivate {cfg.entityLabel}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Edit Facility Information Modal ───
+function EditFacilityInformationModal({
+  facility,
+  tab,
+  onClose,
+  onSaved,
+}: {
+  facility: Facility;
+  tab: TabId;
+  onClose: () => void;
+  onSaved: (updates: EditFacilityInformationPayload) => void;
+}) {
+  const cfg = TAB_CONFIG[tab];
+  const { data: detail, isLoading: detailLoading } = useFacility(facility.id);
+  const editFacility = useEditFacilityInformation();
+
+  const [trucksPerHour, setTrucksPerHour] = useState("");
+  const [hoursMode, setHoursMode] = useState<FacilityHoursMode>("ALL_DAY");
+  const [opensAt, setOpensAt] = useState("06:00");
+  const [closesAt, setClosesAt] = useState("22:00");
+  const [transitParks, setTransitParks] = useState<Set<string>>(new Set());
+  const [transitParkMenuOpen, setTransitParkMenuOpen] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (initialized) return;
+    if (detailLoading && !detail) return;
+
+    const source = detail ?? facility;
+    setTrucksPerHour(String(source.approved_truck_exits_per_hour ?? 0));
+    const hours = detail?.operational_hours;
+    setHoursMode(resolveHoursMode(hours));
+    setOpensAt(hours?.opens_at?.trim() || "06:00");
+    setClosesAt(hours?.closes_at?.trim() || "22:00");
+    setTransitParks(new Set(detail?.linked_transit_parks ?? []));
+    setInitialized(true);
+  }, [detail, detailLoading, facility, initialized]);
+
+  const transitParkOptions = buildTransitParkOptions(Array.from(transitParks));
+
+  function toggleTransitPark(value: string) {
+    setTransitParks((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function validate() {
+    const nextErrors: Record<string, string> = {};
+    const hourlyRate = Number(trucksPerHour);
+
+    if (!trucksPerHour.trim() || Number.isNaN(hourlyRate) || hourlyRate <= 0) {
+      nextErrors.trucksPerHour = "Enter a valid trucks-per-hour override greater than 0.";
+    }
+
+    if (hoursMode === "CUSTOM") {
+      if (!opensAt || !closesAt) {
+        nextErrors.operationalHours = "Both opening and closing times are required.";
+      } else if (opensAt >= closesAt) {
+        nextErrors.operationalHours = "Opening time must be before closing time.";
+      }
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  function handleSave() {
+    if (!validate()) return;
+
+    const payload: EditFacilityInformationPayload = {
+      approved_truck_exits_per_hour: Number(trucksPerHour),
+      operational_hours_mode: hoursMode,
+      operational_hours: hoursMode === "ALL_DAY"
+        ? { all_day: true, opens_at: null, closes_at: null }
+        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
+      linked_transit_parks: Array.from(transitParks),
+    };
+
+    editFacility.mutate(
+      { id: facility.id, payload },
+      {
+        onSuccess: () => {
+          onSaved(payload);
+          onClose();
+        },
+      },
+    );
+  }
+
+  const selectedTransitParkLabels = transitParkOptions
+    .filter((option) => transitParks.has(option.value))
+    .map((option) => option.label);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+              <Edit2 className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Edit Facility Information</h2>
+              <p className="text-xs text-gray-500">{facility.name} · {cfg.entityLabel}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          {detailLoading && !initialized && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading facility settings...
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Number of Trucks Released Per Hour (Override) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={trucksPerHour}
+              onChange={(e) => setTrucksPerHour(e.target.value)}
+              className={`w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
+                errors.trucksPerHour ? "border-red-300" : "border-gray-200"
+              }`}
+              placeholder="e.g. 13"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">SuperAdmin override for authorised truck release rate.</p>
+            {errors.trucksPerHour && <p className="mt-1 text-xs text-red-500">{errors.trucksPerHour}</p>}
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Facility Operational Hours <span className="text-red-500">*</span>
+            </label>
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="radio"
+                  name="facilityHoursMode"
+                  checked={hoursMode === "ALL_DAY"}
+                  onChange={() => setHoursMode("ALL_DAY")}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">All Day</p>
+                  <p className="text-[11px] text-gray-500">Facility operates 24 hours.</p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="facilityHoursMode"
+                  checked={hoursMode === "CUSTOM"}
+                  onChange={() => setHoursMode("CUSTOM")}
+                  className="mt-0.5 h-4 w-4 accent-emerald-600"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
+                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
+                  {hoursMode === "CUSTOM" && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
+                        <input
+                          type="time"
+                          value={opensAt}
+                          onChange={(e) => setOpensAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
+                        <input
+                          type="time"
+                          value={closesAt}
+                          onChange={(e) => setClosesAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </label>
+            </div>
+            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Linked Transit Park(s)
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTransitParkMenuOpen((open) => !open)}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              >
+                <span className={selectedTransitParkLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {selectedTransitParkLabels.length > 0
+                    ? selectedTransitParkLabels.join(", ")
+                    : "Select transit parks (Pregates & EPTs)..."}
+                </span>
+                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${transitParkMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {transitParkMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setTransitParkMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {transitParkOptions.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={transitParks.has(option.value)}
+                          onChange={() => toggleTransitPark(option.value)}
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {transitParks.size > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedTransitParkLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <ParkingCircle className="h-3 w-3" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised Pregates and EPTs that can receive trucks from this facility.</p>
           </div>
         </div>
 
-        <div className="border-t border-gray-100 px-6 py-4">
-          <p className="text-center text-[10px] text-gray-400">Facility record — ETSS-Nigeria Platform</p>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={editFacility.isPending}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={editFacility.isPending || (detailLoading && !initialized)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {editFacility.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </>
@@ -401,8 +1004,8 @@ function ActionsMenu({
   const displayStatus = getFacilityDisplayStatus(facility);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
-    { label: "View Details",                           icon: Eye,     action: "view" },
-    { label: `Edit ${cfg.entityLabel} Details`,        icon: Edit2,   action: "edit" },
+    { label: "View Facility Details",                    icon: Eye,     action: "view" },
+    { label: "Edit Facility Information",                icon: Edit2,   action: "edit" },
   ];
 
   if (displayStatus === "ACTIVE") {
@@ -416,7 +1019,7 @@ function ActionsMenu({
   }
 
   return (
-    <TableActionsDropdown width={208}>
+    <TableActionsDropdown width={248}>
       {(close) => (
         <>
           {actions.map((a) => (
@@ -515,7 +1118,8 @@ export function FacilitiesPage() {
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
 
-  const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null);
+  const [selectedFacility, setSelectedFacility] = useState<FacilityDetail | null>(null);
+  const [editingFacility, setEditingFacility] = useState<Facility | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -572,6 +1176,19 @@ export function FacilitiesPage() {
     setPage(1);
   }
 
+  function handleEditSaved(facilityId: string, payload: EditFacilityInformationPayload) {
+    setSelectedFacility((current) =>
+      current?.id === facilityId
+        ? {
+            ...current,
+            approved_truck_exits_per_hour: payload.approved_truck_exits_per_hour,
+            linked_transit_parks: payload.linked_transit_parks,
+            operational_hours: payload.operational_hours ?? undefined,
+          }
+        : current,
+    );
+  }
+
   function handleAction(action: string, facility: Facility) {
     if (action === "view") {
       setSelectedFacility(facility);
@@ -579,7 +1196,7 @@ export function FacilitiesPage() {
     }
 
     if (action === "edit") {
-      toast.info(`Edit "${facility.name}" — coming soon.`);
+      setEditingFacility(facility);
       return;
     }
 
@@ -591,7 +1208,12 @@ export function FacilitiesPage() {
         onConfirm: () => {
           setConfirm(null);
           enableFacility.mutate(facility, {
-            onSuccess: () => toast.success(`"${facility.name}" has been enabled.`),
+            onSuccess: () => {
+              toast.success(`"${facility.name}" has been enabled.`);
+              setSelectedFacility((current) =>
+                current?.id === facility.id ? { ...current, status: "ACTIVE", archived_at: null } : current,
+              );
+            },
           });
         },
       });
@@ -606,7 +1228,12 @@ export function FacilitiesPage() {
         onConfirm: () => {
           setConfirm(null);
           disableFacility.mutate(facility, {
-            onSuccess: () => toast.success(`"${facility.name}" has been disabled.`),
+            onSuccess: () => {
+              toast.success(`"${facility.name}" has been disabled.`);
+              setSelectedFacility((current) =>
+                current?.id === facility.id ? { ...current, status: "INACTIVE" } : current,
+              );
+            },
           });
         },
       });
@@ -649,11 +1276,22 @@ export function FacilitiesPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {editingFacility && (
+        <EditFacilityInformationModal
+          facility={editingFacility}
+          tab={activeTab}
+          onClose={() => setEditingFacility(null)}
+          onSaved={(payload) => handleEditSaved(editingFacility.id, payload)}
+        />
+      )}
       {selectedFacility && (
         <FacilityDetailDrawer
           facility={selectedFacility}
           tab={activeTab}
           onClose={() => setSelectedFacility(null)}
+          onRequestEnable={(f) => handleAction("enable", f)}
+          onRequestDisable={(f) => handleAction("disable", f)}
+          isStatusUpdating={enableFacility.isPending || disableFacility.isPending}
         />
       )}
 
