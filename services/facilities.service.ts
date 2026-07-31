@@ -7,6 +7,7 @@ import type {
   FacilitiesSummaryResponse,
   FacilityActionResponse,
   Facility,
+  FacilityDetail,
   UpdateFacilityPayload,
   FacilityStatus,
   FacilityTimeslotsListParams,
@@ -26,8 +27,8 @@ export const facilitiesService = {
     return data.data;
   },
 
-  getById: async (id: string): Promise<Facility> => {
-    const { data } = await apiClient.get<ApiResponse<Facility>>(FACILITIES.BY_ID(id));
+  getById: async (id: string): Promise<FacilityDetail> => {
+    const { data } = await apiClient.get<ApiResponse<FacilityDetail>>(FACILITIES.BY_ID(id));
     return data.data;
   },
 

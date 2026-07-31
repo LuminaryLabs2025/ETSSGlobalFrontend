@@ -24,6 +24,52 @@ export interface TransitPark {
   updated_at: string;
 }
 
+// ─── Transit Park Detail (extended view) ───
+export interface TransitParkPrimaryAccountUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface TransitParkOperationalHours {
+  all_day?: boolean;
+  opens_at?: string | null;
+  closes_at?: string | null;
+}
+
+export type TransitParkBarrierStatus = "ONLINE" | "OFFLINE";
+
+export interface TransitParkBarrier {
+  id: string;
+  status: TransitParkBarrierStatus;
+}
+
+export interface TransitParkMovementTime {
+  booking_category: string;
+  terminal?: string | null;
+  from_time?: string | null;
+  to_time?: string | null;
+}
+
+export interface TransitParkSubAccount {
+  id: string;
+  name: string;
+  email?: string | null;
+  user_type?: string | null;
+  status?: string | null;
+}
+
+export interface TransitParkDetail extends TransitPark {
+  primary_account_user?: TransitParkPrimaryAccountUser | null;
+  operational_hours?: TransitParkOperationalHours | null;
+  linked_booking_categories?: string[];
+  linked_facilities?: string[];
+  linked_terminal_operators?: string[];
+  entry_barriers?: TransitParkBarrier[];
+  exit_barriers?: TransitParkBarrier[];
+  movement_times?: TransitParkMovementTime[];
+  sub_accounts?: TransitParkSubAccount[];
+}
+
 // ─── Display status (includes archived) ───
 export type TransitParkDisplayStatus = TransitParkStatus | "ARCHIVED";
 
@@ -104,4 +150,14 @@ export function toUpdatePayload(
     status: park.status,
     ...overrides,
   };
+}
+
+// ─── Edit Transit Park Information ───
+export type TransitParkHoursMode = "ALL_DAY" | "CUSTOM";
+
+export interface EditTransitParkInformationPayload {
+  approved_truck_exits_per_hour: number;
+  operational_hours_mode: TransitParkHoursMode;
+  operational_hours?: TransitParkOperationalHours | null;
+  linked_terminal_operators: string[];
 }

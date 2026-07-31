@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Landmark,
   Search,
@@ -27,6 +27,14 @@ import {
   Anchor,
   Warehouse,
   Loader2,
+  User,
+  Mail,
+  CalendarClock,
+  Tags,
+  Link2,
+  LayoutGrid,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   BarChart,
@@ -45,16 +53,22 @@ import {
 } from "@/lib/terminals-mock-data";
 import type {
   Terminal,
+  TerminalDetail,
   TerminalDisplayStatus,
   TerminalsSummaryResponse,
+  TerminalBarrierStatus,
+  TerminalHoursMode,
+  EditTerminalInformationPayload,
 } from "@/types/terminals.types";
 import { getTerminalDisplayStatus } from "@/types/terminals.types";
 import { useTerminals } from "@/hooks/terminals/useTerminals";
+import { useTerminal } from "@/hooks/terminals/useTerminal";
 import { useTerminalsSummary } from "@/hooks/terminals/useTerminalsSummary";
 import {
   useEnableTerminal,
   useDisableTerminal,
   useArchiveTerminal,
+  useEditTerminalInformation,
 } from "@/hooks/terminals/useTerminalActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
@@ -90,6 +104,13 @@ const TOGGLEABLE_COLUMNS = [
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
 
+const BOOKING_CATEGORY_OPTIONS = [
+  { value: "IMPORT", label: "Import" },
+  { value: "EXPORT", label: "Export" },
+  { value: "EMPTY", label: "Empty" },
+  { value: "DOMESTIC", label: "Domestic" },
+] as const;
+
 // ─── Helpers ───
 function formatTimestamp(ts: string) {
   return new Date(ts).toLocaleString("en-NG", {
@@ -100,6 +121,89 @@ function formatTimestamp(ts: string) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function displayOrDash(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "—";
+}
+
+function formatCategoryLabel(category: string) {
+  const map: Record<string, string> = {
+    IMPORT: "Import",
+    EXPORT: "Export",
+    EMPTY: "Empty",
+    DOMESTIC: "Domestic",
+  };
+  return map[category] ?? category.replace(/_/g, " ");
+}
+
+function formatTimeWindow(
+  from?: string | null,
+  to?: string | null,
+  allDay?: boolean,
+) {
+  if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
+  if (!from?.trim() || !to?.trim()) return "—";
+  return `${from} to ${to}`;
+}
+
+function resolveHoursMode(hours?: TerminalDetail["operational_hours"]): TerminalHoursMode {
+  if (hours?.all_day) return "ALL_DAY";
+  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
+  return "ALL_DAY";
+}
+
+function DrawerSection({
+  title,
+  children,
+  noPadding,
+}: {
+  title: string;
+  children: React.ReactNode;
+  noPadding?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white">
+      <div className="border-b border-gray-100 px-4 py-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</p>
+      </div>
+      <div className={noPadding ? undefined : "px-4 py-3"}>{children}</div>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-3">
+      <p className="shrink-0 text-xs text-gray-500">{label}</p>
+      <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function BarrierStatusBadge({ status }: { status: TerminalBarrierStatus }) {
+  const isOnline = status === "ONLINE";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      isOnline ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
+    }`}>
+      {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+      {isOnline ? "Online" : "Offline"}
+    </span>
+  );
+}
+
+function EmptySectionNote({ message = "—" }: { message?: string }) {
+  return <p className="text-xs text-gray-400">{message}</p>;
 }
 
 // ─── Status Badge ───
@@ -179,45 +283,375 @@ function ConfirmDialog({
   );
 }
 
-// ─── Terminal Detail Drawer ───
-function TerminalDetailDrawer({
+// ─── Edit Terminal Information Modal ───
+function EditTerminalInformationModal({
   terminal,
   onClose,
+  onSaved,
 }: {
   terminal: Terminal;
   onClose: () => void;
+  onSaved: (updates: EditTerminalInformationPayload) => void;
 }) {
+  const { data: detail, isLoading: detailLoading } = useTerminal(terminal.id);
+  const editTerminal = useEditTerminalInformation();
+
+  const [dailyCapacity, setDailyCapacity] = useState("");
+  const [hoursMode, setHoursMode] = useState<TerminalHoursMode>("ALL_DAY");
+  const [opensAt, setOpensAt] = useState("06:00");
+  const [closesAt, setClosesAt] = useState("22:00");
+  const [categories, setCategories] = useState<Set<string>>(new Set());
+  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (initialized) return;
+    if (detailLoading && !detail) return;
+
+    const source = detail ?? terminal;
+    setDailyCapacity(String(source.approved_daily_truck_capacity));
+    const hours = detail?.operational_hours;
+    setHoursMode(resolveHoursMode(hours));
+    setOpensAt(hours?.opens_at?.trim() || "06:00");
+    setClosesAt(hours?.closes_at?.trim() || "22:00");
+    setCategories(new Set(detail?.linked_booking_categories ?? []));
+    setInitialized(true);
+  }, [detail, detailLoading, terminal, initialized]);
+
+  function toggleCategory(value: string) {
+    setCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function validate() {
+    const nextErrors: Record<string, string> = {};
+    const capacity = Number(dailyCapacity);
+
+    if (!dailyCapacity.trim() || Number.isNaN(capacity) || capacity <= 0) {
+      nextErrors.dailyCapacity = "Enter a valid daily authorised capacity greater than 0.";
+    }
+
+    if (hoursMode === "CUSTOM") {
+      if (!opensAt || !closesAt) {
+        nextErrors.operationalHours = "Both opening and closing times are required.";
+      } else if (opensAt >= closesAt) {
+        nextErrors.operationalHours = "Opening time must be before closing time.";
+      }
+    }
+
+    if (categories.size === 0) {
+      nextErrors.categories = "Select at least one booking category.";
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  function handleSave() {
+    if (!validate()) return;
+
+    const payload: EditTerminalInformationPayload = {
+      approved_daily_truck_capacity: Number(dailyCapacity),
+      operational_hours_mode: hoursMode,
+      operational_hours: hoursMode === "ALL_DAY"
+        ? { all_day: true, opens_at: null, closes_at: null }
+        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
+      linked_booking_categories: Array.from(categories),
+    };
+
+    editTerminal.mutate(
+      { id: terminal.id, payload },
+      {
+        onSuccess: () => {
+          onSaved(payload);
+          onClose();
+        },
+      },
+    );
+  }
+
+  const selectedCategoryLabels = BOOKING_CATEGORY_OPTIONS
+    .filter((option) => categories.has(option.value))
+    .map((option) => option.label);
+
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[480px] flex-col bg-white shadow-2xl">
-        {/* Drawer Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 bg-[#0f1e2e] px-6 py-4">
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/20">
-              {terminal.terminal_type === "PORT_TERMINAL"
-                ? <Anchor className="h-5 w-5 text-emerald-400" />
-                : <Warehouse className="h-5 w-5 text-emerald-400" />
-              }
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+              <Edit2 className="h-4 w-4 text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-white">{terminal.name}</h2>
-              <p className="text-[11px] font-mono text-emerald-400">{terminal.terminal_code}</p>
+              <h2 className="text-sm font-bold text-gray-900">Edit Terminal Information</h2>
+              <p className="text-xs text-gray-500">{terminal.name}</p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          {detailLoading && !initialized && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading terminal settings...
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Terminal Daily Authorised Capacity <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={dailyCapacity}
+              onChange={(e) => setDailyCapacity(e.target.value)}
+              className={`w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
+                errors.dailyCapacity ? "border-red-300" : "border-gray-200"
+              }`}
+              placeholder="e.g. 800"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">Maximum number of trucks authorised per day.</p>
+            {errors.dailyCapacity && <p className="mt-1 text-xs text-red-500">{errors.dailyCapacity}</p>}
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Terminal Operational Hours <span className="text-red-500">*</span>
+            </label>
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="radio"
+                  name="hoursMode"
+                  checked={hoursMode === "ALL_DAY"}
+                  onChange={() => setHoursMode("ALL_DAY")}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">All Day</p>
+                  <p className="text-[11px] text-gray-500">Terminal operates 24 hours.</p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="hoursMode"
+                  checked={hoursMode === "CUSTOM"}
+                  onChange={() => setHoursMode("CUSTOM")}
+                  className="mt-0.5 h-4 w-4 accent-emerald-600"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
+                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
+                  {hoursMode === "CUSTOM" && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
+                        <input
+                          type="time"
+                          value={opensAt}
+                          onChange={(e) => setOpensAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
+                        <input
+                          type="time"
+                          value={closesAt}
+                          onChange={(e) => setClosesAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </label>
+            </div>
+            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Linked Booking Categories <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCategoryMenuOpen((open) => !open)}
+                className={`flex w-full items-center justify-between rounded-lg border bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
+                  errors.categories ? "border-red-300" : "border-gray-200"
+                }`}
+              >
+                <span className={selectedCategoryLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {selectedCategoryLabels.length > 0
+                    ? selectedCategoryLabels.join(", ")
+                    : "Select booking categories..."}
+                </span>
+                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${categoryMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {categoryMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setCategoryMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {BOOKING_CATEGORY_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={categories.has(option.value)}
+                          onChange={() => toggleCategory(option.value)}
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {categories.size > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedCategoryLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <Tags className="h-3 w-3" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised booking categories this terminal can accept.</p>
+            {errors.categories && <p className="mt-1 text-xs text-red-500">{errors.categories}</p>}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={editTerminal.isPending}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={editTerminal.isPending || (detailLoading && !initialized)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {editTerminal.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Terminal Detail Drawer ───
+function TerminalDetailDrawer({
+  terminal: fallbackTerminal,
+  onClose,
+  onRequestEnable,
+  onRequestDisable,
+  isStatusUpdating,
+}: {
+  terminal: Terminal;
+  onClose: () => void;
+  onRequestEnable: (terminal: Terminal) => void;
+  onRequestDisable: (terminal: Terminal) => void;
+  isStatusUpdating?: boolean;
+}) {
+  const { data: detail, isLoading, isError } = useTerminal(fallbackTerminal.id);
+  const terminal: TerminalDetail = detail ?? fallbackTerminal;
+  const displayStatus = getTerminalDisplayStatus(terminal);
+  const primaryAccount = terminal.primary_account_user;
+  const operationalHours = terminal.operational_hours;
+  const linkedCategories = terminal.linked_booking_categories ?? [];
+  const linkedParks = terminal.linked_transit_parks ?? [];
+  const entryBarriers = terminal.entry_barriers ?? [];
+  const exitBarriers = terminal.exit_barriers ?? [];
+  const movementTimes = terminal.movement_times ?? [];
+  const subAccounts = terminal.sub_accounts ?? [];
+  const manifestWidgets = terminal.trucks_in_manifest ?? [];
+  const canToggleStatus = displayStatus === "ACTIVE" || displayStatus === "INACTIVE";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
+        {/* Drawer Header */}
+        <div className="border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600/20">
+                {terminal.terminal_type === "PORT_TERMINAL"
+                  ? <Anchor className="h-5 w-5 text-emerald-400" />
+                  : <Warehouse className="h-5 w-5 text-emerald-400" />
+                }
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white">{terminal.name}</h2>
+                <p className="font-mono text-[11px] text-emerald-400">{terminal.terminal_code}</p>
+                <div className="mt-2 space-y-0.5">
+                  <p className="flex items-center gap-1.5 text-xs text-gray-300">
+                    <User className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.name)}</span>
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <Mail className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.email)}</span>
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500">Primary Account User</p>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
         {/* Drawer Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {/* Status + Type */}
+        <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading terminal details...
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Some detail fields may be unavailable. Showing cached terminal data.
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge status={getTerminalDisplayStatus(terminal)} />
+            <StatusBadge status={displayStatus} />
             <TypeBadge type={terminal.terminal_type} />
             {terminal.location && (
               <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700">
@@ -226,7 +660,6 @@ function TerminalDetailDrawer({
             )}
           </div>
 
-          {/* Capacity Cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
               <div className="mb-2 flex items-center gap-2">
@@ -254,34 +687,176 @@ function TerminalDetailDrawer({
             </div>
           </div>
 
-          {/* Details */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Terminal Details</p>
+          <DrawerSection title="Terminal Operational Hours">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-900">
+                {formatTimeWindow(
+                  operationalHours?.opens_at,
+                  operationalHours?.closes_at,
+                  operationalHours?.all_day,
+                )}
+              </p>
             </div>
-            <div className="divide-y divide-gray-50">
-              {[
-                { label: "Terminal ID", value: terminal.id, mono: true },
-                { label: "Terminal Name", value: terminal.name },
-                { label: "Terminal Code", value: terminal.terminal_code, mono: true },
-                { label: "Terminal Type", value: terminal.terminal_type === "PORT_TERMINAL" ? "Port Terminal" : "Non-Port Terminal" },
-                { label: "Location", value: terminal.location },
-                { label: "Address", value: terminal.address },
-                { label: "Booking Status", value: terminal.booking_status },
-              ].map(({ label, value, mono }) => (
-                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
-                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
-                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          </DrawerSection>
 
-          {/* Timestamps */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Timestamps</p>
+          <DrawerSection title="Linked Booking Categories">
+            {linkedCategories.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {linkedCategories.map((category) => (
+                  <span
+                    key={category}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <Tags className="h-3 w-3" />
+                    {formatCategoryLabel(category)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Linked Transit Park(s)">
+            {linkedParks.length > 0 ? (
+              <ul className="space-y-2">
+                {linkedParks.map((park) => (
+                  <li key={park} className="flex items-center gap-2 text-sm text-gray-800">
+                    <Link2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {park}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Entry Barrier ID Number(s) & Status" noPadding>
+            {entryBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {entryBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Exit Barrier ID Number(s) & Status" noPadding>
+            {exitBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {exitBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Movement Times" noPadding>
+            {movementTimes.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60 text-[10px] uppercase tracking-wider text-gray-500">
+                      <th className="px-4 py-2.5 text-left font-semibold">Booking Category</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Transit Park</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Authorised Timeframe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {movementTimes.map((row, index) => (
+                      <tr key={`${row.booking_category}-${row.transit_park ?? index}`}>
+                        <td className="px-4 py-3 font-medium text-gray-800">{formatCategoryLabel(row.booking_category)}</td>
+                        <td className="px-4 py-3 text-gray-600">{displayOrDash(row.transit_park)}</td>
+                        <td className="px-4 py-3 text-gray-800">{formatTimeWindow(row.from_time, row.to_time)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Sub-Accounts Linked to Terminal" noPadding>
+            {subAccounts.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {subAccounts.map((account) => (
+                  <div key={account.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{account.name}</p>
+                        <p className="truncate text-xs text-gray-500">{displayOrDash(account.email)}</p>
+                      </div>
+                      {account.status && (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                          {account.status}
+                        </span>
+                      )}
+                    </div>
+                    {account.user_type && (
+                      <p className="mt-1 text-[11px] text-gray-400">{account.user_type}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Trucks IN-Manifest (Incoming Trucks)">
+            {manifestWidgets.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {manifestWidgets.map((widget) => (
+                  <div
+                    key={widget.booking_category}
+                    className="rounded-xl border border-gray-100 bg-gray-50 p-4"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <LayoutGrid className="h-3.5 w-3.5 text-emerald-600" />
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                        {formatCategoryLabel(widget.booking_category)}
+                      </p>
+                    </div>
+                    <p className="text-2xl font-bold text-gray-900">{widget.count.toLocaleString()}</p>
+                    <p className="mt-0.5 text-[11px] text-gray-400">incoming trucks</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Terminal Details" noPadding>
+            <div className="divide-y divide-gray-50">
+              <DetailRow label="Terminal ID" value={terminal.id} mono />
+              <DetailRow label="Terminal Name" value={terminal.name} />
+              <DetailRow label="Terminal Code" value={terminal.terminal_code} mono />
+              <DetailRow
+                label="Terminal Type"
+                value={terminal.terminal_type === "PORT_TERMINAL" ? "Port Terminal" : "Non-Port Terminal"}
+              />
+              <DetailRow label="Location" value={terminal.location} />
+              <DetailRow label="Address" value={terminal.address} />
+              <DetailRow label="Booking Status" value={terminal.booking_status} />
             </div>
+          </DrawerSection>
+
+          <DrawerSection title="Timestamps" noPadding>
             <div className="divide-y divide-gray-50">
               <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-gray-500">Created At</p>
@@ -298,14 +873,36 @@ function TerminalDetailDrawer({
                 </p>
               </div>
             </div>
-          </div>
+          </DrawerSection>
         </div>
 
         {/* Drawer Footer */}
-        <div className="border-t border-gray-100 px-6 py-4">
-          <p className="text-[10px] text-gray-400 text-center">
-            Terminal record — ETSS-Nigeria Platform
-          </p>
+        <div className="space-y-3 border-t border-gray-100 px-6 py-4">
+          {canToggleStatus && (
+            <div className="flex gap-2">
+              {displayStatus === "INACTIVE" ? (
+                <button
+                  type="button"
+                  onClick={() => onRequestEnable(terminal)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                  Activate Terminal
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRequestDisable(terminal)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                  Deactivate Terminal
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -323,8 +920,8 @@ function ActionsMenu({
   const displayStatus = getTerminalDisplayStatus(terminal);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
-    { label: "View Details", icon: Eye, action: "view" },
-    { label: "Edit Terminal", icon: Edit2, action: "edit" },
+    { label: "View Terminal Details", icon: Eye, action: "view" },
+    { label: "Edit Terminal Information", icon: Edit2, action: "edit" },
   ];
 
   if (displayStatus === "ACTIVE") {
@@ -518,6 +1115,7 @@ export function TerminalsPage() {
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
   const [selectedTerminal, setSelectedTerminal] = useState<Terminal | null>(null);
+  const [editingTerminal, setEditingTerminal] = useState<Terminal | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -555,6 +1153,14 @@ export function TerminalsPage() {
     setPage(1);
   }
 
+  function handleEditSaved(terminalId: string, payload: EditTerminalInformationPayload) {
+    setSelectedTerminal((current) =>
+      current?.id === terminalId
+        ? { ...current, approved_daily_truck_capacity: payload.approved_daily_truck_capacity }
+        : current,
+    );
+  }
+
   // ─── Actions ───
   function handleAction(action: string, terminal: Terminal) {
     if (action === "view") {
@@ -563,7 +1169,7 @@ export function TerminalsPage() {
     }
 
     if (action === "edit") {
-      toast.info(`Edit "${terminal.name}" — coming soon.`);
+      setEditingTerminal(terminal);
       return;
     }
 
@@ -575,7 +1181,12 @@ export function TerminalsPage() {
         onConfirm: () => {
           setConfirm(null);
           enableTerminal.mutate(terminal, {
-            onSuccess: () => toast.success(`"${terminal.name}" has been enabled.`),
+            onSuccess: () => {
+              toast.success(`"${terminal.name}" has been enabled.`);
+              setSelectedTerminal((current) =>
+                current?.id === terminal.id ? { ...current, status: "ACTIVE", archived_at: null } : current,
+              );
+            },
           });
         },
       });
@@ -590,7 +1201,12 @@ export function TerminalsPage() {
         onConfirm: () => {
           setConfirm(null);
           disableTerminal.mutate(terminal, {
-            onSuccess: () => toast.success(`"${terminal.name}" has been disabled.`),
+            onSuccess: () => {
+              toast.success(`"${terminal.name}" has been disabled.`);
+              setSelectedTerminal((current) =>
+                current?.id === terminal.id ? { ...current, status: "INACTIVE" } : current,
+              );
+            },
           });
         },
       });
@@ -629,9 +1245,23 @@ export function TerminalsPage() {
         />
       )}
 
+      {editingTerminal && (
+        <EditTerminalInformationModal
+          terminal={editingTerminal}
+          onClose={() => setEditingTerminal(null)}
+          onSaved={(payload) => handleEditSaved(editingTerminal.id, payload)}
+        />
+      )}
+
       {/* ─── Terminal Detail Drawer ─── */}
       {selectedTerminal && (
-        <TerminalDetailDrawer terminal={selectedTerminal} onClose={() => setSelectedTerminal(null)} />
+        <TerminalDetailDrawer
+          terminal={selectedTerminal}
+          onClose={() => setSelectedTerminal(null)}
+          onRequestEnable={(t) => handleAction("enable", t)}
+          onRequestDisable={(t) => handleAction("disable", t)}
+          isStatusUpdating={enableTerminal.isPending || disableTerminal.isPending}
+        />
       )}
 
       {/* ─── Breadcrumb ─── */}

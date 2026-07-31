@@ -29,6 +29,52 @@ export interface Facility {
   updated_at: string;
 }
 
+// ─── Facility Detail (extended view) ───
+export interface FacilityPrimaryAccountUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+export interface FacilityOperationalHours {
+  all_day?: boolean;
+  opens_at?: string | null;
+  closes_at?: string | null;
+}
+
+export type FacilityBarrierStatus = "ONLINE" | "OFFLINE";
+
+export interface FacilityBarrier {
+  id: string;
+  status: FacilityBarrierStatus;
+}
+
+export interface FacilityMovementTime {
+  booking_category: string;
+  transit_park?: string | null;
+  from_time?: string | null;
+  to_time?: string | null;
+}
+
+export interface FacilitySubAccount {
+  id: string;
+  name: string;
+  email?: string | null;
+  user_type?: string | null;
+  status?: string | null;
+}
+
+export interface FacilityDetail extends Facility {
+  primary_account_user?: FacilityPrimaryAccountUser | null;
+  operational_hours?: FacilityOperationalHours | null;
+  linked_booking_categories?: string[];
+  linked_transit_parks?: string[];
+  linked_terminal_operators?: string[];
+  entry_barriers?: FacilityBarrier[];
+  exit_barriers?: FacilityBarrier[];
+  movement_times?: FacilityMovementTime[];
+  sub_accounts?: FacilitySubAccount[];
+}
+
 // ─── Display status (includes archived) ───
 export type FacilityDisplayStatus = FacilityStatus | "ARCHIVED";
 
@@ -107,6 +153,16 @@ export function toUpdatePayload(
     status: facility.status,
     ...overrides,
   };
+}
+
+// ─── Edit Facility Information ───
+export type FacilityHoursMode = "ALL_DAY" | "CUSTOM";
+
+export interface EditFacilityInformationPayload {
+  approved_truck_exits_per_hour: number;
+  operational_hours_mode: FacilityHoursMode;
+  operational_hours?: FacilityOperationalHours | null;
+  linked_transit_parks: string[];
 }
 
 // ─── Timeslot Assignment ───

@@ -7,6 +7,7 @@ import type {
   TransitParksSummaryResponse,
   TransitParkActionResponse,
   TransitPark,
+  TransitParkDetail,
   UpdateTransitParkPayload,
   TransitParkStatus,
 } from "@/types/transit-parks.types";
@@ -24,8 +25,8 @@ export const transitParksService = {
     return data.data;
   },
 
-  getById: async (id: string): Promise<TransitPark> => {
-    const { data } = await apiClient.get<ApiResponse<TransitPark>>(TRANSIT_PARKS.BY_ID(id));
+  getById: async (id: string): Promise<TransitParkDetail> => {
+    const { data } = await apiClient.get<ApiResponse<TransitParkDetail>>(TRANSIT_PARKS.BY_ID(id));
     return data.data;
   },
 

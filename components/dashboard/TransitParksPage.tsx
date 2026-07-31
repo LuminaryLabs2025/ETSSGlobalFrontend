@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ParkingCircle,
   Truck,
@@ -28,6 +28,14 @@ import {
   Layers,
   LayoutGrid,
   Loader2,
+  User,
+  Mail,
+  CalendarClock,
+  Tags,
+  Building2,
+  Landmark,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import {
   BarChart,
@@ -46,17 +54,23 @@ import {
 } from "@/lib/transit-parks-mock-data";
 import type {
   TransitPark,
+  TransitParkDetail,
   TransitParkDisplayStatus,
   TransitParkType,
+  TransitParkBarrierStatus,
   TransitParksSummaryResponse,
+  EditTransitParkInformationPayload,
+  TransitParkHoursMode,
 } from "@/types/transit-parks.types";
 import { getTransitParkDisplayStatus } from "@/types/transit-parks.types";
 import { useTransitParks } from "@/hooks/transit-parks/useTransitParks";
+import { useTransitPark } from "@/hooks/transit-parks/useTransitPark";
 import { useTransitParksSummary } from "@/hooks/transit-parks/useTransitParksSummary";
 import {
   useEnableTransitPark,
   useDisableTransitPark,
   useArchiveTransitPark,
+  useEditTransitParkInformation,
 } from "@/hooks/transit-parks/useTransitParkActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
@@ -98,6 +112,17 @@ const TOGGLEABLE_COLUMNS = [
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
+
+const TERMINAL_OPERATOR_OPTIONS = [
+  { value: "APM Terminals Apapa", label: "APM Terminals Apapa" },
+  { value: "Tincan Island Terminal", label: "Tincan Island Terminal" },
+  { value: "Lekki Deep Sea Terminal", label: "Lekki Deep Sea Terminal" },
+  { value: "Onne Port Terminal", label: "Onne Port Terminal" },
+  { value: "Grimaldi Agency Nigeria", label: "Grimaldi Agency Nigeria" },
+  { value: "Maersk Line Nigeria", label: "Maersk Line Nigeria" },
+  { value: "Bolloré Ports & Terminals", label: "Bolloré Ports & Terminals" },
+  { value: "ENL Consortium", label: "ENL Consortium" },
+] as const;
 
 // ─── Tab Config ───
 const TAB_CONFIG: Record<TabId, {
@@ -145,6 +170,97 @@ function formatTimestamp(ts: string) {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+function displayOrDash(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "—";
+}
+
+function formatCategoryLabel(category: string) {
+  const map: Record<string, string> = {
+    IMPORT: "Import",
+    EXPORT: "Export",
+    EMPTY: "Empty",
+    DOMESTIC: "Domestic",
+  };
+  return map[category] ?? category.replace(/_/g, " ");
+}
+
+function formatTimeWindow(
+  from?: string | null,
+  to?: string | null,
+  allDay?: boolean,
+) {
+  if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
+  if (!from?.trim() || !to?.trim()) return "—";
+  return `${from} to ${to}`;
+}
+
+function resolveHoursMode(hours?: TransitParkDetail["operational_hours"]): TransitParkHoursMode {
+  if (hours?.all_day) return "ALL_DAY";
+  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
+  return "ALL_DAY";
+}
+
+function buildTerminalOperatorOptions(linked: string[]) {
+  const known = new Set<string>(TERMINAL_OPERATOR_OPTIONS.map((option) => option.value));
+  const extras = linked
+    .filter((name) => name.trim() && !known.has(name))
+    .map((name) => ({ value: name, label: name }));
+  return [...TERMINAL_OPERATOR_OPTIONS, ...extras];
+}
+
+function DrawerSection({
+  title,
+  children,
+  noPadding,
+}: {
+  title: string;
+  children: React.ReactNode;
+  noPadding?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white">
+      <div className="border-b border-gray-100 px-4 py-2.5">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{title}</p>
+      </div>
+      <div className={noPadding ? undefined : "px-4 py-3"}>{children}</div>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 px-4 py-3">
+      <p className="shrink-0 text-xs text-gray-500">{label}</p>
+      <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function BarrierStatusBadge({ status }: { status: TransitParkBarrierStatus }) {
+  const isOnline = status === "ONLINE";
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+      isOnline ? "bg-emerald-50 text-emerald-700" : "bg-gray-100 text-gray-500"
+    }`}>
+      {isOnline ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+      {isOnline ? "Online" : "Offline"}
+    </span>
+  );
+}
+
+function EmptySectionNote({ message = "—" }: { message?: string }) {
+  return <p className="text-xs text-gray-400">{message}</p>;
 }
 
 // ─── Status Badge ───
@@ -201,41 +317,83 @@ function ConfirmDialog({
   );
 }
 
-// ─── Detail Drawer ───
-function FacilityDetailDrawer({
-  park,
+// ─── Transit Park Detail Drawer ───
+function TransitParkDetailDrawer({
+  park: fallbackPark,
   tab,
   onClose,
+  onRequestEnable,
+  onRequestDisable,
+  isStatusUpdating,
 }: {
   park: TransitPark;
   tab: TabId;
   onClose: () => void;
+  onRequestEnable: (park: TransitPark) => void;
+  onRequestDisable: (park: TransitPark) => void;
+  isStatusUpdating?: boolean;
 }) {
   const cfg = TAB_CONFIG[tab];
+  const { data: detail, isLoading, isError } = useTransitPark(fallbackPark.id);
+  const park: TransitParkDetail = detail ?? fallbackPark;
   const displayStatus = getTransitParkDisplayStatus(park);
+  const primaryAccount = park.primary_account_user;
+  const operationalHours = park.operational_hours;
+  const linkedCategories = park.linked_booking_categories ?? [];
+  const linkedFacilities = park.linked_facilities ?? [];
+  const linkedTerminalOperators = park.linked_terminal_operators ?? [];
+  const entryBarriers = park.entry_barriers ?? [];
+  const exitBarriers = park.exit_barriers ?? [];
+  const movementTimes = park.movement_times ?? [];
+  const subAccounts = park.sub_accounts ?? [];
+  const canToggleStatus = displayStatus === "ACTIVE" || displayStatus === "INACTIVE";
+
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600/20">
-              <cfg.Icon className="h-5 w-5 text-emerald-400" />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[520px] flex-col bg-white shadow-2xl">
+        <div className="border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600/20">
+                <cfg.Icon className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-white">{park.name}</h2>
+                <p className="font-mono text-[11px] text-emerald-400">{park.transit_park_code}</p>
+                <div className="mt-2 space-y-0.5">
+                  <p className="flex items-center gap-1.5 text-xs text-gray-300">
+                    <User className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.name)}</span>
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <Mail className="h-3 w-3 shrink-0 text-gray-500" />
+                    <span className="truncate">{displayOrDash(primaryAccount?.email)}</span>
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wider text-gray-500">Primary Account User</p>
+                </div>
+              </div>
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white">{park.name}</h2>
-              <p className="font-mono text-[11px] text-emerald-400">{park.transit_park_code}</p>
-            </div>
+            <button onClick={onClose} className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
+              <X className="h-4 w-4" />
+            </button>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white">
-            <X className="h-4 w-4" />
-          </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 space-y-5 overflow-y-auto p-6">
-          {/* Status */}
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading transit park details...
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Some detail fields may be unavailable. Showing cached transit park data.
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={displayStatus} />
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cfg.iconBg} ${cfg.iconColor}`}>
@@ -249,73 +407,515 @@ function FacilityDetailDrawer({
             )}
           </div>
 
-          {/* Capacity Cards */}
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
               <div className="mb-2 flex items-center gap-2">
-                <div className="rounded-lg bg-blue-100 p-1.5"><Truck className="h-3.5 w-3.5 text-blue-600" /></div>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Hourly TAT</p>
+                <div className="rounded-lg bg-blue-100 p-1.5">
+                  <Truck className="h-3.5 w-3.5 text-blue-600" />
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Trucks Released / Hour</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{park.approved_truck_exits_per_hour}</p>
-              <p className="mt-0.5 text-[11px] text-gray-400">trucks / hour</p>
+              <p className="text-2xl font-bold text-gray-900">{park.approved_truck_exits_per_hour.toLocaleString()}</p>
+              <p className="mt-0.5 text-[11px] text-gray-400">trucks / hr</p>
             </div>
             <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
               <div className="mb-2 flex items-center gap-2">
-                <div className="rounded-lg bg-emerald-100 p-1.5"><LayoutGrid className="h-3.5 w-3.5 text-emerald-600" /></div>
+                <div className="rounded-lg bg-emerald-100 p-1.5">
+                  <LayoutGrid className="h-3.5 w-3.5 text-emerald-600" />
+                </div>
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Approved Bays</p>
               </div>
-              <p className="text-2xl font-bold text-gray-900">{park.bay_capacity}</p>
+              <p className="text-2xl font-bold text-gray-900">{park.bay_capacity.toLocaleString()}</p>
               <p className="mt-0.5 text-[11px] text-gray-400">bay slots</p>
             </div>
           </div>
 
-          {/* Details */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Facility Details</p>
+          <DrawerSection title="Transit Park Operational Hours">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="h-4 w-4 text-gray-400" />
+              <p className="text-sm font-semibold text-gray-900">
+                {formatTimeWindow(
+                  operationalHours?.opens_at,
+                  operationalHours?.closes_at,
+                  operationalHours?.all_day,
+                )}
+              </p>
             </div>
-            <div className="divide-y divide-gray-50">
-              {[
-                { label: "Facility ID",        value: park.id,                   mono: true },
-                { label: "Name",               value: park.name },
-                { label: cfg.codeLabel,        value: park.transit_park_code,    mono: true },
-                { label: "Type",               value: cfg.entityLabel },
-                { label: "Location",           value: park.location },
-                { label: "Address",            value: park.address },
-                { label: "Truck Capacity",     value: park.approved_truck_capacity.toLocaleString() },
-              ].map(({ label, value, mono }) => (
-                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
-                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
-                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          </DrawerSection>
 
-          {/* Timestamps */}
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Timestamps</p>
+          <DrawerSection title="Linked Booking Categories">
+            {linkedCategories.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {linkedCategories.map((category) => (
+                  <span
+                    key={category}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <Tags className="h-3 w-3" />
+                    {formatCategoryLabel(category)}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Linked Facilities">
+            {linkedFacilities.length > 0 ? (
+              <ul className="space-y-2">
+                {linkedFacilities.map((facility) => (
+                  <li key={facility} className="flex items-center gap-2 text-sm text-gray-800">
+                    <Building2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {facility}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Linked Terminal Operators">
+            {linkedTerminalOperators.length > 0 ? (
+              <ul className="space-y-2">
+                {linkedTerminalOperators.map((operator) => (
+                  <li key={operator} className="flex items-center gap-2 text-sm text-gray-800">
+                    <Landmark className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                    {operator}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptySectionNote />
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Entry Barrier ID Number(s) & Status" noPadding>
+            {entryBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {entryBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Exit Barrier ID Number(s) & Status" noPadding>
+            {exitBarriers.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {exitBarriers.map((barrier) => (
+                  <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
+                    <BarrierStatusBadge status={barrier.status} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Movement Times" noPadding>
+            {movementTimes.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60 text-[10px] uppercase tracking-wider text-gray-500">
+                      <th className="px-4 py-2.5 text-left font-semibold">Booking Category</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Terminal</th>
+                      <th className="px-4 py-2.5 text-left font-semibold">Authorised Timeframe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {movementTimes.map((row, index) => (
+                      <tr key={`${row.booking_category}-${row.terminal ?? index}`}>
+                        <td className="px-4 py-3 font-medium text-gray-800">{formatCategoryLabel(row.booking_category)}</td>
+                        <td className="px-4 py-3 text-gray-600">{displayOrDash(row.terminal)}</td>
+                        <td className="px-4 py-3 text-gray-800">{formatTimeWindow(row.from_time, row.to_time)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title="Sub-Accounts Linked to Transit Park" noPadding>
+            {subAccounts.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {subAccounts.map((account) => (
+                  <div key={account.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{account.name}</p>
+                        <p className="truncate text-xs text-gray-500">{displayOrDash(account.email)}</p>
+                      </div>
+                      {account.status && (
+                        <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                          {account.status}
+                        </span>
+                      )}
+                    </div>
+                    {account.user_type && (
+                      <p className="mt-1 text-[11px] text-gray-400">{account.user_type}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3"><EmptySectionNote /></div>
+            )}
+          </DrawerSection>
+
+          <DrawerSection title={`${cfg.entityLabel} Details`} noPadding>
+            <div className="divide-y divide-gray-50">
+              <DetailRow label="Transit Park ID" value={park.id} mono />
+              <DetailRow label="Name" value={park.name} />
+              <DetailRow label={cfg.codeLabel} value={park.transit_park_code} mono />
+              <DetailRow label="Type" value={cfg.entityLabel} />
+              <DetailRow label="Location" value={park.location} />
+              <DetailRow label="Address" value={park.address} />
+              <DetailRow label="Truck Capacity" value={park.approved_truck_capacity.toLocaleString()} />
             </div>
+          </DrawerSection>
+
+          <DrawerSection title="Timestamps" noPadding>
             <div className="divide-y divide-gray-50">
               <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-gray-500">Created At</p>
                 <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
-                  <Clock className="h-3 w-3 text-gray-400" />{formatTimestamp(park.created_at)}
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(park.created_at)}
                 </p>
               </div>
               <div className="flex items-center justify-between px-4 py-3">
                 <p className="text-xs text-gray-500">Last Updated</p>
                 <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
-                  <Clock className="h-3 w-3 text-gray-400" />{formatTimestamp(park.updated_at)}
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(park.updated_at)}
                 </p>
               </div>
             </div>
+          </DrawerSection>
+        </div>
+
+        <div className="space-y-3 border-t border-gray-100 px-6 py-4">
+          {canToggleStatus && (
+            <div className="flex gap-2">
+              {displayStatus === "INACTIVE" ? (
+                <button
+                  type="button"
+                  onClick={() => onRequestEnable(park)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Power className="h-4 w-4" />}
+                  Activate {cfg.entityLabel}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onRequestDisable(park)}
+                  disabled={isStatusUpdating}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isStatusUpdating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
+                  Deactivate {cfg.entityLabel}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Edit Transit Park Information Modal ───
+function EditTransitParkInformationModal({
+  park,
+  tab,
+  onClose,
+  onSaved,
+}: {
+  park: TransitPark;
+  tab: TabId;
+  onClose: () => void;
+  onSaved: (updates: EditTransitParkInformationPayload) => void;
+}) {
+  const cfg = TAB_CONFIG[tab];
+  const { data: detail, isLoading: detailLoading } = useTransitPark(park.id);
+  const editPark = useEditTransitParkInformation();
+
+  const [trucksPerHour, setTrucksPerHour] = useState("");
+  const [hoursMode, setHoursMode] = useState<TransitParkHoursMode>("ALL_DAY");
+  const [opensAt, setOpensAt] = useState("06:00");
+  const [closesAt, setClosesAt] = useState("22:00");
+  const [operators, setOperators] = useState<Set<string>>(new Set());
+  const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [initialized, setInitialized] = useState(false);
+
+  useEffect(() => {
+    if (initialized) return;
+    if (detailLoading && !detail) return;
+
+    const source = detail ?? park;
+    setTrucksPerHour(String(source.approved_truck_exits_per_hour));
+    const hours = detail?.operational_hours;
+    setHoursMode(resolveHoursMode(hours));
+    setOpensAt(hours?.opens_at?.trim() || "06:00");
+    setClosesAt(hours?.closes_at?.trim() || "22:00");
+    setOperators(new Set(detail?.linked_terminal_operators ?? []));
+    setInitialized(true);
+  }, [detail, detailLoading, park, initialized]);
+
+  const operatorOptions = buildTerminalOperatorOptions(Array.from(operators));
+
+  function toggleOperator(value: string) {
+    setOperators((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
+
+  function validate() {
+    const nextErrors: Record<string, string> = {};
+    const hourlyRate = Number(trucksPerHour);
+
+    if (!trucksPerHour.trim() || Number.isNaN(hourlyRate) || hourlyRate <= 0) {
+      nextErrors.trucksPerHour = "Enter a valid trucks-per-hour override greater than 0.";
+    }
+
+    if (hoursMode === "CUSTOM") {
+      if (!opensAt || !closesAt) {
+        nextErrors.operationalHours = "Both opening and closing times are required.";
+      } else if (opensAt >= closesAt) {
+        nextErrors.operationalHours = "Opening time must be before closing time.";
+      }
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  function handleSave() {
+    if (!validate()) return;
+
+    const payload: EditTransitParkInformationPayload = {
+      approved_truck_exits_per_hour: Number(trucksPerHour),
+      operational_hours_mode: hoursMode,
+      operational_hours: hoursMode === "ALL_DAY"
+        ? { all_day: true, opens_at: null, closes_at: null }
+        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
+      linked_terminal_operators: Array.from(operators),
+    };
+
+    editPark.mutate(
+      { id: park.id, payload },
+      {
+        onSuccess: () => {
+          onSaved(payload);
+          onClose();
+        },
+      },
+    );
+  }
+
+  const selectedOperatorLabels = operatorOptions
+    .filter((option) => operators.has(option.value))
+    .map((option) => option.label);
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
+      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+              <Edit2 className="h-4 w-4 text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Edit Transit Park Information</h2>
+              <p className="text-xs text-gray-500">{park.name} · {cfg.entityLabel}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+          {detailLoading && !initialized && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading transit park settings...
+            </div>
+          )}
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Number of Trucks Released Per Hour (Override) <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              min={1}
+              value={trucksPerHour}
+              onChange={(e) => setTrucksPerHour(e.target.value)}
+              className={`w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
+                errors.trucksPerHour ? "border-red-300" : "border-gray-200"
+              }`}
+              placeholder="e.g. 13"
+            />
+            <p className="mt-1 text-[11px] text-gray-400">SuperAdmin override for authorised truck release rate.</p>
+            {errors.trucksPerHour && <p className="mt-1 text-xs text-red-500">{errors.trucksPerHour}</p>}
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Transit Park Operational Hours <span className="text-red-500">*</span>
+            </label>
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <label className="flex cursor-pointer items-center gap-3">
+                <input
+                  type="radio"
+                  name="transitParkHoursMode"
+                  checked={hoursMode === "ALL_DAY"}
+                  onChange={() => setHoursMode("ALL_DAY")}
+                  className="h-4 w-4 accent-emerald-600"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">All Day</p>
+                  <p className="text-[11px] text-gray-500">Transit park operates 24 hours.</p>
+                </div>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <input
+                  type="radio"
+                  name="transitParkHoursMode"
+                  checked={hoursMode === "CUSTOM"}
+                  onChange={() => setHoursMode("CUSTOM")}
+                  className="mt-0.5 h-4 w-4 accent-emerald-600"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
+                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
+                  {hoursMode === "CUSTOM" && (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
+                        <input
+                          type="time"
+                          value={opensAt}
+                          onChange={(e) => setOpensAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
+                        <input
+                          type="time"
+                          value={closesAt}
+                          onChange={(e) => setClosesAt(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </label>
+            </div>
+            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Linked Terminal Operators
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setOperatorMenuOpen((open) => !open)}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+              >
+                <span className={selectedOperatorLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {selectedOperatorLabels.length > 0
+                    ? selectedOperatorLabels.join(", ")
+                    : "Select terminal operators..."}
+                </span>
+                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${operatorMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+              {operatorMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setOperatorMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {operatorOptions.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={operators.has(option.value)}
+                          onChange={() => toggleOperator(option.value)}
+                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {operators.size > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedOperatorLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                  >
+                    <Landmark className="h-3 w-3" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised terminal operators this transit park can release trucks to.</p>
           </div>
         </div>
 
-        <div className="border-t border-gray-100 px-6 py-4">
-          <p className="text-center text-[10px] text-gray-400">Transit Park record — ETSS-Nigeria Platform</p>
+        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={editPark.isPending}
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={editPark.isPending || (detailLoading && !initialized)}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {editPark.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save Changes
+          </button>
         </div>
       </div>
     </>
@@ -336,8 +936,8 @@ function ActionsMenu({
   const displayStatus = getTransitParkDisplayStatus(park);
 
   const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
-    { label: "View Details",                        icon: Eye,     action: "view" },
-    { label: `Edit ${cfg.entityLabel} Details`,     icon: Edit2,   action: "edit" },
+    { label: `View ${cfg.entityLabel} Details`,          icon: Eye,     action: "view" },
+    { label: "Edit Transit Park Information",          icon: Edit2,   action: "edit" },
   ];
 
   if (displayStatus === "ACTIVE") {
@@ -351,7 +951,7 @@ function ActionsMenu({
   }
 
   return (
-    <TableActionsDropdown width={208}>
+    <TableActionsDropdown width={248}>
       {(close) => (
         <>
           {actions.map((a) => (
@@ -519,7 +1119,8 @@ export function TransitParksPage() {
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key))
   );
 
-  const [selectedPark, setSelectedPark] = useState<TransitPark | null>(null);
+  const [selectedPark, setSelectedPark] = useState<TransitParkDetail | null>(null);
+  const [editingPark, setEditingPark] = useState<TransitPark | null>(null);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -569,6 +1170,19 @@ export function TransitParksPage() {
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
+  function handleEditSaved(parkId: string, payload: EditTransitParkInformationPayload) {
+    setSelectedPark((current) =>
+      current?.id === parkId
+        ? {
+            ...current,
+            approved_truck_exits_per_hour: payload.approved_truck_exits_per_hour,
+            linked_terminal_operators: payload.linked_terminal_operators,
+            operational_hours: payload.operational_hours ?? undefined,
+          }
+        : current,
+    );
+  }
+
   function handleAction(action: string, park: TransitPark) {
     if (action === "view") {
       setSelectedPark(park);
@@ -576,7 +1190,7 @@ export function TransitParksPage() {
     }
 
     if (action === "edit") {
-      toast.info(`Edit "${park.name}" — coming soon.`);
+      setEditingPark(park);
       return;
     }
 
@@ -588,7 +1202,12 @@ export function TransitParksPage() {
         onConfirm: () => {
           setConfirm(null);
           enablePark.mutate(park, {
-            onSuccess: () => toast.success(`"${park.name}" has been enabled.`),
+            onSuccess: () => {
+              toast.success(`"${park.name}" has been enabled.`);
+              setSelectedPark((current) =>
+                current?.id === park.id ? { ...current, status: "ACTIVE", archived_at: null } : current,
+              );
+            },
           });
         },
       });
@@ -603,7 +1222,12 @@ export function TransitParksPage() {
         onConfirm: () => {
           setConfirm(null);
           disablePark.mutate(park, {
-            onSuccess: () => toast.success(`"${park.name}" has been disabled.`),
+            onSuccess: () => {
+              toast.success(`"${park.name}" has been disabled.`);
+              setSelectedPark((current) =>
+                current?.id === park.id ? { ...current, status: "INACTIVE" } : current,
+              );
+            },
           });
         },
       });
@@ -639,11 +1263,22 @@ export function TransitParksPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {editingPark && (
+        <EditTransitParkInformationModal
+          park={editingPark}
+          tab={activeTab}
+          onClose={() => setEditingPark(null)}
+          onSaved={(payload) => handleEditSaved(editingPark.id, payload)}
+        />
+      )}
       {selectedPark && (
-        <FacilityDetailDrawer
+        <TransitParkDetailDrawer
           park={selectedPark}
           tab={activeTab}
           onClose={() => setSelectedPark(null)}
+          onRequestEnable={(p) => handleAction("enable", p)}
+          onRequestDisable={(p) => handleAction("disable", p)}
+          isStatusUpdating={enablePark.isPending || disablePark.isPending}
         />
       )}
 
