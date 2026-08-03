@@ -40,6 +40,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useUsers } from "@/hooks/users/useUsers";
 import { useUser } from "@/hooks/users/useUser";
 import { useUsersSummary } from "@/hooks/users/useUsersSummary";
+import { useUserTypes } from "@/hooks/useUserTypes";
 import { useDisableUser, useEnableUser, useArchiveUser, useResendInvite } from "@/hooks/users/useUserActions";
 import { usersService } from "@/services/users.service";
 import { toast } from "sonner";
@@ -47,26 +48,8 @@ import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdow
 import type { PlatformUser, UserSubAccount, UsersSummaryResponse } from "@/types/users.types";
 
 // ─── Filter Options ───
-const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
+const ACCOUNT_TYPES = ["All", "PRIMARY", "SUB_ACCOUNT"];
 const STATUSES = ["All", "ACTIVE", "INACTIVE", "AWAITING_ACTIVATION", "ARCHIVED"];
-
-// Mock user types (replace with API data later)
-const MOCK_USER_TYPES = [
-  "All",
-  "Super Admin",
-  "ETSS Admin",
-  "NPA",
-  "Terminal Operator",
-  "Bonded Terminal",
-  "Truck Park",
-  "Fish-Van Park",
-  "EPT",
-  "Pregate",
-  "Shipping Lines",
-  "Enforcement Officer",
-  "Gate Officer",
-  "Tow Truck Company",
-];
 
 const PAGE_SIZE = 20;
 
@@ -596,14 +579,18 @@ export function UsersPage() {
   const [selectedUser, setSelectedUser] = useState<PlatformUser | null>(null);
 
   // ─── API Hooks ───
-  const { data: summary } = useUsersSummary();
+  const { data: externalUserTypes = [], isLoading: userTypesLoading } = useUserTypes({
+    category: "EXTERNAL",
+  });
+  const { data: summary } = useUsersSummary({ user_type_category: "EXTERNAL" });
   const { data: usersData, isLoading, isError } = useUsers({
     page,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
+    user_type_category: "EXTERNAL",
+    user_type_id: userTypeFilter !== "All" ? userTypeFilter : undefined,
     account_type: accountTypeFilter !== "All" ? accountTypeFilter : undefined,
     status: statusFilter !== "All" ? statusFilter : undefined,
-    // user_type_id will replace this mock filter once an API is available
   });
 
   const disableUser = useDisableUser();
@@ -799,9 +786,15 @@ export function UsersPage() {
               <select
                 value={userTypeFilter}
                 onChange={(e) => { setUserTypeFilter(e.target.value); setPage(1); }}
-                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300"
+                disabled={userTypesLoading}
+                className="appearance-none rounded-lg border border-gray-200 bg-white py-1.5 pl-3 pr-8 text-xs text-gray-700 outline-none focus:border-emerald-300 disabled:opacity-60"
               >
-                {MOCK_USER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                <option value="All">All</option>
+                {externalUserTypes.map((userType) => (
+                  <option key={userType.id} value={userType.id}>
+                    {userType.name}
+                  </option>
+                ))}
               </select>
               <ChevronDown className="pointer-events-none absolute bottom-2.5 right-2 h-3 w-3 text-gray-400" />
             </div>

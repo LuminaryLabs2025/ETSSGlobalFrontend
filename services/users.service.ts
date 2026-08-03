@@ -3,6 +3,7 @@ import { USERS } from "@/api/endpoints";
 import type {
   UsersListParams,
   UsersListResponse,
+  UsersSummaryParams,
   UsersSummaryResponse,
   UserActionResponse,
   CreateUserPayload,
@@ -22,8 +23,8 @@ export const usersService = {
     return data;
   },
 
-  summary: async (): Promise<UsersSummaryResponse> => {
-    const { data } = await apiClient.get<UsersSummaryResponse>(USERS.SUMMARY);
+  summary: async (params?: UsersSummaryParams): Promise<UsersSummaryResponse> => {
+    const { data } = await apiClient.get<UsersSummaryResponse>(USERS.SUMMARY, { params });
     return data;
   },
 

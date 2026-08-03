@@ -1,3 +1,6 @@
+// ─── User Type Category ───
+export type UserTypeCategory = "SYSTEM" | "EXTERNAL" | "INTERNAL";
+
 // ─── User Type (role category) ───
 export interface UserTypeDetail {
   id: string;
@@ -69,6 +72,7 @@ export interface UsersListParams {
   page?: number;
   limit?: number;
   user_type_id?: string;
+  user_type_category?: UserTypeCategory | string;
   account_type?: string;
   status?: string;
   company_id?: string;
@@ -83,6 +87,10 @@ export interface UserTypeSummary {
   user_type: string;
   category: string;
   count: number;
+}
+
+export interface UsersSummaryParams {
+  user_type_category?: UserTypeCategory | string;
 }
 
 export interface UsersSummaryResponse {
