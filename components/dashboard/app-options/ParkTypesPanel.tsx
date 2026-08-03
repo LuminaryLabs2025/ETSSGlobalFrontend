@@ -37,11 +37,6 @@ function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function displayOrDash(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
-}
-
 function StatusBadge({ status }: { status: string }) {
   const active = status === "ACTIVE";
   if (active) {
@@ -358,16 +353,6 @@ export function ParkTypesPanel() {
 
   const hasActiveFilters = search || statusFilter !== "All";
 
-  const formatTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString("en-NG", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-
   function updateStatus(item: ParkType, nextStatus: "ACTIVE" | "INACTIVE") {
     updateParkType.mutate(
       { id: item.id, payload: { name: item.name, status: nextStatus } },
@@ -572,12 +557,6 @@ export function ParkTypesPanel() {
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Creation Timestamp
-                    </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Actions
                     </th>
@@ -586,7 +565,7 @@ export function ParkTypesPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center">
+                      <td colSpan={4} className="px-4 py-12 text-center">
                         <ParkingCircle className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No park types found</p>
                       </td>
@@ -602,14 +581,6 @@ export function ParkTypesPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">
-                            {item.created_at ? formatTimestamp(item.created_at) : "—"}
-                          </p>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <ActionsMenu item={item} onAction={handleAction} />

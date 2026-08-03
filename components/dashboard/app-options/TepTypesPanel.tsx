@@ -40,11 +40,6 @@ function formatLabel(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function displayOrDash(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
-}
-
 function normalizeLinkedItems(items?: TepTypeLinkedRef[] | string[]): TepTypeLinkedRef[] {
   if (!items?.length) return [];
   if (typeof items[0] === "string") {
@@ -149,7 +144,7 @@ function MultiSelectField({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+            <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
               {options.length === 0 ? (
                 <p className="px-3 py-2 text-xs text-gray-400">No options available</p>
               ) : (
@@ -540,16 +535,6 @@ export function TepTypesPanel() {
 
   const hasActiveFilters = search || statusFilter !== "All";
 
-  const formatTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString("en-NG", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-
   function buildPayload(item: TepType, nextStatus: string): TepTypePayload {
     return {
       name: item.name,
@@ -769,12 +754,6 @@ export function TepTypesPanel() {
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Creation Timestamp
-                    </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Actions
                     </th>
@@ -783,7 +762,7 @@ export function TepTypesPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center">
+                      <td colSpan={6} className="px-4 py-12 text-center">
                         <FileCheck className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No TEP types found</p>
                       </td>
@@ -808,14 +787,6 @@ export function TepTypesPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">
-                            {item.created_at ? formatTimestamp(item.created_at) : "—"}
-                          </p>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <ActionsMenu item={item} onAction={handleAction} />
