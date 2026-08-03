@@ -424,16 +424,6 @@ export function TruckCapacitiesPanel() {
   const hasActiveFilters =
     search || statusFilter !== "All" || truckTypeFilter !== TRUCK_TYPE_FILTER_ALL;
 
-  const formatTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString("en-NG", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-
   function handleDeactivate(item: TruckCapacity) {
     const payload: TruckCapacityPayload = {
       truck_type_id: item.truck_type_id,
@@ -637,12 +627,6 @@ export function TruckCapacitiesPanel() {
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Creation Timestamp
-                    </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Actions
                     </th>
@@ -651,7 +635,7 @@ export function TruckCapacitiesPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center">
+                      <td colSpan={5} className="px-4 py-12 text-center">
                         <Gauge className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No truck capacities found</p>
                       </td>
@@ -673,14 +657,6 @@ export function TruckCapacitiesPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">
-                            {item.created_at ? formatTimestamp(item.created_at) : "—"}
-                          </p>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <ActionsMenu item={item} onAction={handleAction} />

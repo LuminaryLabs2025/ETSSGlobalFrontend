@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Truck,
   Search,
@@ -26,32 +26,23 @@ import {
   useDeleteTruckType,
   useUpdateTruckType,
 } from "@/hooks/truck-types/useTruckTypeActions";
+import { useBookingCategories } from "@/hooks/booking-categories/useBookingCategories";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type { TruckTypePayload, TruckTypeRecord } from "@/types/truck-types.types";
 
 const PAGE_SIZE = 20;
 const STATUS_FILTERS = ["All", "ACTIVE", "INACTIVE"] as const;
 
-const BOOKING_CATEGORY_OPTIONS = [
-  { value: "IMPORT", label: "Import" },
-  { value: "EXPORT", label: "Export" },
-  { value: "EMPTY", label: "Empty" },
-  { value: "DOMESTIC", label: "Domestic" },
-] as const;
+type BookingCategoryOption = { value: string; label: string };
 
 function formatLabel(value: string) {
   if (value === "All") return "All";
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatCategoryLabel(category: string) {
-  const match = BOOKING_CATEGORY_OPTIONS.find((option) => option.value === category);
+function formatCategoryLabel(category: string, options: BookingCategoryOption[]) {
+  const match = options.find((option) => option.value === category || option.label === category);
   return match?.label ?? formatLabel(category);
-}
-
-function displayOrDash(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -122,11 +113,15 @@ function ConfirmDialog({
 function TruckTypeFormModal({
   mode,
   truckType,
+  bookingCategoryOptions,
+  loadingCategories,
   onClose,
   onSaved,
 }: {
   mode: "create" | "edit";
   truckType?: TruckTypeRecord;
+  bookingCategoryOptions: BookingCategoryOption[];
+  loadingCategories?: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -219,9 +214,9 @@ function TruckTypeFormModal({
     );
   }
 
-  const selectedCategoryLabels = BOOKING_CATEGORY_OPTIONS.filter((option) =>
-    categories.has(option.value),
-  ).map((option) => option.label);
+  const selectedCategoryLabels = bookingCategoryOptions
+    .filter((option) => categories.has(option.value))
+    .map((option) => option.label);
 
   const isPending = createTruckType.isPending || updateTruckType.isPending;
 
@@ -294,14 +289,17 @@ function TruckTypeFormModal({
               <button
                 type="button"
                 onClick={() => setCategoryMenuOpen((open) => !open)}
-                className={`flex w-full items-center justify-between rounded-lg border bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 ${
+                disabled={loadingCategories}
+                className={`flex w-full items-center justify-between rounded-lg border bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:opacity-60 ${
                   errors.categories ? "border-red-300" : "border-gray-200"
                 }`}
               >
                 <span className={selectedCategoryLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
-                  {selectedCategoryLabels.length > 0
-                    ? selectedCategoryLabels.join(", ")
-                    : "Select booking categories..."}
+                  {loadingCategories
+                    ? "Loading booking categories..."
+                    : selectedCategoryLabels.length > 0
+                      ? selectedCategoryLabels.join(", ")
+                      : "Select booking categories..."}
                 </span>
                 <ChevronDown
                   className={`h-4 w-4 text-gray-400 transition-transform ${categoryMenuOpen ? "rotate-180" : ""}`}
@@ -310,21 +308,25 @@ function TruckTypeFormModal({
               {categoryMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setCategoryMenuOpen(false)} />
-                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                    {BOOKING_CATEGORY_OPTIONS.map((option) => (
-                      <label
-                        key={option.value}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={categories.has(option.value)}
-                          onChange={() => toggleCategory(option.value)}
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-600"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {bookingCategoryOptions.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-gray-400">No booking categories available.</p>
+                    ) : (
+                      bookingCategoryOptions.map((option) => (
+                        <label
+                          key={option.value}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={categories.has(option.value)}
+                            onChange={() => toggleCategory(option.value)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-600"
+                          />
+                          {option.label}
+                        </label>
+                      ))
+                    )}
                   </div>
                 </>
               )}
@@ -446,6 +448,17 @@ export function TruckTypesPanel() {
   const deleteTruckType = useDeleteTruckType();
   const updateTruckType = useUpdateTruckType();
 
+  const { data: bookingCategoriesData, isLoading: loadingCategories } = useBookingCategories({
+    page: 1,
+    limit: 100,
+    status: "ACTIVE",
+  });
+
+  const bookingCategoryOptions = useMemo<BookingCategoryOption[]>(
+    () => bookingCategoriesData?.data.map((c) => ({ value: c.id, label: c.name })) ?? [],
+    [bookingCategoriesData],
+  );
+
   useEffect(() => {
     debounceTimer.current = setTimeout(() => {
       setDebouncedSearch(search);
@@ -542,6 +555,8 @@ export function TruckTypesPanel() {
         <TruckTypeFormModal
           mode={formMode}
           truckType={formMode === "edit" ? editTarget ?? undefined : undefined}
+          bookingCategoryOptions={bookingCategoryOptions}
+          loadingCategories={loadingCategories}
           onClose={() => {
             setFormMode(null);
             setEditTarget(null);
@@ -661,10 +676,7 @@ export function TruckTypesPanel() {
                       Status
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Creation Timestamp
+                      Created At
                     </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Actions
@@ -674,7 +686,7 @@ export function TruckTypesPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center">
+                      <td colSpan={5} className="px-4 py-12 text-center">
                         <Truck className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No truck types found</p>
                       </td>
@@ -697,7 +709,7 @@ export function TruckTypesPanel() {
                                   key={category}
                                   className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
                                 >
-                                  {formatCategoryLabel(category)}
+                                  {formatCategoryLabel(category, bookingCategoryOptions)}
                                 </span>
                               ))}
                             </div>
@@ -705,9 +717,6 @@ export function TruckTypesPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-xs text-gray-600">
