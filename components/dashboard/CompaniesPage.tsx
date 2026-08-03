@@ -226,7 +226,6 @@ function CompanyDetailDrawer({
   const { data: detail, isLoading, isError } = useCompany(fallbackCompany.id);
   const company: CompanyDetail = detail ?? fallbackCompany;
   const users = company.users ?? [];
-  const teamMembers = company.team_members ?? [];
 
   return (
     <>
@@ -305,7 +304,6 @@ function CompanyDetailDrawer({
             </div>
             <div className="divide-y divide-gray-50">
               {[
-                { label: "Company ID", value: company.id, mono: true },
                 { label: "Name", value: company.name },
                 { label: "Email", value: displayOrDash(company.email) },
                 { label: "Phone", value: displayOrDash(company.phone) },
@@ -314,10 +312,10 @@ function CompanyDetailDrawer({
                 { label: "User Type", value: displayOrDash(company.user_type?.name) },
                 { label: "User Type Category", value: displayOrDash(company.user_type?.category) },
                 { label: "Status", value: company.is_active ? "Active" : "Inactive" },
-              ].map(({ label, value, mono }) => (
+              ].map(({ label, value }) => (
                 <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
                   <p className="shrink-0 text-xs text-gray-500">{label}</p>
-                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>
+                  <p className="text-right text-xs font-medium text-gray-800">
                     {value}
                   </p>
                 </div>
@@ -370,41 +368,6 @@ function CompanyDetailDrawer({
             ) : (
               <div className="px-4 py-3">
                 <p className="text-xs text-gray-400">No linked users for this company.</p>
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border border-gray-100 bg-white">
-            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Team Members</p>
-              {!isLoading && (
-                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
-                  {teamMembers.length}
-                </span>
-              )}
-            </div>
-            {isLoading ? (
-              <div className="flex items-center gap-2 px-4 py-4 text-xs text-gray-500">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-                Loading team members...
-              </div>
-            ) : teamMembers.length > 0 ? (
-              <div className="divide-y divide-gray-50">
-                {teamMembers.map((member) => (
-                  <div key={member.id} className="px-4 py-3">
-                    <p className="text-sm font-semibold text-gray-900">
-                      {`${member.first_name} ${member.last_name}`.trim()}
-                    </p>
-                    <p className="truncate text-xs text-gray-500">{member.email}</p>
-                    <p className="mt-1 text-[11px] text-gray-400">
-                      {member.is_active ? "Active" : "Inactive"}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="px-4 py-3">
-                <p className="text-xs text-gray-400">No team members linked to this company.</p>
               </div>
             )}
           </div>
@@ -1001,10 +964,7 @@ export function CompaniesPage() {
                             <Users className="h-3 w-3 text-gray-400" />
                             {company.users?.length ?? 0}
                           </span>
-                          <span className="inline-flex items-center gap-1">
-                            <UsersRound className="h-3 w-3 text-gray-400" />
-                            {company.team_members?.length ?? 0}
-                          </span>
+                         
                         </div>
                       </td>
                       <td className="px-4 py-3">
