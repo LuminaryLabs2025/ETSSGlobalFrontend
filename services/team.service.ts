@@ -6,6 +6,7 @@ import type {
   TeamSummaryResponse,
   TeamActionResponse,
   CreateTeamMemberPayload,
+  TeamMemberDetail,
 } from "@/types/team.types";
 
 export const teamService = {
@@ -23,6 +24,11 @@ export const teamService = {
 
   summary: async (): Promise<TeamSummaryResponse> => {
     const { data } = await apiClient.get<TeamSummaryResponse>(TEAM.SUMMARY);
+    return data;
+  },
+
+  getById: async (id: string): Promise<TeamMemberDetail> => {
+    const { data } = await apiClient.get<TeamMemberDetail>(TEAM.BY_ID(id));
     return data;
   },
 

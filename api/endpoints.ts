@@ -21,6 +21,12 @@ export const USERS = {
   RESEND_INVITE: (id: string) => `/users/${id}/resend-invite`,
 } as const;
 
+// ─── Companies ───
+export const COMPANIES = {
+  LIST: "/companies",
+  BY_ID: (id: string) => `/companies/${id}`,
+} as const;
+
 // ─── Team ───
 export const TEAM = {
   LIST: "/team-members",
@@ -193,6 +199,91 @@ export const DTTR = {
   SUBMIT: (id: string) => `/dttr/${id}/submit`,
   EDIT: (id: string) => `/dttr/${id}`,
   CONFIGURE_MODE: (id: string) => `/dttr/${id}/configure-mode`,
+} as const;
+
+// ─── Payment Types ───
+export const PAYMENT_TYPES = {
+  LIST: "/payment-types",
+  BY_ID: (id: string) => `/payment-types/${id}`,
+} as const;
+
+// ─── Facility Timeslots ───
+export const FACILITY_TIMESLOTS = {
+  LIST: "/facility-timeslots",
+  BY_ID: (id: string) => `/facility-timeslots/${id}`,
+} as const;
+
+// ─── Truck Types ───
+export const TRUCK_TYPES = {
+  LIST: "/truck-types",
+  BY_ID: (id: string) => `/truck-types/${id}`,
+} as const;
+
+// ─── Truck Capacities ───
+export const TRUCK_CAPACITIES = {
+  LIST: "/truck-capacities",
+  BY_ID: (id: string) => `/truck-capacities/${id}`,
+} as const;
+
+// ─── Truck Lengths ───
+export const TRUCK_LENGTHS = {
+  LIST: "/truck-lengths",
+  BY_ID: (id: string) => `/truck-lengths/${id}`,
+} as const;
+
+// ─── Booking Categories ───
+export const BOOKING_CATEGORIES = {
+  LIST: "/booking-categories",
+  BY_ID: (id: string) => `/booking-categories/${id}`,
+} as const;
+
+// ─── TEP Types ───
+export const TEP_TYPES = {
+  LIST: "/tep-types",
+  BY_ID: (id: string) => `/tep-types/${id}`,
+} as const;
+
+// ─── Park Types ───
+export const PARK_TYPES = {
+  LIST: "/park-types",
+  BY_ID: (id: string) => `/park-types/${id}`,
+} as const;
+
+// ─── Facility Types ───
+export const FACILITY_TYPES = {
+  LIST: "/facility-types",
+  BY_ID: (id: string) => `/facility-types/${id}`,
+} as const;
+
+// ─── Locations ───
+export const LOCATIONS = {
+  LIST: "/locations",
+  BY_ID: (id: string) => `/locations/${id}`,
+} as const;
+
+// ─── Infraction Categories ───
+export const INFRACTION_CATEGORIES = {
+  LIST: "/infraction-categories",
+  BY_ID: (id: string) => `/infraction-categories/${id}`,
+} as const;
+
+// ─── Terminal Gates ───
+export const TERMINAL_GATES = {
+  LIST: "/terminal-gates",
+  BY_ID: (id: string) => `/terminal-gates/${id}`,
+} as const;
+
+// ─── Handheld Devices ───
+export const HANDHELD_DEVICES = {
+  LIST: "/handheld-devices",
+  BY_ID: (id: string) => `/handheld-devices/${id}`,
+} as const;
+
+// ─── RFID Tags ───
+export const RFID_TAGS = {
+  LIST: "/rfid-tags",
+  BY_ID: (id: string) => `/rfid-tags/${id}`,
+  BULK_UPLOAD: "/rfid-tags/bulk-upload",
 } as const;
 
 // ─── Activity Log ───

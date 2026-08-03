@@ -2,6 +2,22 @@
 export interface TeamMemberUserType {
   id: string;
   name: string;
+  category?: string | null;
+  slug?: string | null;
+}
+
+export interface TeamMemberCompany {
+  id: string;
+  name: string;
+  address?: string | null;
+  phone?: string | null;
+}
+
+export interface TeamMemberPermission {
+  id: string;
+  name: string;
+  module?: string | null;
+  description?: string | null;
 }
 
 // ─── Team Member ───
@@ -14,9 +30,17 @@ export interface TeamMember {
   user_type: TeamMemberUserType;
   status: string;
   account_type: string;
-  company: unknown;
+  company: TeamMemberCompany | null;
   department: string | null;
   created_at: string;
+}
+
+export interface TeamMemberDetail extends TeamMember {
+  updated_at?: string;
+  invited_by?: string | null;
+  last_login_at?: string | null;
+  permissions?: TeamMemberPermission[];
+  permission_ids?: string[];
 }
 
 // ─── Team Members List Response ───

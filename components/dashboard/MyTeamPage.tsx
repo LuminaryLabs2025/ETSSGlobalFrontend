@@ -27,8 +27,11 @@ import {
   Building2,
   Briefcase,
   Loader2,
+  Eye,
+  Phone,
 } from "lucide-react";
 import { useTeamMembers } from "@/hooks/team/useTeamMembers";
+import { useTeamMember } from "@/hooks/team/useTeamMember";
 import { useTeamSummary } from "@/hooks/team/useTeamSummary";
 import {
   useDisableTeamMember,
@@ -38,7 +41,7 @@ import {
 } from "@/hooks/team/useTeamActions";
 import { toast } from "sonner";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
-import type { TeamMember, TeamSummaryResponse } from "@/types/team.types";
+import type { TeamMember, TeamMemberDetail, TeamSummaryResponse } from "@/types/team.types";
 
 // ─── Filter Options ───
 const ACCOUNT_TYPES = ["All", "SYSTEM", "PRIMARY", "SUB_ACCOUNT"];
@@ -51,6 +54,11 @@ function formatLabel(value: string) {
   return value
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function displayOrDash(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : "—";
 }
 
 // ─── Status Badge ───
@@ -154,6 +162,226 @@ function ConfirmDialog({
   );
 }
 
+function TeamMemberDetailDrawer({
+  member: fallbackMember,
+  onClose,
+  formatTimestamp,
+}: {
+  member: TeamMember;
+  onClose: () => void;
+  formatTimestamp: (ts: string) => string;
+}) {
+  const { data: detail, isLoading, isError } = useTeamMember(fallbackMember.id);
+  const member: TeamMemberDetail = detail ?? fallbackMember;
+  const fullName = `${member.first_name || "N/A"} ${member.last_name || "N/A"}`.trim();
+  const initials =
+    `${member.first_name?.charAt(0) ?? ""}${member.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?";
+  const permissions = member.permissions ?? [];
+  const permissionCount = permissions.length || member.permission_ids?.length || 0;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
+      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[460px] flex-col bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-white/10 bg-[#0f1e2e] px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600/20 text-sm font-bold text-emerald-400">
+              {initials}
+            </div>
+            <div className="min-w-0">
+              <h2 className="truncate text-sm font-bold text-white">{fullName}</h2>
+              <p className="truncate text-[11px] text-gray-400">{member.email}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="shrink-0 rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 overflow-y-auto p-6">
+          {isLoading && (
+            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+              Loading team member details...
+            </div>
+          )}
+          {isError && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Some detail fields may be unavailable. Showing cached member data.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={member.status} />
+            <UserTypeBadge type={member.user_type?.name ?? "—"} />
+            <AccountBadge type={member.account_type} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="rounded-lg bg-blue-100 p-1.5">
+                  <Mail className="h-3.5 w-3.5 text-blue-600" />
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Email</p>
+              </div>
+              <p className="truncate text-xs font-medium text-gray-900">{member.email}</p>
+            </div>
+            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="rounded-lg bg-emerald-100 p-1.5">
+                  <Phone className="h-3.5 w-3.5 text-emerald-600" />
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Phone</p>
+              </div>
+              <p className="text-xs font-medium text-gray-900">{displayOrDash(member.phone)}</p>
+            </div>
+            <div className="col-span-2 rounded-xl border border-gray-100 bg-gray-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="rounded-lg bg-indigo-100 p-1.5">
+                  <Briefcase className="h-3.5 w-3.5 text-indigo-600" />
+                </div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Department</p>
+              </div>
+              <p className="text-xs font-medium text-gray-900">{displayOrDash(member.department)}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Member Details</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              {[
+                { label: "Member ID", value: member.id, mono: true },
+                { label: "First Name", value: displayOrDash(member.first_name) },
+                { label: "Last Name", value: displayOrDash(member.last_name) },
+                { label: "Email", value: member.email },
+                { label: "Phone", value: displayOrDash(member.phone) },
+                { label: "User Type", value: displayOrDash(member.user_type?.name) },
+                { label: "User Type Category", value: displayOrDash(member.user_type?.category) },
+                { label: "Account Type", value: formatLabel(member.account_type) },
+                { label: "Department", value: displayOrDash(member.department) },
+                { label: "Invited By", value: displayOrDash(member.invited_by) },
+              ].map(({ label, value, mono }) => (
+                <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <p className="shrink-0 text-xs text-gray-500">{label}</p>
+                  <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {member.company && (
+            <div className="rounded-xl border border-gray-100 bg-white">
+              <div className="border-b border-gray-100 px-4 py-2.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Linked Company</p>
+              </div>
+              <div className="divide-y divide-gray-50">
+                {[
+                  { label: "Company Name", value: displayOrDash(member.company.name) },
+                  { label: "Address", value: displayOrDash(member.company.address) },
+                  { label: "Company Phone", value: displayOrDash(member.company.phone) },
+                  { label: "Company ID", value: displayOrDash(member.company.id), mono: true },
+                ].map(({ label, value, mono }) => (
+                  <div key={label} className="flex items-start justify-between gap-4 px-4 py-3">
+                    <p className="shrink-0 text-xs text-gray-500">{label}</p>
+                    <p className={`text-right text-xs font-medium text-gray-800 ${mono ? "font-mono" : ""}`}>
+                      {value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Assigned Permissions</p>
+              {!isLoading && (
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                  {permissionCount}
+                </span>
+              )}
+            </div>
+            {isLoading ? (
+              <div className="flex items-center gap-2 px-4 py-4 text-xs text-gray-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
+                Loading permissions...
+              </div>
+            ) : permissions.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {permissions.map((permission) => (
+                  <div key={permission.id} className="px-4 py-3">
+                    <p className="text-sm font-semibold text-gray-900">{permission.name}</p>
+                    {permission.module && (
+                      <p className="mt-0.5 text-[11px] text-gray-400">{permission.module}</p>
+                    )}
+                    {permission.description && (
+                      <p className="mt-1 text-xs text-gray-500">{permission.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : member.permission_ids && member.permission_ids.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {member.permission_ids.map((id) => (
+                  <div key={id} className="px-4 py-3">
+                    <p className="font-mono text-xs font-medium text-gray-800">{id}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-3">
+                <p className="text-xs text-gray-400">No permissions assigned to this team member.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-gray-100 bg-white">
+            <div className="border-b border-gray-100 px-4 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Timestamps</p>
+            </div>
+            <div className="divide-y divide-gray-50">
+              <div className="flex items-center justify-between px-4 py-3">
+                <p className="text-xs text-gray-500">Created At</p>
+                <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
+                  <Clock className="h-3 w-3 text-gray-400" />
+                  {formatTimestamp(member.created_at)}
+                </p>
+              </div>
+              {member.updated_at && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <p className="text-xs text-gray-500">Last Updated</p>
+                  <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
+                    <Clock className="h-3 w-3 text-gray-400" />
+                    {formatTimestamp(member.updated_at)}
+                  </p>
+                </div>
+              )}
+              {member.last_login_at && (
+                <div className="flex items-center justify-between px-4 py-3">
+                  <p className="text-xs text-gray-500">Last Login</p>
+                  <p className="flex items-center gap-1 text-xs font-medium text-gray-800">
+                    <Clock className="h-3 w-3 text-gray-400" />
+                    {formatTimestamp(member.last_login_at)}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ─── Summary Panel ───
 function SummaryPanel({ summary }: { summary: TeamSummaryResponse | undefined }) {
   const statusCards = [
@@ -223,7 +451,9 @@ function ActionsMenu({
   member: TeamMember;
   onAction: (action: string, member: TeamMember) => void;
 }) {
-  const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [];
+  const actions: { label: string; icon: React.ElementType; action: string; danger?: boolean }[] = [
+    { label: "View Details", icon: Eye, action: "view" },
+  ];
 
   if (member.status === "ACTIVE") {
     actions.push({ label: "Disable User", icon: Ban, action: "disable", danger: true });
@@ -291,6 +521,7 @@ export function MyTeamPage() {
     danger?: boolean;
     onConfirm: () => void;
   } | null>(null);
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
 
   // ─── API Hooks ───
   const { data: summary } = useTeamSummary();
@@ -349,6 +580,10 @@ export function MyTeamPage() {
   // ─── Actions ───
   const handleAction = (action: string, member: TeamMember) => {
     const fullName = member.first_name && member.last_name ? `${member.first_name} ${member.last_name}` : member.email;
+    if (action === "view") {
+      setSelectedMember(member);
+      return;
+    }
     if (action === "disable") {
       setConfirm({
         title: "Disable User",
@@ -413,6 +648,14 @@ export function MyTeamPage() {
           danger={confirm.danger}
           onConfirm={confirm.onConfirm}
           onCancel={() => setConfirm(null)}
+        />
+      )}
+
+      {selectedMember && (
+        <TeamMemberDetailDrawer
+          member={selectedMember}
+          onClose={() => setSelectedMember(null)}
+          formatTimestamp={formatTimestamp}
         />
       )}
 
