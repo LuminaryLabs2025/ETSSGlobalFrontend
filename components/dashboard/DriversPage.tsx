@@ -29,6 +29,8 @@ import {
   UserCheck,
   Flag,
   Loader2,
+  Plus,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
@@ -54,6 +56,7 @@ import {
   useExportDrivers,
 } from "@/hooks/drivers/useDriverActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { BulkUploadDriversModal, CreateDriverModal } from "@/components/dashboard/DriverCreateModals";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -184,7 +187,7 @@ function DriverPreviewCard({ driver }: { driver: Driver }) {
   const status = previewStatusBadge(driver);
 
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+    <div className="w-72 overflow-hidden rounded-xl border-2 border-emerald-600 bg-white shadow-xl">
       <div className="border-b border-gray-100 px-4 py-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -550,6 +553,8 @@ export function DriversPage() {
     onConfirm: (reason: string) => void;
   } | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
+  const [showCreateDriver, setShowCreateDriver] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
@@ -779,6 +784,12 @@ export function DriversPage() {
       {/* ─── Dialogs ─── */}
       {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
       {reasonDialog && <ReasonDialog {...reasonDialog} onCancel={() => setReasonDialog(null)} />}
+      {showCreateDriver && (
+        <CreateDriverModal onClose={() => setShowCreateDriver(false)} onCreated={() => setPage(1)} />
+      )}
+      {showBulkUpload && (
+        <BulkUploadDriversModal onClose={() => setShowBulkUpload(false)} onUploaded={() => setPage(1)} />
+      )}
 
       {/* ─── Driver Detail Drawer ─── */}
       {selectedDriver && (
@@ -872,13 +883,33 @@ export function DriversPage() {
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-6 pb-0 pt-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
-              <Users className="h-4 w-4 text-emerald-400" />
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+                <Users className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-gray-900">Driver Registry</h1>
+                <p className="text-xs text-gray-500">Manage all registered drivers — Verified, Unverified, Flagged &amp; Disabled</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-bold text-gray-900">Driver Registry</h1>
-              <p className="text-xs text-gray-500">Manage all registered drivers — Verified, Unverified, Flagged &amp; Disabled</p>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkUpload(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Bulk Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateDriver(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Driver
+              </button>
             </div>
           </div>
           <div className="flex gap-0.5 overflow-x-auto">
