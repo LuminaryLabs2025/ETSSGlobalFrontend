@@ -29,6 +29,7 @@ import {
   bookingsByTerminal,
   matchingsByTerminal,
 } from "@/lib/mock-data";
+import { BONDED_BOOKING_CATEGORIES } from "@/lib/book-assist-mock-data";
 import {
   BarChart,
   Bar,
@@ -81,39 +82,86 @@ const manifestLifecycleGroups = [
   },
 ];
 
-// ─── Mock: Bookings by Category ───
-const bookingsByCategory = [
-  { name: "Dry Cargo Inbound", value: 22, color: "#f59e0b" },
-  { name: "Dry Cargo Outbound", value: 43, color: "#3b82f6" },
-  { name: "Wet Cargo Outbound", value: 21, color: "#10b981" },
+// ─── Mock: Bookings by Category (platform booking categories) ───
+const BOOKINGS_BY_CATEGORY_COLORS = [
+  "#3b82f6",
+  "#6366f1",
+  "#06b6d4",
+  "#10b981",
+  "#14b8a6",
+  "#f59e0b",
+  "#8b5cf6",
 ];
+
+const BOOKINGS_BY_CATEGORY_MOCK_VALUES: Record<string, number> = {
+  IMPORT_CONTAINER: 34,
+  IMPORT_NON_CONTAINER: 18,
+  EMPTY_CONTAINER: 28,
+  EXPORT_CONTAINER: 31,
+  EXPORT_NON_CONTAINER: 15,
+  FMCG: 22,
+  FISH: 8,
+};
+
+const bookingsByCategory = BONDED_BOOKING_CATEGORIES.map((category, index) => ({
+  name: category.label,
+  value: BOOKINGS_BY_CATEGORY_MOCK_VALUES[category.value] ?? 0,
+  color: BOOKINGS_BY_CATEGORY_COLORS[index] ?? "#94a3b8",
+}));
 const totalBookingsByCategory = bookingsByCategory.reduce((s, c) => s + c.value, 0);
 
 // ─── Mock: Incident Notification Board ───
-const incidentNotifications = [
+const severityStyles = {
+  High: "bg-red-100 text-red-700",
+  Critical: "bg-red-700 text-white",
+  Low: "bg-gray-100 text-gray-600",
+  Medium: "bg-amber-100 text-amber-700",
+};
+
+const incidentStatusStyles = {
+  New: "bg-red-50 text-red-600 border-red-200",
+  "In Progress": "bg-amber-50 text-amber-700 border-amber-200",
+  Assigned: "bg-amber-50 text-amber-800 border-amber-200",
+};
+
+type IncidentSeverity = keyof typeof severityStyles;
+type IncidentStatus = keyof typeof incidentStatusStyles;
+
+const incidentNotifications: {
+  title: string;
+  meta: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+}[] = [
   {
     title: "Infrastructure damage · Lekki Port",
     meta: "INC-09019 · reported 8d ago · Terminal Operator",
-    severity: "High" as const,
-    status: "New" as const,
+    severity: "High",
+    status: "New",
   },
   {
     title: "Truck breakdown · Apapa Corridor",
     meta: "INC-09031 · reported 3d ago · LASTMA Patrol",
-    severity: "Critical" as const,
-    status: "In Progress" as const,
+    severity: "Critical",
+    status: "In Progress",
   },
   {
     title: "Gate congestion · Tincan Island",
     meta: "INC-09044 · reported 1d ago · NPA Ops",
-    severity: "Low" as const,
-    status: "Assigned" as const,
+    severity: "Low",
+    status: "Assigned",
   },
   {
     title: "Security breach attempt · Mile 2",
     meta: "INC-09052 · reported 6h ago · HarbourGate Security",
-    severity: "Medium" as const,
-    status: "New" as const,
+    severity: "Medium",
+    status: "New",
+  },
+   {
+    title: "Gate congestion · Tincan Island",
+    meta: "INC-09044 · reported 1d ago · NPA Ops",
+    severity: "Low",
+    status: "Assigned",
   },
 ];
 
@@ -155,20 +203,6 @@ const opsCommandActions = [
     iconCls: "text-emerald-600 bg-emerald-100",
   },
 ];
-
-const severityStyles = {
-  High: "bg-red-100 text-red-700",
-  Critical: "bg-red-700 text-white",
-  Low: "bg-gray-100 text-gray-600",
-  Medium: "bg-amber-100 text-amber-700",
-};
-
-const incidentStatusStyles = {
-  New: "bg-red-50 text-red-600 border-red-200",
-  "In Progress": "bg-amber-50 text-amber-700 border-amber-200",
-  Assigned: "bg-amber-50 text-amber-800 border-amber-200",
-};
-
 
 // ─── Corridor Live Banner ───
 function CorridorLiveBanner() {
@@ -377,16 +411,16 @@ function BookingsByCategory() {
   return (
     <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
       <h3 className="text-sm font-bold text-gray-900">Bookings by category</h3>
-      <div className="relative mt-4 flex flex-1 flex-col items-center">
-        <div className="h-60 w-full">
+      <div className="relative mx-auto mt-3 w-full max-w-[240px]">
+        <div className="h-52 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
                 data={bookingsByCategory}
                 cx="50%"
                 cy="50%"
-                innerRadius={62}
-                outerRadius={92}
+                innerRadius={56}
+                outerRadius={84}
                 paddingAngle={3}
                 dataKey="value"
                 nameKey="name"
@@ -404,19 +438,19 @@ function BookingsByCategory() {
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div className="pointer-events-none absolute left-1/2 top-[calc(50%-12px)] -translate-x-1/2 -translate-y-1/2 text-center">
-          <p className="text-3xl font-bold text-gray-900 tabular-nums">{totalBookingsByCategory}</p>
-          <p className="text-xs text-gray-500">Total bookings</p>
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">{totalBookingsByCategory}</p>
+          <p className="text-[11px] text-gray-500">Total bookings</p>
         </div>
       </div>
-      <div className="mt-4 space-y-2">
+      <div className="mt-3 space-y-1.5">
         {bookingsByCategory.map((cat) => (
-          <div key={cat.name} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2">
+          <div key={cat.name} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: cat.color }} />
-              <span className="truncate text-xs text-gray-600">{cat.name}</span>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cat.color }} />
+              <span className="truncate text-[11px] text-gray-600">{cat.name}</span>
             </div>
-            <span className="shrink-0 text-xs font-bold text-gray-900 tabular-nums">
+            <span className="shrink-0 text-[11px] font-bold text-gray-900 tabular-nums">
               {cat.value}
               <span className="ml-1 font-normal text-gray-400">
                 ({Math.round((cat.value / totalBookingsByCategory) * 100)}%)
@@ -439,7 +473,7 @@ function IncidentNotificationBoard() {
           View all <ChevronRight className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="space-y-2.5">
+      <div className="flex min-h-0 flex-1 flex-col space-y-2.5">
         {incidentNotifications.map((inc, i) => (
           <div
             key={i}
@@ -465,7 +499,7 @@ function IncidentNotificationBoard() {
           </div>
         ))}
       </div>
-      <div className="mt-4 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="mt-4 flex shrink-0 items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
         <div className="flex items-center gap-2">
           <Truck className="h-4 w-4 text-amber-700" />
           <p className="text-xs font-medium text-amber-900">1 tow-truck request on Left-Manifest</p>
@@ -655,7 +689,7 @@ export function DashboardOverview() {
       </div>
 
       {/* Row 2: Bookings by category · Incident board */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,1fr)_2fr]">
+      <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(280px,1fr)_2fr]">
         <BookingsByCategory />
         <IncidentNotificationBoard />
       </div>
