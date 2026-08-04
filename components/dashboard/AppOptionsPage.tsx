@@ -13,7 +13,6 @@ import {
   Clock,
   MapPin,
   CreditCard,
-  AlertTriangle,
   DoorOpen,
   Smartphone,
   Radio,
@@ -50,10 +49,6 @@ import {
   useFacilityTypesCount,
 } from "@/components/dashboard/app-options/FacilityTypesPanel";
 import { LocationsPanel, useLocationsCount } from "@/components/dashboard/app-options/LocationsPanel";
-import {
-  InfractionCategoriesPanel,
-  useInfractionCategoriesCount,
-} from "@/components/dashboard/app-options/InfractionCategoriesPanel";
 import {
   TerminalGatesPanel,
   useTerminalGatesCount,
@@ -173,15 +168,6 @@ const MOCK_OPTIONS: OptionCategory[] = [
     icon: CreditCard,
     description: "Payment types and associated transaction rates",
     color: "text-green-600 bg-green-50 border-green-200",
-    isLive: true,
-    items: [],
-  },
-  {
-    key: "infraction-categories",
-    label: "Infraction Categories",
-    icon: AlertTriangle,
-    description: "Categories of violations and infractions",
-    color: "text-red-600 bg-red-50 border-red-200",
     isLive: true,
     items: [],
   },
@@ -417,8 +403,6 @@ function renderLivePanel(key: string) {
       return <FacilityTimeslotsPanel />;
     case "locations":
       return <LocationsPanel />;
-    case "infraction-categories":
-      return <InfractionCategoriesPanel />;
     case "terminal-gates":
       return <TerminalGatesPanel />;
     case "handheld-devices":
@@ -448,7 +432,6 @@ export function AppOptionsPage() {
   const parkTypesTotal = useParkTypesCount();
   const facilityTypesTotal = useFacilityTypesCount();
   const locationsTotal = useLocationsCount();
-  const infractionCategoriesTotal = useInfractionCategoriesCount();
   const terminalGatesTotal = useTerminalGatesCount();
   const handheldDevicesTotal = useHandheldDevicesCount();
   const rfidTagsTotal = useRfidTagsCount();
@@ -464,7 +447,6 @@ export function AppOptionsPage() {
     "payment-types": paymentTypesTotal,
     "facility-timeslots": facilityTimeslotsTotal,
     locations: locationsTotal,
-    "infraction-categories": infractionCategoriesTotal,
     "terminal-gates": terminalGatesTotal,
     "handheld-devices": handheldDevicesTotal,
     "rfid-tags": rfidTagsTotal,
@@ -491,7 +473,6 @@ export function AppOptionsPage() {
     parkTypesTotal +
     facilityTypesTotal +
     locationsTotal +
-    infractionCategoriesTotal +
     terminalGatesTotal +
     handheldDevicesTotal +
     rfidTagsTotal;

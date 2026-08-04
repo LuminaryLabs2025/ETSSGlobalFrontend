@@ -261,12 +261,6 @@ export const LOCATIONS = {
   BY_ID: (id: string) => `/locations/${id}`,
 } as const;
 
-// ─── Infraction Categories ───
-export const INFRACTION_CATEGORIES = {
-  LIST: "/infraction-categories",
-  BY_ID: (id: string) => `/infraction-categories/${id}`,
-} as const;
-
 // ─── Terminal Gates ───
 export const TERMINAL_GATES = {
   LIST: "/terminal-gates",
