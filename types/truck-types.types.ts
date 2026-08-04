@@ -1,11 +1,17 @@
 export type TruckTypeStatus = "ACTIVE" | "INACTIVE" | string;
 
+export interface TruckTypeLinkedRef {
+  id: string;
+  name: string;
+}
+
 export interface TruckTypeRecord {
   id: string;
   name: string;
   description: string;
   status: TruckTypeStatus;
-  linked_booking_categories?: string[];
+  linked_booking_categories?: string[] | TruckTypeLinkedRef[];
+  linked_booking_category_ids?: string[];
   created_by?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
