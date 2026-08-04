@@ -170,6 +170,7 @@ export const DRIVERS = {
   SUMMARY: "/drivers/summary",
   EXPORT: "/drivers/export",
   CREATE: "/drivers",
+  BULK: "/drivers/bulk",
   BY_ID: (id: string) => `/drivers/${id}`,
   DISABLE: (id: string) => `/drivers/${id}/disable`,
   ARCHIVE: (id: string) => `/drivers/${id}/archive`,

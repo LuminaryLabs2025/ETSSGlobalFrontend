@@ -27,6 +27,8 @@ import {
   AlertCircle,
   Loader2,
   Send,
+  Plus,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -52,6 +54,7 @@ import {
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
+import { BulkUploadTrucksModal, CreateTruckModal } from "@/components/dashboard/TruckCreateModals";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -194,7 +197,7 @@ function TruckAvatar({ color }: { color: string }) {
 
 function FleetTruckPreviewCard({ truck }: { truck: TruckType }) {
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+    <div className="w-72 overflow-hidden rounded-xl border-2 border-emerald-600 bg-white shadow-xl">
       <div className="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -571,6 +574,8 @@ export function TrucksPage() {
     onConfirm: (reason: string) => void;
   } | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
+  const [showCreateTruck, setShowCreateTruck] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
@@ -804,6 +809,12 @@ export function TrucksPage() {
       {/* ─── Dialogs ─── */}
       {confirm && <ConfirmDialog {...confirm} onCancel={() => setConfirm(null)} />}
       {reasonDialog && <ReasonDialog {...reasonDialog} onCancel={() => setReasonDialog(null)} />}
+      {showCreateTruck && (
+        <CreateTruckModal onClose={() => setShowCreateTruck(false)} onCreated={() => setPage(1)} />
+      )}
+      {showBulkUpload && (
+        <BulkUploadTrucksModal onClose={() => setShowBulkUpload(false)} onUploaded={() => setPage(1)} />
+      )}
 
       {/* ─── Truck Detail Drawer ─── */}
       {selectedTruck && (
@@ -899,13 +910,33 @@ export function TrucksPage() {
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-6 pb-0 pt-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
-              <Truck className="h-4 w-4 text-emerald-400" />
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+                <Truck className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-gray-900">Truck Fleet Registry</h1>
+                <p className="text-xs text-gray-500">Manage all registered trucks — MSS Verified, Unverified, Flagged &amp; Disabled</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-bold text-gray-900">Truck Fleet Registry</h1>
-              <p className="text-xs text-gray-500">Manage all registered trucks — MSS Verified, Unverified, Flagged &amp; Disabled</p>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkUpload(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Bulk Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateTruck(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Truck
+              </button>
             </div>
           </div>
           <div className="flex gap-0.5 overflow-x-auto">

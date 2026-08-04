@@ -134,3 +134,19 @@ export interface CreateDriverPayload {
   transporter_company_id: string;
   visibility: DriverVisibility;
 }
+
+export interface BulkCreateDriverItem {
+  first_name: string;
+  last_name: string;
+  mobile_number: string;
+  license_number: string;
+  license_expiry_date: string;
+  date_of_birth: string;
+  sex: DriverSex;
+  visibility: DriverVisibility;
+}
+
+export interface BulkCreateDriversPayload {
+  transporter_company_id: string;
+  drivers: BulkCreateDriverItem[];
+}

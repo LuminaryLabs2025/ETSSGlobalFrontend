@@ -28,6 +28,7 @@ import {
   Ban,
   Loader2,
   AlertCircle,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
@@ -46,6 +47,7 @@ import { useTeps } from "@/hooks/teps/useTeps";
 import { useTepsSummary } from "@/hooks/teps/useTepsSummary";
 import { useRevokeTEP, useExportTeps } from "@/hooks/teps/useTepActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { BulkUploadTepsModal, CreateTepModal } from "@/components/dashboard/TepCreateModals";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -378,6 +380,8 @@ export function TEPsPage() {
     onConfirm: (reason: string) => void;
   } | null>(null);
   const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(new Set(ALL_COLUMN_KEYS));
+  const [showCreateTep, setShowCreateTep] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
@@ -489,6 +493,12 @@ export function TEPsPage() {
     <div className="space-y-5 p-6">
       {/* ─── Dialogs ─── */}
       {reasonDialog && <ReasonDialog {...reasonDialog} onCancel={() => setReasonDialog(null)} />}
+      {showCreateTep && (
+        <CreateTepModal onClose={() => setShowCreateTep(false)} onCreated={() => setPage(1)} />
+      )}
+      {showBulkUpload && (
+        <BulkUploadTepsModal onClose={() => setShowBulkUpload(false)} onUploaded={() => setPage(1)} />
+      )}
 
       {/* ─── TEP Detail Drawer ─── */}
       {selectedTEP && (
@@ -595,13 +605,33 @@ export function TEPsPage() {
       {/* ─── Module Header + Tabs ─── */}
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-6 pb-0 pt-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
-              <FileCheck className="h-4 w-4 text-emerald-400" />
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
+                <FileCheck className="h-4 w-4 text-emerald-400" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-gray-900">Truck Entry Permits Registry</h1>
+                <p className="text-xs text-gray-500">Monitor all TEPs — Empty TDO, Import TDO, Export TDO, Gatepass (Port) &amp; Gatepass (Non-Port)</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-base font-bold text-gray-900">Truck Entry Permits Registry</h1>
-              <p className="text-xs text-gray-500">Monitor all TEPs — Empty TDO, Import TDO, Export TDO, Gatepass (Port) &amp; Gatepass (Non-Port)</p>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBulkUpload(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Bulk Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateTep(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Create TEP
+              </button>
             </div>
           </div>
           <div className="flex gap-0.5 overflow-x-auto">
@@ -666,12 +696,6 @@ export function TEPsPage() {
             visibleColumns={visibleColumns}
             onApply={setVisibleColumns}
           />
-
-          <button onClick={() => toast.info("Bulk upload template opening...")}
-            className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
-          >
-            <Upload className="h-4 w-4" /> Bulk Upload
-          </button>
 
           <div className="relative group">
             <button className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
@@ -889,24 +913,6 @@ export function TEPsPage() {
             ))}
             <button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded-lg border border-gray-200 p-1.5 text-gray-500 hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
           </div>
-        </div>
-      </div>
-
-      {/* ─── System Rules ─── */}
-      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <p className="mb-2 text-xs font-bold text-blue-700">TEP Classification → Source Mapping</p>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-1 md:grid-cols-4">
-          {[
-            ["Shipping Line", "Empty TDOs"],
-            ["Port Terminal", "Import TDOs + Gatepass (Port)"],
-            ["Non-Port Terminal", "Gatepass (Non-Port)"],
-            ["EPT", "Export TDOs"],
-          ].map(([source, types]) => (
-            <div key={source} className="text-[11px]">
-              <span className="font-semibold text-blue-700">{source}</span>
-              <span className="text-blue-600"> → {types}</span>
-            </div>
-          ))}
         </div>
       </div>
 

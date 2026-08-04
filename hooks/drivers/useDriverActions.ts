@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { driversService } from "@/services/drivers.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
-import type { CreateDriverPayload } from "@/types/drivers.types";
+import type { CreateDriverPayload, BulkCreateDriversPayload } from "@/types/drivers.types";
 import { AxiosError } from "axios";
 
 function invalidateDrivers(queryClient: ReturnType<typeof useQueryClient>) {
@@ -88,6 +88,18 @@ export function useCreateDriver() {
     onSuccess: () => invalidateDrivers(queryClient),
     onError: (error: AxiosError<ApiError>) => {
       toast.error(error.response?.data?.message ?? "Failed to create driver");
+    },
+  });
+}
+
+export function useBulkCreateDrivers() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: BulkCreateDriversPayload) => driversService.bulkCreate(payload),
+    onSuccess: () => invalidateDrivers(queryClient),
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to bulk create drivers");
     },
   });
 }

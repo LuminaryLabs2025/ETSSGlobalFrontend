@@ -112,6 +112,7 @@ export interface CreateTEPPayload {
   company_name: string;
   truck_plate_number: string;
   expiry_date: string;
+  terminal_id?: string;
 }
 
 export interface BulkCreateTEPsPayload {

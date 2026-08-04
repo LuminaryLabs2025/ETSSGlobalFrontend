@@ -114,7 +114,7 @@ function MultiSelectField({
   const selectedLabels = options.filter((o) => selected.has(o.value)).map((o) => o.label);
 
   return (
-    <div>
+    <div className={open ? "relative z-50" : undefined}>
       <label className="mb-1.5 block text-xs font-semibold text-gray-700">{label}</label>
       <div className="relative">
         <button
@@ -137,7 +137,7 @@ function MultiSelectField({
         {open && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-            <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+            <div className="absolute top-full left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
               {options.length === 0 ? (
                 <p className="px-3 py-2 text-xs text-gray-400">No park types available</p>
               ) : (

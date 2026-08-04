@@ -47,6 +47,9 @@ import {
   useDownloadUtilityETicket,
 } from "@/hooks/utility-tickets/useUtilityTicketActions";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
+import { SearchableSelect } from "@/components/dashboard/book-assist/BookAssistUi";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
+import type { Terminal, TerminalType } from "@/types/terminals.types";
 import type {
   UtilityTicket,
   UtilityTicketStatus,
@@ -438,6 +441,21 @@ function ApproveModal({
   );
 }
 
+function toUtilityTerminalType(type: TerminalType): UtilityTerminalType {
+  return type === "PORT_TERMINAL" ? "PORT" : "NON_PORT";
+}
+
+function formatTerminalLocation(terminal: Terminal) {
+  if (terminal.address?.trim()) return terminal.address.trim();
+  if (terminal.location === "APAPA") return "Apapa Zone";
+  if (terminal.location === "TINCAN") return "Tincan Zone";
+  return terminal.location;
+}
+
+function utilityTerminalTypeLabel(type: UtilityTerminalType) {
+  return type === "PORT" ? "Port Terminal (Priority)" : "Non-Port Terminal (Standard)";
+}
+
 function GenerateTicketModal({
   onGenerate,
   onClose,
@@ -447,26 +465,46 @@ function GenerateTicketModal({
   onClose: () => void;
   isSubmitting?: boolean;
 }) {
-  const [terminalName, setTerminalName] = useState("");
-  const [terminalCode, setTerminalCode] = useState("");
-  const [terminalLocation, setTerminalLocation] = useState("");
-  const [terminalType, setTerminalType] = useState<UtilityTerminalType>("PORT");
+  const { data: terminalsData, isLoading: loadingTerminals } = useTerminals({
+    page: 1,
+    limit: 100,
+    status: "ACTIVE",
+  });
+  const terminals = terminalsData?.data ?? [];
+
+  const [selectedTerminalId, setSelectedTerminalId] = useState("");
   const [requestType, setRequestType] = useState<UtilityRequestType>("POWER");
   const [deliveryCompany, setDeliveryCompany] = useState("");
   const [description, setDescription] = useState("");
   const [truckPlate, setTruckPlate] = useState("");
 
+  const selectedTerminal = terminals.find((t) => t.id === selectedTerminalId);
+  const terminalCode = selectedTerminal?.terminal_code ?? "";
+  const terminalLocation = selectedTerminal ? formatTerminalLocation(selectedTerminal) : "";
+  const terminalType = selectedTerminal
+    ? toUtilityTerminalType(selectedTerminal.terminal_type)
+    : null;
+
+  function handleTerminalChange(terminalId: string) {
+    setSelectedTerminalId(terminalId);
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!terminalName.trim() || !terminalCode.trim() || !terminalLocation.trim() || !deliveryCompany.trim() || !description.trim()) {
+    if (!selectedTerminal) {
+      toast.error("Please select a terminal.");
+      return;
+    }
+    if (!deliveryCompany.trim() || !description.trim()) {
       toast.error("Please fill in all required fields.");
       return;
     }
     onGenerate({
-      terminal_name: terminalName.trim(),
-      terminal_code: terminalCode.trim(),
-      terminal_location: terminalLocation.trim(),
-      terminal_type: terminalType,
+      terminal_id: selectedTerminal.id,
+      terminal_name: selectedTerminal.name,
+      terminal_code: selectedTerminal.terminal_code,
+      terminal_location: formatTerminalLocation(selectedTerminal),
+      terminal_type: toUtilityTerminalType(selectedTerminal.terminal_type),
       request_type: requestType,
       delivery_company_name: deliveryCompany.trim(),
       description: description.trim(),
@@ -488,24 +526,47 @@ function GenerateTicketModal({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Name *</label>
-              <input value={terminalName} onChange={(e) => setTerminalName(e.target.value)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
+            <div className="sm:col-span-2">
+              <SearchableSelect
+                label="Terminal Name"
+                placeholder={loadingTerminals ? "Loading terminals…" : "Select terminal…"}
+                value={selectedTerminalId}
+                onChange={handleTerminalChange}
+                options={terminals.map((terminal) => ({
+                  value: terminal.id,
+                  label: terminal.name,
+                }))}
+                required
+                disabled={loadingTerminals}
+                searchPlaceholder="Type to filter terminals…"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Code *</label>
-              <input value={terminalCode} onChange={(e) => setTerminalCode(e.target.value)} placeholder="e.g. APM" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
+              <input
+                value={terminalCode}
+                readOnly
+                placeholder="Auto-filled from terminal"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Location *</label>
-              <input value={terminalLocation} onChange={(e) => setTerminalLocation(e.target.value)} placeholder="e.g. Apapa, Lagos" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300" />
+              <input
+                value={terminalLocation}
+                readOnly
+                placeholder="Auto-filled from terminal"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Terminal Type *</label>
-              <select value={terminalType} onChange={(e) => setTerminalType(e.target.value as UtilityTerminalType)} className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-emerald-300">
-                <option value="PORT">Port Terminal (Priority)</option>
-                <option value="NON_PORT">Non-Port Terminal (Standard)</option>
-              </select>
+              <input
+                value={terminalType ? utilityTerminalTypeLabel(terminalType) : ""}
+                readOnly
+                placeholder="Auto-filled from terminal"
+                className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none"
+              />
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-gray-700">Request Type *</label>

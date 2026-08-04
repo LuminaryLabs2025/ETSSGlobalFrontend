@@ -9,6 +9,7 @@ import type {
   Driver,
   DriverReasonPayload,
   CreateDriverPayload,
+  BulkCreateDriversPayload,
 } from "@/types/drivers.types";
 
 export const driversService = {
@@ -31,6 +32,11 @@ export const driversService = {
 
   create: async (payload: CreateDriverPayload): Promise<DriverActionResponse> => {
     const { data } = await apiClient.post<ApiResponse<DriverActionResponse>>(DRIVERS.CREATE, payload);
+    return { message: data.message };
+  },
+
+  bulkCreate: async (payload: BulkCreateDriversPayload): Promise<DriverActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<DriverActionResponse>>(DRIVERS.BULK, payload);
     return { message: data.message };
   },
 
