@@ -28,21 +28,38 @@ import {
 } from "@/hooks/truck-types/useTruckTypeActions";
 import { useBookingCategories } from "@/hooks/booking-categories/useBookingCategories";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
-import type { TruckTypePayload, TruckTypeRecord } from "@/types/truck-types.types";
+import type { TruckTypeLinkedRef, TruckTypePayload, TruckTypeRecord } from "@/types/truck-types.types";
 
 const PAGE_SIZE = 20;
 const STATUS_FILTERS = ["All", "ACTIVE", "INACTIVE"] as const;
 
 type BookingCategoryOption = { value: string; label: string };
 
-function formatLabel(value: string) {
+function formatLabel(value: string | null | undefined) {
+  if (!value) return "—";
   if (value === "All") return "All";
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatCategoryLabel(category: string, options: BookingCategoryOption[]) {
-  const match = options.find((option) => option.value === category || option.label === category);
-  return match?.label ?? formatLabel(category);
+function normalizeLinkedCategories(items?: TruckTypeLinkedRef[] | string[]): TruckTypeLinkedRef[] {
+  if (!items?.length) return [];
+  if (typeof items[0] === "string") {
+    return (items as string[]).map((id) => ({ id, name: id }));
+  }
+  return items as TruckTypeLinkedRef[];
+}
+
+function extractLinkedCategoryIds(
+  items?: TruckTypeLinkedRef[] | string[],
+  explicitIds?: string[],
+): string[] {
+  if (explicitIds?.length) return explicitIds;
+  return normalizeLinkedCategories(items).map((item) => item.id);
+}
+
+function resolveCategoryLabel(category: TruckTypeLinkedRef, options: BookingCategoryOption[]) {
+  const match = options.find((option) => option.value === category.id || option.label === category.name);
+  return match?.label ?? category.name ?? formatLabel(category.id);
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -153,7 +170,7 @@ function TruckTypeFormModal({
     setName(source.name ?? "");
     setDescription(source.description ?? "");
     setStatus(source.status ?? "ACTIVE");
-    setCategories(new Set(source.linked_booking_categories ?? []));
+    setCategories(new Set(extractLinkedCategoryIds(source.linked_booking_categories, source.linked_booking_category_ids)));
     setInitialized(true);
   }, [mode, detail, detailLoading, truckType, initialized]);
 
@@ -498,7 +515,7 @@ export function TruckTypesPanel() {
       name: item.name,
       description: item.description ?? "",
       status: "INACTIVE",
-      linked_booking_categories: item.linked_booking_categories ?? [],
+      linked_booking_categories: extractLinkedCategoryIds(item.linked_booking_categories, item.linked_booking_category_ids),
     };
     updateTruckType.mutate(
       { id: item.id, payload },
@@ -702,14 +719,14 @@ export function TruckTypesPanel() {
                           {item.description && (
                             <p className="mt-0.5 truncate text-[11px] text-gray-400">{item.description}</p>
                           )}
-                          {(item.linked_booking_categories?.length ?? 0) > 0 && (
+                          {normalizeLinkedCategories(item.linked_booking_categories).length > 0 && (
                             <div className="mt-1.5 flex flex-wrap gap-1">
-                              {item.linked_booking_categories!.map((category) => (
+                              {normalizeLinkedCategories(item.linked_booking_categories).map((category) => (
                                 <span
-                                  key={category}
+                                  key={category.id}
                                   className="rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700"
                                 >
-                                  {formatCategoryLabel(category, bookingCategoryOptions)}
+                                  {resolveCategoryLabel(category, bookingCategoryOptions)}
                                 </span>
                               ))}
                             </div>
