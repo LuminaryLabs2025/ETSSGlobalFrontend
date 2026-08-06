@@ -35,6 +35,7 @@ import {
   LayoutGrid,
   Wifi,
   WifiOff,
+  DoorOpen,
 } from "lucide-react";
 import {
   BarChart,
@@ -57,10 +58,15 @@ import type {
   TerminalDisplayStatus,
   TerminalsSummaryResponse,
   TerminalBarrierStatus,
-  TerminalHoursMode,
-  EditTerminalInformationPayload,
+  TerminalWritePayload,
 } from "@/types/terminals.types";
-import { getTerminalDisplayStatus } from "@/types/terminals.types";
+import {
+  getTerminalDisplayStatus,
+  extractTerminalBarrierIds,
+  resolveTerminalBarrierNumber,
+  resolveTerminalBarrierOperationalStatus,
+} from "@/types/terminals.types";
+import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { useTerminals } from "@/hooks/terminals/useTerminals";
 import { useTerminal } from "@/hooks/terminals/useTerminal";
 import { useTerminalsSummary } from "@/hooks/terminals/useTerminalsSummary";
@@ -69,10 +75,16 @@ import {
   useDisableTerminal,
   useArchiveTerminal,
   useEditTerminalInformation,
+  useCreateTerminal,
 } from "@/hooks/terminals/useTerminalActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
+import {
+  barrierOverlapError,
+  findOverlappingBarrierIds,
+  toggleBarrierSelection,
+} from "@/lib/barrier-assignment";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -104,14 +116,28 @@ const TOGGLEABLE_COLUMNS = [
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
 
-const BOOKING_CATEGORY_OPTIONS = [
-  { value: "IMPORT", label: "Import" },
-  { value: "EXPORT", label: "Export" },
-  { value: "EMPTY", label: "Empty" },
-  { value: "DOMESTIC", label: "Domestic" },
+const TERMINAL_FORM_TYPES = [
+  { value: "PORT_TERMINAL", label: "Port Terminal" },
+  { value: "NON_PORT_TERMINAL", label: "Non-Port Terminal" },
+] as const;
+
+const TERMINAL_LOCATIONS = [
+  { value: "APAPA", label: "Apapa Zone" },
+  { value: "TINCAN", label: "Tincan Zone" },
+] as const;
+
+const TERMINAL_BOOKING_STATUSES = [
+  { value: "OPEN", label: "Open" },
+  { value: "CLOSED", label: "Closed" },
 ] as const;
 
 // ─── Helpers ───
+function fieldInputClass(hasError: boolean) {
+  return `w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
+    hasError ? "border-red-300" : "border-gray-200"
+  }`;
+}
+
 function formatTimestamp(ts: string) {
   return new Date(ts).toLocaleString("en-NG", {
     day: "2-digit",
@@ -146,12 +172,6 @@ function formatTimeWindow(
   if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
   if (!from?.trim() || !to?.trim()) return "—";
   return `${from} to ${to}`;
-}
-
-function resolveHoursMode(hours?: TerminalDetail["operational_hours"]): TerminalHoursMode {
-  if (hours?.all_day) return "ALL_DAY";
-  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
-  return "ALL_DAY";
 }
 
 function DrawerSection({
@@ -283,70 +303,151 @@ function ConfirmDialog({
   );
 }
 
-// ─── Edit Terminal Information Modal ───
-function EditTerminalInformationModal({
+// ─── Terminal Form Modal (create / edit) ───
+function TerminalFormModal({
+  mode,
   terminal,
   onClose,
   onSaved,
 }: {
-  terminal: Terminal;
+  mode: "create" | "edit";
+  terminal?: Terminal;
   onClose: () => void;
-  onSaved: (updates: EditTerminalInformationPayload) => void;
+  onSaved?: (payload?: TerminalWritePayload) => void;
 }) {
-  const { data: detail, isLoading: detailLoading } = useTerminal(terminal.id);
+  const { data: detail, isLoading: detailLoading } = useTerminal(
+    mode === "edit" && terminal ? terminal.id : null,
+  );
+  const createTerminal = useCreateTerminal();
   const editTerminal = useEditTerminalInformation();
+  const { data: barriersData, isLoading: barriersLoading } = useBarriers({
+    limit: 100,
+    status: "ACTIVE",
+  });
 
-  const [dailyCapacity, setDailyCapacity] = useState("");
-  const [hoursMode, setHoursMode] = useState<TerminalHoursMode>("ALL_DAY");
-  const [opensAt, setOpensAt] = useState("06:00");
-  const [closesAt, setClosesAt] = useState("22:00");
-  const [categories, setCategories] = useState<Set<string>>(new Set());
-  const [categoryMenuOpen, setCategoryMenuOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [terminalType, setTerminalType] = useState<Terminal["terminal_type"]>("PORT_TERMINAL");
+  const [location, setLocation] = useState<Terminal["location"]>("APAPA");
+  const [address, setAddress] = useState("");
+  const [dailyCapacity, setDailyCapacity] = useState("0");
+  const [trucksPerHour, setTrucksPerHour] = useState("0");
+  const [hourlyTat, setHourlyTat] = useState("0");
+  const [status, setStatus] = useState<Terminal["status"]>("ACTIVE");
+  const [bookingStatus, setBookingStatus] = useState<Terminal["booking_status"]>("OPEN");
+  const [entryBarrierIds, setEntryBarrierIds] = useState<Set<string>>(new Set());
+  const [exitBarrierIds, setExitBarrierIds] = useState<Set<string>>(new Set());
+  const [entryBarrierMenuOpen, setEntryBarrierMenuOpen] = useState(false);
+  const [exitBarrierMenuOpen, setExitBarrierMenuOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
+    if (mode === "create") {
+      setInitialized(true);
+      return;
+    }
     if (initialized) return;
     if (detailLoading && !detail) return;
 
     const source = detail ?? terminal;
-    setDailyCapacity(String(source.approved_daily_truck_capacity));
-    const hours = detail?.operational_hours;
-    setHoursMode(resolveHoursMode(hours));
-    setOpensAt(hours?.opens_at?.trim() || "06:00");
-    setClosesAt(hours?.closes_at?.trim() || "22:00");
-    setCategories(new Set(detail?.linked_booking_categories ?? []));
-    setInitialized(true);
-  }, [detail, detailLoading, terminal, initialized]);
+    if (!source) return;
 
-  function toggleCategory(value: string) {
-    setCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return next;
+    setName(source.name ?? "");
+    setTerminalType(source.terminal_type);
+    setLocation(source.location);
+    setAddress(source.address ?? "");
+    setDailyCapacity(String(source.approved_daily_truck_capacity ?? 0));
+    setTrucksPerHour(String(source.approved_trucks_per_hour ?? 0));
+    setHourlyTat(String(source.hourly_truck_tat_minutes ?? 0));
+    setStatus(source.status);
+    setBookingStatus(source.booking_status);
+    setEntryBarrierIds(new Set(extractTerminalBarrierIds(detail?.entry_barriers)));
+    setExitBarrierIds(new Set(extractTerminalBarrierIds(detail?.exit_barriers)));
+    setInitialized(true);
+  }, [mode, detail, detailLoading, terminal, initialized]);
+
+  const barrierOptions = barriersData?.data ?? [];
+  const isPending = createTerminal.isPending || editTerminal.isPending;
+  const isEdit = mode === "edit";
+
+  function toggleEntryBarrier(id: string) {
+    const { selected, otherSelected } = toggleBarrierSelection(id, entryBarrierIds, exitBarrierIds);
+    setEntryBarrierIds(selected);
+    setExitBarrierIds(otherSelected);
+    setErrors((prev) => {
+      if (!prev.barriers) return prev;
+      const { barriers, ...rest } = prev;
+      return rest;
     });
+  }
+
+  function toggleExitBarrier(id: string) {
+    const { selected, otherSelected } = toggleBarrierSelection(id, exitBarrierIds, entryBarrierIds);
+    setExitBarrierIds(selected);
+    setEntryBarrierIds(otherSelected);
+    setErrors((prev) => {
+      if (!prev.barriers) return prev;
+      const { barriers, ...rest } = prev;
+      return rest;
+    });
+  }
+
+  function resolveBarrierLabel(id: string, kind: "entry" | "exit") {
+    const fromCatalog = barrierOptions.find((barrier) => barrier.id === id);
+    if (fromCatalog) return fromCatalog.barrier_id_number;
+    const fromDetail =
+      kind === "entry"
+        ? detail?.entry_barriers?.find((barrier) => barrier.id === id)
+        : detail?.exit_barriers?.find((barrier) => barrier.id === id);
+    return fromDetail ? resolveTerminalBarrierNumber(fromDetail) : id;
+  }
+
+  const selectedEntryBarrierLabels = Array.from(entryBarrierIds).map((id) =>
+    resolveBarrierLabel(id, "entry"),
+  );
+  const selectedExitBarrierLabels = Array.from(exitBarrierIds).map((id) =>
+    resolveBarrierLabel(id, "exit"),
+  );
+
+  function buildPayload(): TerminalWritePayload {
+    return {
+      name: name.trim(),
+      terminal_type: terminalType,
+      location,
+      address: address.trim(),
+      approved_daily_truck_capacity: Number(dailyCapacity),
+      approved_trucks_per_hour: Number(trucksPerHour),
+      hourly_truck_tat_minutes: Number(hourlyTat),
+      status,
+      booking_status: bookingStatus,
+      entry_barrier_ids: Array.from(entryBarrierIds),
+      exit_barrier_ids: Array.from(exitBarrierIds),
+    };
   }
 
   function validate() {
     const nextErrors: Record<string, string> = {};
-    const capacity = Number(dailyCapacity);
+    if (!name.trim()) nextErrors.name = "Terminal name is required.";
+    if (!address.trim()) nextErrors.address = "Address is required.";
 
-    if (!dailyCapacity.trim() || Number.isNaN(capacity) || capacity <= 0) {
-      nextErrors.dailyCapacity = "Enter a valid daily authorised capacity greater than 0.";
+    const daily = Number(dailyCapacity);
+    const hourly = Number(trucksPerHour);
+    const tat = Number(hourlyTat);
+
+    if (dailyCapacity.trim() === "" || Number.isNaN(daily) || daily < 0) {
+      nextErrors.dailyCapacity = "Enter a valid daily capacity (0 or greater).";
+    }
+    if (trucksPerHour.trim() === "" || Number.isNaN(hourly) || hourly < 0) {
+      nextErrors.trucksPerHour = "Enter a valid trucks-per-hour value (0 or greater).";
+    }
+    if (hourlyTat.trim() === "" || Number.isNaN(tat) || tat < 0) {
+      nextErrors.hourlyTat = "Enter a valid hourly TAT in minutes (0 or greater).";
     }
 
-    if (hoursMode === "CUSTOM") {
-      if (!opensAt || !closesAt) {
-        nextErrors.operationalHours = "Both opening and closing times are required.";
-      } else if (opensAt >= closesAt) {
-        nextErrors.operationalHours = "Opening time must be before closing time.";
-      }
-    }
-
-    if (categories.size === 0) {
-      nextErrors.categories = "Select at least one booking category.";
-    }
+    const overlapError = barrierOverlapError(
+      findOverlappingBarrierIds(entryBarrierIds, exitBarrierIds),
+    );
+    if (overlapError) nextErrors.barriers = overlapError;
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -354,43 +455,52 @@ function EditTerminalInformationModal({
 
   function handleSave() {
     if (!validate()) return;
+    const payload = buildPayload();
 
-    const payload: EditTerminalInformationPayload = {
-      approved_daily_truck_capacity: Number(dailyCapacity),
-      operational_hours_mode: hoursMode,
-      operational_hours: hoursMode === "ALL_DAY"
-        ? { all_day: true, opens_at: null, closes_at: null }
-        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
-      linked_booking_categories: Array.from(categories),
-    };
+    if (mode === "create") {
+      createTerminal.mutate(payload, {
+        onSuccess: () => {
+          onSaved?.(payload);
+          onClose();
+        },
+      });
+      return;
+    }
 
+    if (!terminal) return;
     editTerminal.mutate(
       { id: terminal.id, payload },
       {
         onSuccess: () => {
-          onSaved(payload);
+          onSaved?.(payload);
           onClose();
         },
       },
     );
   }
 
-  const selectedCategoryLabels = BOOKING_CATEGORY_OPTIONS
-    .filter((option) => categories.has(option.value))
-    .map((option) => option.label);
-
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
+      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
-              <Edit2 className="h-4 w-4 text-emerald-400" />
+              {isEdit ? (
+                <Edit2 className="h-4 w-4 text-emerald-400" />
+              ) : (
+                <Plus className="h-4 w-4 text-emerald-400" />
+              )}
             </div>
             <div>
-              <h2 className="text-sm font-bold text-gray-900">Edit Terminal Information</h2>
-              <p className="text-xs text-gray-500">{terminal.name}</p>
+              <h2 className="text-sm font-bold text-gray-900">
+                {isEdit ? "Edit Terminal Information" : "Add New Terminal"}
+              </h2>
+              <p className="text-xs text-gray-500">
+                {isEdit
+                  ? `Update terminal details and barrier assignments for ${terminal?.name ?? "this terminal"}`
+                  : "Register a new port or non-port terminal on the platform"}
+              </p>
             </div>
           </div>
           <button
@@ -403,144 +513,284 @@ function EditTerminalInformationModal({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          {detailLoading && !initialized && (
+          {isEdit && detailLoading && !initialized && (
             <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
               Loading terminal settings...
             </div>
           )}
 
-          <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Terminal Daily Authorised Capacity <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={dailyCapacity}
-              onChange={(e) => setDailyCapacity(e.target.value)}
-              className={`w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
-                errors.dailyCapacity ? "border-red-300" : "border-gray-200"
-              }`}
-              placeholder="e.g. 800"
-            />
-            <p className="mt-1 text-[11px] text-gray-400">Maximum number of trucks authorised per day.</p>
-            {errors.dailyCapacity && <p className="mt-1 text-xs text-red-500">{errors.dailyCapacity}</p>}
-          </div>
-
-          <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Terminal Operational Hours <span className="text-red-500">*</span>
-            </label>
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="radio"
-                  name="hoursMode"
-                  checked={hoursMode === "ALL_DAY"}
-                  onChange={() => setHoursMode("ALL_DAY")}
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">All Day</p>
-                  <p className="text-[11px] text-gray-500">Terminal operates 24 hours.</p>
-                </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Terminal Name <span className="text-red-500">*</span>
               </label>
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="radio"
-                  name="hoursMode"
-                  checked={hoursMode === "CUSTOM"}
-                  onChange={() => setHoursMode("CUSTOM")}
-                  className="mt-0.5 h-4 w-4 accent-emerald-600"
-                />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
-                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
-                  {hoursMode === "CUSTOM" && (
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
-                        <input
-                          type="time"
-                          value={opensAt}
-                          onChange={(e) => setOpensAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
-                        <input
-                          type="time"
-                          value={closesAt}
-                          onChange={(e) => setClosesAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Apapa Port Terminal A"
+                className={fieldInputClass(!!errors.name)}
+              />
+              {errors.name && <p className="mt-1 text-xs text-red-500">{errors.name}</p>}
             </div>
-            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
+
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Terminal Type <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={terminalType}
+                onChange={(e) => setTerminalType(e.target.value as Terminal["terminal_type"])}
+                className={fieldInputClass(false)}
+              >
+                {TERMINAL_FORM_TYPES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Location <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className={fieldInputClass(false)}
+              >
+                {TERMINAL_LOCATIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Address <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                placeholder="Full terminal address"
+                className={fieldInputClass(!!errors.address)}
+              />
+              {errors.address && <p className="mt-1 text-xs text-red-500">{errors.address}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Daily Truck Capacity
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={dailyCapacity}
+                onChange={(e) => setDailyCapacity(e.target.value)}
+                className={fieldInputClass(!!errors.dailyCapacity)}
+              />
+              {errors.dailyCapacity && <p className="mt-1 text-xs text-red-500">{errors.dailyCapacity}</p>}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Trucks Per Hour
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={trucksPerHour}
+                onChange={(e) => setTrucksPerHour(e.target.value)}
+                className={fieldInputClass(!!errors.trucksPerHour)}
+              />
+              {errors.trucksPerHour && <p className="mt-1 text-xs text-red-500">{errors.trucksPerHour}</p>}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Hourly TAT (minutes)
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={hourlyTat}
+                onChange={(e) => setHourlyTat(e.target.value)}
+                className={fieldInputClass(!!errors.hourlyTat)}
+              />
+              {errors.hourlyTat && <p className="mt-1 text-xs text-red-500">{errors.hourlyTat}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Operational Status
+              </label>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as Terminal["status"])}
+                className={fieldInputClass(false)}
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                Booking Status
+              </label>
+              <select
+                value={bookingStatus}
+                onChange={(e) => setBookingStatus(e.target.value as Terminal["booking_status"])}
+                className={fieldInputClass(false)}
+              >
+                {TERMINAL_BOOKING_STATUSES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Linked Booking Categories <span className="text-red-500">*</span>
+              Entry Barriers
             </label>
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setCategoryMenuOpen((open) => !open)}
-                className={`flex w-full items-center justify-between rounded-lg border bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
-                  errors.categories ? "border-red-300" : "border-gray-200"
-                }`}
+                onClick={() => setEntryBarrierMenuOpen((open) => !open)}
+                disabled={barriersLoading}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
               >
-                <span className={selectedCategoryLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
-                  {selectedCategoryLabels.length > 0
-                    ? selectedCategoryLabels.join(", ")
-                    : "Select booking categories..."}
+                <span className={selectedEntryBarrierLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {barriersLoading
+                    ? "Loading barriers..."
+                    : selectedEntryBarrierLabels.length > 0
+                      ? selectedEntryBarrierLabels.join(", ")
+                      : "Select entry barriers..."}
                 </span>
-                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${categoryMenuOpen ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-400 transition-transform ${entryBarrierMenuOpen ? "rotate-180" : ""}`}
+                />
               </button>
-              {categoryMenuOpen && (
+              {entryBarrierMenuOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setCategoryMenuOpen(false)} />
-                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                    {BOOKING_CATEGORY_OPTIONS.map((option) => (
-                      <label
-                        key={option.value}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={categories.has(option.value)}
-                          onChange={() => toggleCategory(option.value)}
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
+                  <div className="fixed inset-0 z-10" onClick={() => setEntryBarrierMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {barrierOptions.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-gray-400">No active barriers available.</p>
+                    ) : (
+                      barrierOptions.map((barrier) => (
+                        <label
+                          key={barrier.id}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={entryBarrierIds.has(barrier.id)}
+                            onChange={() => toggleEntryBarrier(barrier.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs font-medium">{barrier.barrier_id_number}</span>
+                            <span className="ml-1.5 text-[11px] text-gray-400">{barrier.service_provider_name}</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
                   </div>
                 </>
               )}
             </div>
-            {categories.size > 0 && (
+            {entryBarrierIds.size > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
-                {selectedCategoryLabels.map((label) => (
+                {selectedEntryBarrierLabels.map((label) => (
                   <span
                     key={label}
-                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 font-mono text-[11px] font-medium text-blue-700"
                   >
-                    <Tags className="h-3 w-3" />
+                    <DoorOpen className="h-3 w-3" />
                     {label}
                   </span>
                 ))}
               </div>
             )}
-            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised booking categories this terminal can accept.</p>
-            {errors.categories && <p className="mt-1 text-xs text-red-500">{errors.categories}</p>}
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Exit Barriers
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setExitBarrierMenuOpen((open) => !open)}
+                disabled={barriersLoading}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+              >
+                <span className={selectedExitBarrierLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {barriersLoading
+                    ? "Loading barriers..."
+                    : selectedExitBarrierLabels.length > 0
+                      ? selectedExitBarrierLabels.join(", ")
+                      : "Select exit barriers..."}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-400 transition-transform ${exitBarrierMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {exitBarrierMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setExitBarrierMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {barrierOptions.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-gray-400">No active barriers available.</p>
+                    ) : (
+                      barrierOptions.map((barrier) => (
+                        <label
+                          key={barrier.id}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={exitBarrierIds.has(barrier.id)}
+                            onChange={() => toggleExitBarrier(barrier.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs font-medium">{barrier.barrier_id_number}</span>
+                            <span className="ml-1.5 text-[11px] text-gray-400">{barrier.service_provider_name}</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            {exitBarrierIds.size > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedExitBarrierLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 font-mono text-[11px] font-medium text-violet-700"
+                  >
+                    <DoorOpen className="h-3 w-3" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">
+              Create barriers under Infrastructure → Barriers first, then assign them here. A barrier
+              cannot be both entry and exit — selecting it in one list removes it from the other.
+            </p>
+            {errors.barriers && <p className="mt-1 text-xs text-red-500">{errors.barriers}</p>}
           </div>
         </div>
 
@@ -548,7 +798,7 @@ function EditTerminalInformationModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={editTerminal.isPending}
+            disabled={isPending}
             className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
@@ -556,11 +806,11 @@ function EditTerminalInformationModal({
           <button
             type="button"
             onClick={handleSave}
-            disabled={editTerminal.isPending || (detailLoading && !initialized)}
+            disabled={isPending || (isEdit && detailLoading && !initialized)}
             className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {editTerminal.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save Changes
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isEdit ? "Save Changes" : "Create Terminal"}
           </button>
         </div>
       </div>
@@ -738,8 +988,10 @@ function TerminalDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {entryBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <span className="font-mono text-xs font-medium text-gray-800">
+                      {resolveTerminalBarrierNumber(barrier)}
+                    </span>
+                    <BarrierStatusBadge status={resolveTerminalBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
@@ -753,8 +1005,10 @@ function TerminalDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {exitBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <span className="font-mono text-xs font-medium text-gray-800">
+                      {resolveTerminalBarrierNumber(barrier)}
+                    </span>
+                    <BarrierStatusBadge status={resolveTerminalBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
@@ -1116,6 +1370,7 @@ export function TerminalsPage() {
   );
   const [selectedTerminal, setSelectedTerminal] = useState<Terminal | null>(null);
   const [editingTerminal, setEditingTerminal] = useState<Terminal | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -1153,10 +1408,21 @@ export function TerminalsPage() {
     setPage(1);
   }
 
-  function handleEditSaved(terminalId: string, payload: EditTerminalInformationPayload) {
+  function handleEditSaved(terminalId: string, payload: TerminalWritePayload) {
     setSelectedTerminal((current) =>
       current?.id === terminalId
-        ? { ...current, approved_daily_truck_capacity: payload.approved_daily_truck_capacity }
+        ? {
+            ...current,
+            name: payload.name,
+            terminal_type: payload.terminal_type,
+            location: payload.location,
+            address: payload.address,
+            approved_daily_truck_capacity: payload.approved_daily_truck_capacity,
+            approved_trucks_per_hour: payload.approved_trucks_per_hour,
+            hourly_truck_tat_minutes: payload.hourly_truck_tat_minutes,
+            status: payload.status,
+            booking_status: payload.booking_status,
+          }
         : current,
     );
   }
@@ -1245,11 +1511,23 @@ export function TerminalsPage() {
         />
       )}
 
+      {showCreateModal && (
+        <TerminalFormModal
+          mode="create"
+          onClose={() => setShowCreateModal(false)}
+          onSaved={() => setShowCreateModal(false)}
+        />
+      )}
+
       {editingTerminal && (
-        <EditTerminalInformationModal
+        <TerminalFormModal
+          mode="edit"
           terminal={editingTerminal}
           onClose={() => setEditingTerminal(null)}
-          onSaved={(payload) => handleEditSaved(editingTerminal.id, payload)}
+          onSaved={(payload) => {
+            if (payload) handleEditSaved(editingTerminal.id, payload);
+            setEditingTerminal(null);
+          }}
         />
       )}
 
@@ -1277,7 +1555,7 @@ export function TerminalsPage() {
       <SummaryPanel
         summary={summary}
         isLoading={summaryLoading}
-        onAddTerminal={() => toast.info("Add Terminal form — coming soon.")}
+        onAddTerminal={() => setShowCreateModal(true)}
       />
 
       {/* ─── Charts ─── */}

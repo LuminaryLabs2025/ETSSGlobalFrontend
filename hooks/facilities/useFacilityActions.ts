@@ -89,6 +89,21 @@ export function useDeleteFacility() {
   });
 }
 
+export function useCreateFacility() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: facilitiesService.create,
+    onSuccess: (response) => {
+      invalidateFacilities(queryClient);
+      toast.success(response.message ?? "Facility created successfully.");
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to create facility");
+    },
+  });
+}
+
 export function useEditFacilityInformation() {
   const queryClient = useQueryClient();
 

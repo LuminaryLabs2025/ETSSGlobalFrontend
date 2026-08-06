@@ -40,7 +40,10 @@ export type TransitParkBarrierStatus = "ONLINE" | "OFFLINE";
 
 export interface TransitParkBarrier {
   id: string;
-  status: TransitParkBarrierStatus;
+  barrier_id_number?: string;
+  operational_status?: TransitParkBarrierStatus;
+  /** @deprecated use operational_status */
+  status?: TransitParkBarrierStatus;
 }
 
 export interface TransitParkMovementTime {
@@ -118,8 +121,8 @@ export interface TransitParksListResponse {
   };
 }
 
-// ─── Update Payload ───
-export interface UpdateTransitParkPayload {
+// ─── Write Payload (create / update) ───
+export interface TransitParkWritePayload {
   name: string;
   transit_park_type: TransitParkType;
   location: TransitParkLocation;
@@ -128,17 +131,34 @@ export interface UpdateTransitParkPayload {
   approved_truck_exits_per_hour: number;
   bay_capacity: number;
   status: TransitParkStatus;
+  entry_barrier_ids: string[];
+  exit_barrier_ids: string[];
 }
 
-// ─── Action Response ───
-export interface TransitParkActionResponse {
-  message: string;
+export type CreateTransitParkPayload = TransitParkWritePayload;
+export type UpdateTransitParkPayload = TransitParkWritePayload;
+
+/** @deprecated use TransitParkWritePayload */
+export type EditTransitParkInformationPayload = TransitParkWritePayload;
+
+export function extractTransitParkBarrierIds(barriers?: TransitParkBarrier[]): string[] {
+  return (barriers ?? []).map((barrier) => barrier.id);
+}
+
+export function resolveTransitParkBarrierNumber(barrier: TransitParkBarrier): string {
+  return barrier.barrier_id_number?.trim() || barrier.id;
+}
+
+export function resolveTransitParkBarrierOperationalStatus(
+  barrier: TransitParkBarrier,
+): TransitParkBarrierStatus {
+  return barrier.operational_status ?? barrier.status ?? "OFFLINE";
 }
 
 export function toUpdatePayload(
   park: TransitPark,
-  overrides: Partial<UpdateTransitParkPayload> = {}
-): UpdateTransitParkPayload {
+  overrides: Partial<TransitParkWritePayload> = {},
+): TransitParkWritePayload {
   return {
     name: park.name,
     transit_park_type: park.transit_park_type,
@@ -148,16 +168,13 @@ export function toUpdatePayload(
     approved_truck_exits_per_hour: park.approved_truck_exits_per_hour,
     bay_capacity: park.bay_capacity,
     status: park.status,
+    entry_barrier_ids: [],
+    exit_barrier_ids: [],
     ...overrides,
   };
 }
 
-// ─── Edit Transit Park Information ───
-export type TransitParkHoursMode = "ALL_DAY" | "CUSTOM";
-
-export interface EditTransitParkInformationPayload {
-  approved_truck_exits_per_hour: number;
-  operational_hours_mode: TransitParkHoursMode;
-  operational_hours?: TransitParkOperationalHours | null;
-  linked_terminal_operators: string[];
+// ─── Action Response ───
+export interface TransitParkActionResponse {
+  message: string;
 }

@@ -8,6 +8,7 @@ import type {
   FacilityActionResponse,
   Facility,
   FacilityDetail,
+  CreateFacilityPayload,
   UpdateFacilityPayload,
   FacilityStatus,
   FacilityTimeslotsListParams,
@@ -30,6 +31,11 @@ export const facilitiesService = {
   getById: async (id: string): Promise<FacilityDetail> => {
     const { data } = await apiClient.get<ApiResponse<FacilityDetail>>(FACILITIES.BY_ID(id));
     return data.data;
+  },
+
+  create: async (payload: CreateFacilityPayload): Promise<FacilityActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<FacilityDetail>>(FACILITIES.LIST, payload);
+    return { message: data.message };
   },
 
   update: async (id: string, payload: UpdateFacilityPayload): Promise<FacilityActionResponse> => {

@@ -71,6 +71,12 @@ import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
+import { FacilityFormModal } from "@/components/dashboard/FacilityFormModal";
+import {
+  barrierOverlapError,
+  findOverlappingBarrierIds,
+  toggleBarrierSelection,
+} from "@/lib/barrier-assignment";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -748,20 +754,24 @@ function EditFacilityInformationModal({
   const barrierOptions = barriersData?.data ?? [];
 
   function toggleEntryBarrier(id: string) {
-    setEntryBarrierIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    const { selected, otherSelected } = toggleBarrierSelection(id, entryBarrierIds, exitBarrierIds);
+    setEntryBarrierIds(selected);
+    setExitBarrierIds(otherSelected);
+    setErrors((prev) => {
+      if (!prev.barriers) return prev;
+      const { barriers, ...rest } = prev;
+      return rest;
     });
   }
 
   function toggleExitBarrier(id: string) {
-    setExitBarrierIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    const { selected, otherSelected } = toggleBarrierSelection(id, exitBarrierIds, entryBarrierIds);
+    setExitBarrierIds(selected);
+    setEntryBarrierIds(otherSelected);
+    setErrors((prev) => {
+      if (!prev.barriers) return prev;
+      const { barriers, ...rest } = prev;
+      return rest;
     });
   }
 
@@ -772,6 +782,11 @@ function EditFacilityInformationModal({
     if (!trucksPerHour.trim() || Number.isNaN(hourlyRate) || hourlyRate <= 0) {
       nextErrors.trucksPerHour = "Enter a valid trucks-per-hour override greater than 0.";
     }
+
+    const overlapError = barrierOverlapError(
+      findOverlappingBarrierIds(entryBarrierIds, exitBarrierIds),
+    );
+    if (overlapError) nextErrors.barriers = overlapError;
 
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -999,6 +1014,10 @@ function EditFacilityInformationModal({
               Barriers assigned as exit gates for this facility.
             </p>
           </div>
+          {errors.barriers && <p className="text-xs text-red-500">{errors.barriers}</p>}
+          <p className="text-[11px] text-gray-400">
+            A barrier cannot be both entry and exit — selecting it in one list removes it from the other.
+          </p>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
@@ -1155,6 +1174,7 @@ export function FacilitiesPage() {
 
   const [selectedFacility, setSelectedFacility] = useState<FacilityDetail | null>(null);
   const [editingFacility, setEditingFacility] = useState<Facility | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -1311,6 +1331,15 @@ export function FacilitiesPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {showCreateModal && (
+        <FacilityFormModal
+          defaultParkType={TAB_TO_PARK_TYPE[activeTab]}
+          entityLabel={cfg.entityLabel}
+          addLabel={cfg.addLabel}
+          onClose={() => setShowCreateModal(false)}
+          onSaved={() => setShowCreateModal(false)}
+        />
+      )}
       {editingFacility && (
         <EditFacilityInformationModal
           facility={editingFacility}
@@ -1344,7 +1373,7 @@ export function FacilitiesPage() {
         summary={summary}
         tab={activeTab}
         isLoading={summaryLoading}
-        onAdd={() => toast.info(`${cfg.addLabel} form — coming soon.`)}
+        onAdd={() => setShowCreateModal(true)}
       />
 
       {/* ─── Module Header + Tabs ─── */}

@@ -26,6 +26,7 @@ import {
   Smartphone,
   Download,
   FileText,
+  LayoutGrid,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FacilityParkType } from "@/types/facilities.types";
@@ -52,13 +53,18 @@ import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdow
 const PAGE_SIZE = 20;
 const SITE_TYPE = "FACILITY" as const;
 
-type TabId = "bonded" | "truck_parks" | "fish_van";
+type TabId = "all" | "bonded" | "truck_parks" | "fish_van";
 
-const TAB_TO_PARK_TYPE: Record<TabId, FacilityParkType> = {
+const TAB_TO_PARK_TYPE: Record<Exclude<TabId, "all">, FacilityParkType> = {
   bonded: "BONDED_TERMINAL",
   truck_parks: "TRUCK_PARK",
   fish_van: "FISH_VAN_PARK",
 };
+
+function getTabFilters(tab: TabId): { site_type?: typeof SITE_TYPE; park_type?: FacilityParkType } {
+  if (tab === "all") return {};
+  return { site_type: SITE_TYPE, park_type: TAB_TO_PARK_TYPE[tab] };
+}
 
 const TAB_CONFIG: Record<
   TabId,
@@ -71,6 +77,14 @@ const TAB_CONFIG: Record<
     Icon: React.ElementType;
   }
 > = {
+  all: {
+    label: "All",
+    entityLabel: "All Barriers",
+    description: "Full barrier catalog — unlinked barriers appear here after creation.",
+    integratedLabel: "All registered barriers across facility types",
+    searchPlaceholder: "Search by barrier ID number or service provider...",
+    Icon: LayoutGrid,
+  },
   bonded: {
     label: "Bonded Terminals",
     entityLabel: "Bonded Terminal",
@@ -681,7 +695,7 @@ function BarrierDetailDrawer({
 }
 
 export function BarriersPage() {
-  const [activeTab, setActiveTab] = useState<TabId>("bonded");
+  const [activeTab, setActiveTab] = useState<TabId>("all");
   const [page, setPage] = useState(1);
   const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [operationalFilter, setOperationalFilter] = useState<(typeof OPERATIONAL_STATUS_FILTERS)[number]>("All");
@@ -704,7 +718,7 @@ export function BarriersPage() {
   } | null>(null);
 
   const disableBarrier = useDisableBarrier();
-  const parkType = TAB_TO_PARK_TYPE[activeTab];
+  const tabFilters = getTabFilters(activeTab);
   const cfg = TAB_CONFIG[activeTab];
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
@@ -712,19 +726,16 @@ export function BarriersPage() {
     page,
     limit: PAGE_SIZE,
     search: debouncedSearch || undefined,
-    site_type: SITE_TYPE,
-    park_type: parkType,
+    ...tabFilters,
     operational_status: operationalFilter !== "All" ? operationalFilter : undefined,
     barrier_type: barrierTypeFilter !== "All" ? barrierTypeFilter : undefined,
     status: adminStatusFilter !== "All" ? adminStatusFilter : undefined,
   };
 
   const { data, isLoading, isError } = useBarriers(listParams);
-  const { data: summary, isLoading: summaryLoading } = useBarriersSummary({
-    site_type: SITE_TYPE,
-    park_type: parkType,
-  });
+  const { data: summary, isLoading: summaryLoading } = useBarriersSummary(tabFilters);
 
+  const allSummary = useBarriersSummary();
   const bondedSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "BONDED_TERMINAL" });
   const truckSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "TRUCK_PARK" });
   const fishSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "FISH_VAN_PARK" });
@@ -735,6 +746,7 @@ export function BarriersPage() {
   const currentPage = meta?.page ?? page;
 
   const tabCounts: Record<TabId, number> = {
+    all: allSummary.data?.all.total ?? 0,
     bonded: bondedSummary.data?.all.total ?? 0,
     truck_parks: truckSummary.data?.all.total ?? 0,
     fish_van: fishSummary.data?.all.total ?? 0,
@@ -791,7 +803,7 @@ export function BarriersPage() {
     }
   }
 
-  const TABS: TabId[] = ["bonded", "truck_parks", "fish_van"];
+  const TABS: TabId[] = ["all", "bonded", "truck_parks", "fish_van"];
 
   return (
     <div className="space-y-5 p-6">
@@ -1102,8 +1114,9 @@ export function BarriersPage() {
                         <DoorOpen className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No barriers found</p>
                         <p className="mt-1 text-xs text-gray-400">
-                          No barriers linked to this category yet — create barriers then assign them on
-                          Facility edit.
+                          {activeTab === "all"
+                            ? "No barriers in the catalog yet — add a barrier to get started."
+                            : "No barriers linked to this category yet — create barriers then assign them on Facility edit."}
                         </p>
                       </td>
                     </tr>

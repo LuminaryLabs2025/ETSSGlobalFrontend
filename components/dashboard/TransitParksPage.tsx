@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   ParkingCircle,
   Truck,
@@ -59,10 +59,13 @@ import type {
   TransitParkType,
   TransitParkBarrierStatus,
   TransitParksSummaryResponse,
-  EditTransitParkInformationPayload,
-  TransitParkHoursMode,
+  TransitParkWritePayload,
 } from "@/types/transit-parks.types";
-import { getTransitParkDisplayStatus } from "@/types/transit-parks.types";
+import {
+  getTransitParkDisplayStatus,
+  resolveTransitParkBarrierNumber,
+  resolveTransitParkBarrierOperationalStatus,
+} from "@/types/transit-parks.types";
 import { useTransitParks } from "@/hooks/transit-parks/useTransitParks";
 import { useTransitPark } from "@/hooks/transit-parks/useTransitPark";
 import { useTransitParksSummary } from "@/hooks/transit-parks/useTransitParksSummary";
@@ -70,11 +73,11 @@ import {
   useEnableTransitPark,
   useDisableTransitPark,
   useArchiveTransitPark,
-  useEditTransitParkInformation,
 } from "@/hooks/transit-parks/useTransitParkActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
+import { TransitParkFormModal } from "@/components/dashboard/TransitParkFormModal";
 
 // ─── Constants ───
 const PAGE_SIZE = 10;
@@ -112,17 +115,6 @@ const TOGGLEABLE_COLUMNS = [
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
-
-const TERMINAL_OPERATOR_OPTIONS = [
-  { value: "APM Terminals Apapa", label: "APM Terminals Apapa" },
-  { value: "Tincan Island Terminal", label: "Tincan Island Terminal" },
-  { value: "Lekki Deep Sea Terminal", label: "Lekki Deep Sea Terminal" },
-  { value: "Onne Port Terminal", label: "Onne Port Terminal" },
-  { value: "Grimaldi Agency Nigeria", label: "Grimaldi Agency Nigeria" },
-  { value: "Maersk Line Nigeria", label: "Maersk Line Nigeria" },
-  { value: "Bolloré Ports & Terminals", label: "Bolloré Ports & Terminals" },
-  { value: "ENL Consortium", label: "ENL Consortium" },
-] as const;
 
 // ─── Tab Config ───
 const TAB_CONFIG: Record<TabId, {
@@ -195,20 +187,6 @@ function formatTimeWindow(
   if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
   if (!from?.trim() || !to?.trim()) return "—";
   return `${from} to ${to}`;
-}
-
-function resolveHoursMode(hours?: TransitParkDetail["operational_hours"]): TransitParkHoursMode {
-  if (hours?.all_day) return "ALL_DAY";
-  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
-  return "ALL_DAY";
-}
-
-function buildTerminalOperatorOptions(linked: string[]) {
-  const known = new Set<string>(TERMINAL_OPERATOR_OPTIONS.map((option) => option.value));
-  const extras = linked
-    .filter((name) => name.trim() && !known.has(name))
-    .map((name) => ({ value: name, label: name }));
-  return [...TERMINAL_OPERATOR_OPTIONS, ...extras];
 }
 
 function DrawerSection({
@@ -496,8 +474,10 @@ function TransitParkDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {entryBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <span className="font-mono text-xs font-medium text-gray-800">
+                      {resolveTransitParkBarrierNumber(barrier)}
+                    </span>
+                    <BarrierStatusBadge status={resolveTransitParkBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
@@ -511,8 +491,10 @@ function TransitParkDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {exitBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <span className="font-mono text-xs font-medium text-gray-800">
+                      {resolveTransitParkBarrierNumber(barrier)}
+                    </span>
+                    <BarrierStatusBadge status={resolveTransitParkBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
@@ -633,289 +615,6 @@ function TransitParkDetailDrawer({
               )}
             </div>
           )}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ─── Edit Transit Park Information Modal ───
-function EditTransitParkInformationModal({
-  park,
-  tab,
-  onClose,
-  onSaved,
-}: {
-  park: TransitPark;
-  tab: TabId;
-  onClose: () => void;
-  onSaved: (updates: EditTransitParkInformationPayload) => void;
-}) {
-  const cfg = TAB_CONFIG[tab];
-  const { data: detail, isLoading: detailLoading } = useTransitPark(park.id);
-  const editPark = useEditTransitParkInformation();
-
-  const [trucksPerHour, setTrucksPerHour] = useState("");
-  const [hoursMode, setHoursMode] = useState<TransitParkHoursMode>("ALL_DAY");
-  const [opensAt, setOpensAt] = useState("06:00");
-  const [closesAt, setClosesAt] = useState("22:00");
-  const [operators, setOperators] = useState<Set<string>>(new Set());
-  const [operatorMenuOpen, setOperatorMenuOpen] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [initialized, setInitialized] = useState(false);
-
-  useEffect(() => {
-    if (initialized) return;
-    if (detailLoading && !detail) return;
-
-    const source = detail ?? park;
-    setTrucksPerHour(String(source.approved_truck_exits_per_hour));
-    const hours = detail?.operational_hours;
-    setHoursMode(resolveHoursMode(hours));
-    setOpensAt(hours?.opens_at?.trim() || "06:00");
-    setClosesAt(hours?.closes_at?.trim() || "22:00");
-    setOperators(new Set(detail?.linked_terminal_operators ?? []));
-    setInitialized(true);
-  }, [detail, detailLoading, park, initialized]);
-
-  const operatorOptions = buildTerminalOperatorOptions(Array.from(operators));
-
-  function toggleOperator(value: string) {
-    setOperators((prev) => {
-      const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
-      return next;
-    });
-  }
-
-  function validate() {
-    const nextErrors: Record<string, string> = {};
-    const hourlyRate = Number(trucksPerHour);
-
-    if (!trucksPerHour.trim() || Number.isNaN(hourlyRate) || hourlyRate <= 0) {
-      nextErrors.trucksPerHour = "Enter a valid trucks-per-hour override greater than 0.";
-    }
-
-    if (hoursMode === "CUSTOM") {
-      if (!opensAt || !closesAt) {
-        nextErrors.operationalHours = "Both opening and closing times are required.";
-      } else if (opensAt >= closesAt) {
-        nextErrors.operationalHours = "Opening time must be before closing time.";
-      }
-    }
-
-    setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  }
-
-  function handleSave() {
-    if (!validate()) return;
-
-    const payload: EditTransitParkInformationPayload = {
-      approved_truck_exits_per_hour: Number(trucksPerHour),
-      operational_hours_mode: hoursMode,
-      operational_hours: hoursMode === "ALL_DAY"
-        ? { all_day: true, opens_at: null, closes_at: null }
-        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
-      linked_terminal_operators: Array.from(operators),
-    };
-
-    editPark.mutate(
-      { id: park.id, payload },
-      {
-        onSuccess: () => {
-          onSaved(payload);
-          onClose();
-        },
-      },
-    );
-  }
-
-  const selectedOperatorLabels = operatorOptions
-    .filter((option) => operators.has(option.value))
-    .map((option) => option.label);
-
-  return (
-    <>
-      <div className="fixed inset-0 z-[60] bg-black/40" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-[70] flex max-h-[90vh] w-full max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-gray-200 bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#0f1e2e]">
-              <Edit2 className="h-4 w-4 text-emerald-400" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Edit Transit Park Information</h2>
-              <p className="text-xs text-gray-500">{park.name} · {cfg.entityLabel}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          {detailLoading && !initialized && (
-            <div className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs text-gray-500">
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
-              Loading transit park settings...
-            </div>
-          )}
-
-          <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Number of Trucks Released Per Hour (Override) <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="number"
-              min={1}
-              value={trucksPerHour}
-              onChange={(e) => setTrucksPerHour(e.target.value)}
-              className={`w-full rounded-lg border bg-gray-50 px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 ${
-                errors.trucksPerHour ? "border-red-300" : "border-gray-200"
-              }`}
-              placeholder="e.g. 13"
-            />
-            <p className="mt-1 text-[11px] text-gray-400">SuperAdmin override for authorised truck release rate.</p>
-            {errors.trucksPerHour && <p className="mt-1 text-xs text-red-500">{errors.trucksPerHour}</p>}
-          </div>
-
-          <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Transit Park Operational Hours <span className="text-red-500">*</span>
-            </label>
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="radio"
-                  name="transitParkHoursMode"
-                  checked={hoursMode === "ALL_DAY"}
-                  onChange={() => setHoursMode("ALL_DAY")}
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">All Day</p>
-                  <p className="text-[11px] text-gray-500">Transit park operates 24 hours.</p>
-                </div>
-              </label>
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="radio"
-                  name="transitParkHoursMode"
-                  checked={hoursMode === "CUSTOM"}
-                  onChange={() => setHoursMode("CUSTOM")}
-                  className="mt-0.5 h-4 w-4 accent-emerald-600"
-                />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
-                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
-                  {hoursMode === "CUSTOM" && (
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
-                        <input
-                          type="time"
-                          value={opensAt}
-                          onChange={(e) => setOpensAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
-                        <input
-                          type="time"
-                          value={closesAt}
-                          onChange={(e) => setClosesAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </label>
-            </div>
-            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Linked Terminal Operators
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setOperatorMenuOpen((open) => !open)}
-                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
-              >
-                <span className={selectedOperatorLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
-                  {selectedOperatorLabels.length > 0
-                    ? selectedOperatorLabels.join(", ")
-                    : "Select terminal operators..."}
-                </span>
-                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${operatorMenuOpen ? "rotate-180" : ""}`} />
-              </button>
-              {operatorMenuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setOperatorMenuOpen(false)} />
-                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                    {operatorOptions.map((option) => (
-                      <label
-                        key={option.value}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={operators.has(option.value)}
-                          onChange={() => toggleOperator(option.value)}
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-            {operators.size > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {selectedOperatorLabels.map((label) => (
-                  <span
-                    key={label}
-                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
-                  >
-                    <Landmark className="h-3 w-3" />
-                    {label}
-                  </span>
-                ))}
-              </div>
-            )}
-            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised terminal operators this transit park can release trucks to.</p>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={editPark.isPending}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={editPark.isPending || (detailLoading && !initialized)}
-            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {editPark.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save Changes
-          </button>
         </div>
       </div>
     </>
@@ -1121,6 +820,7 @@ export function TransitParksPage() {
 
   const [selectedPark, setSelectedPark] = useState<TransitParkDetail | null>(null);
   const [editingPark, setEditingPark] = useState<TransitPark | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const [confirm, setConfirm] = useState<{
     title: string;
     message: string;
@@ -1170,14 +870,19 @@ export function TransitParksPage() {
 
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
-  function handleEditSaved(parkId: string, payload: EditTransitParkInformationPayload) {
+  function handleEditSaved(parkId: string, payload: TransitParkWritePayload) {
     setSelectedPark((current) =>
       current?.id === parkId
         ? {
             ...current,
+            name: payload.name,
+            transit_park_type: payload.transit_park_type,
+            location: payload.location,
+            address: payload.address,
+            approved_truck_capacity: payload.approved_truck_capacity,
             approved_truck_exits_per_hour: payload.approved_truck_exits_per_hour,
-            linked_terminal_operators: payload.linked_terminal_operators,
-            operational_hours: payload.operational_hours ?? undefined,
+            bay_capacity: payload.bay_capacity,
+            status: payload.status,
           }
         : current,
     );
@@ -1263,12 +968,28 @@ export function TransitParksPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
+      {showCreateModal && (
+        <TransitParkFormModal
+          mode="create"
+          defaultParkType={TAB_TO_TYPE[activeTab]}
+          entityLabel={cfg.entityLabel}
+          addLabel={cfg.addLabel}
+          onClose={() => setShowCreateModal(false)}
+          onSaved={() => setShowCreateModal(false)}
+        />
+      )}
       {editingPark && (
-        <EditTransitParkInformationModal
+        <TransitParkFormModal
+          mode="edit"
           park={editingPark}
-          tab={activeTab}
+          defaultParkType={editingPark.transit_park_type}
+          entityLabel={cfg.entityLabel}
+          addLabel={cfg.addLabel}
           onClose={() => setEditingPark(null)}
-          onSaved={(payload) => handleEditSaved(editingPark.id, payload)}
+          onSaved={(payload) => {
+            if (payload) handleEditSaved(editingPark.id, payload);
+            setEditingPark(null);
+          }}
         />
       )}
       {selectedPark && (
@@ -1296,7 +1017,7 @@ export function TransitParksPage() {
         summary={summary}
         tab={activeTab}
         isLoading={summaryLoading}
-        onAdd={() => toast.info(`${cfg.addLabel} form — coming soon.`)}
+        onAdd={() => setShowCreateModal(true)}
       />
 
       {/* ─── Charts (always visible) ─── */}
