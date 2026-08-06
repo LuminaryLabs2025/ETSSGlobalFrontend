@@ -13,7 +13,6 @@ import {
   Clock,
   MapPin,
   CreditCard,
-  DoorOpen,
   Smartphone,
   Radio,
   ChevronRight,
@@ -49,10 +48,6 @@ import {
   useFacilityTypesCount,
 } from "@/components/dashboard/app-options/FacilityTypesPanel";
 import { LocationsPanel, useLocationsCount } from "@/components/dashboard/app-options/LocationsPanel";
-import {
-  TerminalGatesPanel,
-  useTerminalGatesCount,
-} from "@/components/dashboard/app-options/TerminalGatesPanel";
 import {
   HandheldDevicesPanel,
   useHandheldDevicesCount,
@@ -168,15 +163,6 @@ const MOCK_OPTIONS: OptionCategory[] = [
     icon: CreditCard,
     description: "Payment types and associated transaction rates",
     color: "text-green-600 bg-green-50 border-green-200",
-    isLive: true,
-    items: [],
-  },
-  {
-    key: "terminal-gates",
-    label: "Terminal Gates",
-    icon: DoorOpen,
-    description: "Entry and exit gate configurations",
-    color: "text-slate-600 bg-slate-50 border-slate-200",
     isLive: true,
     items: [],
   },
@@ -403,8 +389,6 @@ function renderLivePanel(key: string) {
       return <FacilityTimeslotsPanel />;
     case "locations":
       return <LocationsPanel />;
-    case "terminal-gates":
-      return <TerminalGatesPanel />;
     case "handheld-devices":
       return <HandheldDevicesPanel />;
     case "rfid-tags":
@@ -432,7 +416,6 @@ export function AppOptionsPage() {
   const parkTypesTotal = useParkTypesCount();
   const facilityTypesTotal = useFacilityTypesCount();
   const locationsTotal = useLocationsCount();
-  const terminalGatesTotal = useTerminalGatesCount();
   const handheldDevicesTotal = useHandheldDevicesCount();
   const rfidTagsTotal = useRfidTagsCount();
 
@@ -447,7 +430,6 @@ export function AppOptionsPage() {
     "payment-types": paymentTypesTotal,
     "facility-timeslots": facilityTimeslotsTotal,
     locations: locationsTotal,
-    "terminal-gates": terminalGatesTotal,
     "handheld-devices": handheldDevicesTotal,
     "rfid-tags": rfidTagsTotal,
   };
@@ -473,7 +455,6 @@ export function AppOptionsPage() {
     parkTypesTotal +
     facilityTypesTotal +
     locationsTotal +
-    terminalGatesTotal +
     handheldDevicesTotal +
     rfidTagsTotal;
   const totalActive = MOCK_OPTIONS.reduce(
