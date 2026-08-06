@@ -3,6 +3,8 @@ import { facilitiesService } from "@/services/facilities.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
 import type { Facility, UpdateFacilityPayload, EditFacilityInformationPayload } from "@/types/facilities.types";
+import { buildFacilityEditPayload } from "@/types/facilities.types";
+
 import { AxiosError } from "axios";
 
 function invalidateFacilities(queryClient: ReturnType<typeof useQueryClient>) {
@@ -92,22 +94,24 @@ export function useEditFacilityInformation() {
 
   return useMutation({
     mutationFn: async ({
-      id: _id,
-      payload: _payload,
+      id,
+      facility,
+      payload,
     }: {
       id: string;
+      facility: Facility;
       payload: EditFacilityInformationPayload;
     }) => {
-      // Mock until dedicated edit-information endpoint is available.
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      return { message: "Facility information updated successfully." };
+      const updatePayload = buildFacilityEditPayload(facility, payload);
+      return facilitiesService.update(id, updatePayload);
     },
-    onSuccess: (response) => {
+    onSuccess: (response, variables) => {
       invalidateFacilities(queryClient);
-      toast.success(response.message);
+      queryClient.invalidateQueries({ queryKey: ["facilities", "detail", variables.id] });
+      toast.success(response.message ?? "Facility information updated successfully.");
     },
-    onError: () => {
-      toast.error("Failed to update facility information");
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to update facility information");
     },
   });
 }

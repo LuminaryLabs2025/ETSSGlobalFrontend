@@ -262,10 +262,12 @@ export const LOCATIONS = {
   BY_ID: (id: string) => `/locations/${id}`,
 } as const;
 
-// ─── Terminal Gates ───
-export const TERMINAL_GATES = {
-  LIST: "/terminal-gates",
-  BY_ID: (id: string) => `/terminal-gates/${id}`,
+// ─── Barriers ───
+export const BARRIERS = {
+  LIST: "/barriers",
+  SUMMARY: "/barriers/summary",
+  BY_ID: (id: string) => `/barriers/${id}`,
+  DISABLE: (id: string) => `/barriers/${id}/disable`,
 } as const;
 
 // ─── Handheld Devices ───

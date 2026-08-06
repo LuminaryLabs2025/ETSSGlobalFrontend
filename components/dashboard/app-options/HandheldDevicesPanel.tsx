@@ -28,12 +28,18 @@ import {
 } from "@/hooks/handheld-devices/useHandheldDeviceActions";
 import { useUsers } from "@/hooks/users/useUsers";
 import { useLocations } from "@/hooks/locations/useLocations";
+import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 import type {
   HandheldDevice,
   HandheldDevicePayload,
   HandheldDeviceUser,
 } from "@/types/handheld-devices.types";
+import {
+  buildHandheldDevicePayload,
+  resolveHandheldBarrierLabel,
+} from "@/types/handheld-devices.types";
+import type { BarrierRecord } from "@/types/barriers.types";
 import type { LocationRecord } from "@/types/locations.types";
 import type { PlatformUser } from "@/types/users.types";
 
@@ -43,11 +49,6 @@ const STATUS_FILTERS = ["All", "ACTIVE", "INACTIVE"] as const;
 function formatLabel(value: string) {
   if (value === "All") return "All";
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function displayOrDash(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : "—";
 }
 
 function formatUserName(user?: HandheldDeviceUser | PlatformUser | null) {
@@ -69,6 +70,12 @@ function formatUserOption(user: PlatformUser) {
 function formatLocationOption(location: LocationRecord) {
   const type = location.type ? formatLabel(location.type) : "Location";
   return `${location.name} (${type})`;
+}
+
+function formatBarrierOption(barrier: BarrierRecord) {
+  const provider = barrier.service_provider_name?.trim();
+  if (provider) return `${barrier.barrier_id_number} — ${provider}`;
+  return barrier.barrier_id_number;
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -155,12 +162,17 @@ function HandheldDeviceFormModal({
     page: 1,
     limit: 100,
   });
+  const { data: barriersData, isLoading: barriersLoading } = useBarriers({
+    page: 1,
+    limit: 100,
+  });
 
   const createDevice = useCreateHandheldDevice();
   const updateDevice = useUpdateHandheldDevice();
 
   const [name, setName] = useState("");
   const [userId, setUserId] = useState("");
+  const [barrierId, setBarrierId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [status, setStatus] = useState("ACTIVE");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -168,21 +180,46 @@ function HandheldDeviceFormModal({
 
   const users = usersData?.data ?? [];
   const locations = locationsData?.data ?? [];
+  const barriers = barriersData?.data ?? [];
+  const barrierSelectOptions = useMemo(() => {
+    const options = [...barriers];
+    const assigned = detail?.barrier ?? device?.barrier;
+    const assignedId = barrierId || assigned?.id;
+    if (assignedId && !options.some((barrier) => barrier.id === assignedId) && assigned) {
+      options.unshift({
+        id: assigned.id,
+        barrier_id_number: assigned.barrier_id_number ?? assigned.id,
+        service_provider_name: assigned.service_provider_name ?? assigned.name ?? "",
+        operational_status: "OFFLINE",
+        status: "ACTIVE",
+        barrier_type: null,
+        linked_facility: null,
+        linked_site: null,
+        linked_sites: [],
+        linked_handheld: null,
+        linked_handhelds: [],
+        created_at: "",
+        updated_at: "",
+      });
+    }
+    return options;
+  }, [barriers, barrierId, detail?.barrier, device?.barrier]);
 
   useEffect(() => {
     if (mode === "create") {
-      if (!usersLoading && !locationsLoading) setInitialized(true);
+      if (!usersLoading && !locationsLoading && !barriersLoading) setInitialized(true);
       return;
     }
     if (initialized) return;
     if (detailLoading && !detail) return;
-    if (usersLoading || locationsLoading) return;
+    if (usersLoading || locationsLoading || barriersLoading) return;
 
     const source = detail ?? device;
     if (!source) return;
 
     setName(source.name ?? "");
     setUserId(source.user_id ?? "");
+    setBarrierId(source.barrier_id ?? "");
     setLocationId(source.location_id ?? "");
     setStatus(source.status ?? "ACTIVE");
     setInitialized(true);
@@ -194,13 +231,16 @@ function HandheldDeviceFormModal({
     initialized,
     usersLoading,
     locationsLoading,
+    barriersLoading,
   ]);
 
   function validate() {
     const nextErrors: Record<string, string> = {};
     if (!name.trim()) nextErrors.name = "Portal name is required.";
     if (!userId.trim()) nextErrors.user_id = "Assigned user is required.";
-    if (!locationId.trim()) nextErrors.location_id = "Location is required.";
+    if (!barrierId.trim() && !locationId.trim()) {
+      nextErrors.barrier_id = "Select a linked barrier or location.";
+    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
@@ -208,12 +248,13 @@ function HandheldDeviceFormModal({
   function handleSave() {
     if (!validate()) return;
 
-    const payload: HandheldDevicePayload = {
-      name: name.trim(),
-      user_id: userId.trim(),
-      location_id: locationId.trim(),
+    const payload: HandheldDevicePayload = buildHandheldDevicePayload({
+      name,
+      user_id: userId,
+      barrier_id: barrierId,
+      location_id: locationId,
       status,
-    };
+    });
 
     if (mode === "create") {
       createDevice.mutate(payload, {
@@ -256,7 +297,7 @@ function HandheldDeviceFormModal({
               </h2>
               <p className="text-xs text-gray-500">
                 {mode === "create"
-                  ? "Link a device portal to a user and gate/facility location"
+                  ? "Link a device portal to a user and barrier (or optional location)"
                   : device?.name}
               </p>
             </div>
@@ -319,18 +360,43 @@ function HandheldDeviceFormModal({
 
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-              Location (Gate / Facility / Terminal) <span className="text-red-500">*</span>
+              Linked Barrier <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={barrierId}
+              onChange={(e) => setBarrierId(e.target.value)}
+              disabled={barriersLoading}
+              className={`w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 disabled:opacity-60 ${
+                errors.barrier_id ? "border-red-300" : "border-gray-200"
+              }`}
+            >
+              <option value="">
+                {barriersLoading ? "Loading barriers…" : "Select barrier from catalog…"}
+              </option>
+              {barrierSelectOptions.map((barrier) => (
+                <option key={barrier.id} value={barrier.id}>
+                  {formatBarrierOption(barrier)}
+                </option>
+              ))}
+            </select>
+            {errors.barrier_id && <p className="mt-1 text-xs text-red-500">{errors.barrier_id}</p>}
+            <p className="mt-1 text-[11px] text-gray-500">
+              Preferred. Assign the handheld to a barrier registered under Infrastructure → Barriers.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+              Location (optional)
             </label>
             <select
               value={locationId}
               onChange={(e) => setLocationId(e.target.value)}
               disabled={locationsLoading}
-              className={`w-full rounded-lg border bg-white px-3 py-2.5 text-sm outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 disabled:opacity-60 ${
-                errors.location_id ? "border-red-300" : "border-gray-200"
-              }`}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 disabled:opacity-60"
             >
               <option value="">
-                {locationsLoading ? "Loading locations…" : "Select location…"}
+                {locationsLoading ? "Loading locations…" : "No location (barrier only)…"}
               </option>
               {locations.map((location) => (
                 <option key={location.id} value={location.id}>
@@ -338,12 +404,8 @@ function HandheldDeviceFormModal({
                 </option>
               ))}
             </select>
-            {errors.location_id && (
-              <p className="mt-1 text-xs text-red-500">{errors.location_id}</p>
-            )}
             <p className="mt-1 text-[11px] text-gray-500">
-              Link to entry/exit gates, bonded terminals, truck parks, fish-van parks, pregates, or
-              EPT locations configured under Locations.
+              Optional facility timeslot location. Required only if no barrier is selected.
             </p>
           </div>
 
@@ -447,6 +509,7 @@ export function HandheldDevicesPanel() {
 
   const { data: usersData } = useUsers({ page: 1, limit: 100 });
   const { data: locationsData } = useLocations({ page: 1, limit: 100 });
+  const { data: barriersData } = useBarriers({ page: 1, limit: 200 });
 
   const userNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -463,6 +526,14 @@ export function HandheldDevicesPanel() {
     }
     return map;
   }, [locationsData]);
+
+  const barrierNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const barrier of barriersData?.data ?? []) {
+      map.set(barrier.id, formatBarrierOption(barrier));
+    }
+    return map;
+  }, [barriersData]);
 
   useEffect(() => {
     debounceTimer.current = setTimeout(() => {
@@ -487,16 +558,6 @@ export function HandheldDevicesPanel() {
   const currentPage = meta?.page ?? page;
   const hasActiveFilters = search || statusFilter !== "All";
 
-  const formatTimestamp = (ts: string) =>
-    new Date(ts).toLocaleString("en-NG", {
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
-
   function resolveUserLabel(item: HandheldDevice) {
     if (item.user) {
       const name = formatUserName(item.user);
@@ -507,6 +568,7 @@ export function HandheldDevicesPanel() {
   }
 
   function resolveLocationLabel(item: HandheldDevice) {
+    if (!item.location_id?.trim()) return "—";
     if (item.location?.name) {
       const type = item.location.type ? formatLabel(item.location.type) : "";
       return type ? `${item.location.name} (${type})` : item.location.name;
@@ -514,16 +576,21 @@ export function HandheldDevicesPanel() {
     return locationNameMap.get(item.location_id) ?? item.location_id;
   }
 
+  function resolveBarrierLabel(item: HandheldDevice) {
+    return resolveHandheldBarrierLabel(item, barrierNameMap);
+  }
+
   function updateStatus(item: HandheldDevice, nextStatus: "ACTIVE" | "INACTIVE") {
     updateDevice.mutate(
       {
         id: item.id,
-        payload: {
+        payload: buildHandheldDevicePayload({
           name: item.name,
           user_id: item.user_id,
-          location_id: item.location_id,
+          location_id: item.location_id ?? undefined,
+          barrier_id: item.barrier_id ?? undefined,
           status: nextStatus,
-        },
+        }),
       },
       {
         onSuccess: () =>
@@ -545,7 +612,7 @@ export function HandheldDevicesPanel() {
     if (action === "activate") {
       setConfirm({
         title: "Activate Handheld Portal",
-        message: `Activate "${item.name}"? The assigned user will regain portal access at this location.`,
+        message: `Activate "${item.name}"? The assigned user will regain portal access.`,
         confirmLabel: "Activate",
         onConfirm: () => {
           setConfirm(null);
@@ -617,7 +684,7 @@ export function HandheldDevicesPanel() {
             <div>
               <h2 className="text-sm font-bold text-gray-900">Handheld User Portals</h2>
               <p className="text-xs text-gray-500">
-                Manage handheld devices linked to users, companies, and gate/facility locations
+                Manage handheld devices linked to users, barriers, and optional facility locations
               </p>
             </div>
           </div>
@@ -640,10 +707,9 @@ export function HandheldDevicesPanel() {
           <div className="flex items-start gap-2">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fuchsia-600" />
             <p className="text-[11px] leading-relaxed text-fuchsia-800">
-              Create handheld user portals for bonded terminals, truck parks, fish-van parks,
-              pregates, EPTs, and port entry/exit gates. Each portal links a device to a user account
-              and a configured location for access control at gates, facilities, transit parks, and
-              terminals. SuperAdmin only.
+              Create handheld user portals for gate operators and facility staff. Each portal links a
+              device to a user account and a barrier from the catalog (recommended). An optional
+              facility timeslot location can also be assigned when needed. SuperAdmin only.
             </p>
           </div>
         </div>
@@ -728,16 +794,13 @@ export function HandheldDevicesPanel() {
                       Assigned User
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Linked Barrier
+                    </th>
+                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Location
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Status
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Creation Timestamp
                     </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Actions
@@ -747,7 +810,7 @@ export function HandheldDevicesPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center">
+                      <td colSpan={7} className="px-4 py-12 text-center">
                         <Smartphone className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No handheld portals found</p>
                       </td>
@@ -765,18 +828,13 @@ export function HandheldDevicesPanel() {
                           <p className="text-xs text-gray-600">{resolveUserLabel(item)}</p>
                         </td>
                         <td className="px-4 py-3">
+                          <p className="font-mono text-xs text-gray-600">{resolveBarrierLabel(item)}</p>
+                        </td>
+                        <td className="px-4 py-3">
                           <p className="text-xs text-gray-600">{resolveLocationLabel(item)}</p>
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={item.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">
-                            {item.created_at ? formatTimestamp(item.created_at) : "—"}
-                          </p>
                         </td>
                         <td className="px-4 py-3 text-center">
                           <ActionsMenu item={item} onAction={handleAction} />

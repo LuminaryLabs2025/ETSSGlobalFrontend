@@ -45,7 +45,11 @@ export type FacilityBarrierStatus = "ONLINE" | "OFFLINE";
 
 export interface FacilityBarrier {
   id: string;
-  status: FacilityBarrierStatus;
+  barrier_id_number?: string;
+  barrier_type?: "ENTRY" | "EXIT";
+  operational_status?: FacilityBarrierStatus;
+  /** @deprecated use operational_status */
+  status?: FacilityBarrierStatus;
 }
 
 export interface FacilityMovementTime {
@@ -129,6 +133,8 @@ export interface UpdateFacilityPayload {
   bay_capacity: number;
   daily_empty_evacuation_limit: number;
   status: FacilityStatus;
+  entry_barrier_ids: string[];
+  exit_barrier_ids: string[];
 }
 
 // ─── Action Response ───
@@ -151,6 +157,8 @@ export function toUpdatePayload(
     bay_capacity: facility.bay_capacity ?? 0,
     daily_empty_evacuation_limit: facility.daily_empty_evacuation_limit ?? 0,
     status: facility.status,
+    entry_barrier_ids: [],
+    exit_barrier_ids: [],
     ...overrides,
   };
 }
@@ -160,9 +168,35 @@ export type FacilityHoursMode = "ALL_DAY" | "CUSTOM";
 
 export interface EditFacilityInformationPayload {
   approved_truck_exits_per_hour: number;
-  operational_hours_mode: FacilityHoursMode;
-  operational_hours?: FacilityOperationalHours | null;
-  linked_transit_parks: string[];
+  entry_barrier_ids: string[];
+  exit_barrier_ids: string[];
+}
+
+export function extractFacilityBarrierIds(barriers?: FacilityBarrier[]): string[] {
+  return (barriers ?? []).map((barrier) => barrier.id);
+}
+
+export function buildFacilityEditPayload(
+  facility: Facility,
+  edits: EditFacilityInformationPayload,
+): UpdateFacilityPayload {
+  return {
+    ...toUpdatePayload(facility, {
+      approved_truck_exits_per_hour: edits.approved_truck_exits_per_hour,
+    }),
+    entry_barrier_ids: edits.entry_barrier_ids,
+    exit_barrier_ids: edits.exit_barrier_ids,
+  };
+}
+
+export function resolveFacilityBarrierNumber(barrier: FacilityBarrier): string {
+  return barrier.barrier_id_number?.trim() || barrier.id;
+}
+
+export function resolveFacilityBarrierOperationalStatus(
+  barrier: FacilityBarrier,
+): FacilityBarrierStatus {
+  return barrier.operational_status ?? barrier.status ?? "OFFLINE";
 }
 
 // ─── Timeslot Assignment ───

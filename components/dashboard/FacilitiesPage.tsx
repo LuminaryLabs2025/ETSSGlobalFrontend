@@ -39,6 +39,7 @@ import {
   ParkingCircle,
   Wifi,
   WifiOff,
+  DoorOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -50,9 +51,13 @@ import type {
   FacilityBarrierStatus,
   FacilitiesSummaryResponse,
   EditFacilityInformationPayload,
-  FacilityHoursMode,
 } from "@/types/facilities.types";
-import { getFacilityDisplayStatus } from "@/types/facilities.types";
+import {
+  getFacilityDisplayStatus,
+  extractFacilityBarrierIds,
+  resolveFacilityBarrierNumber,
+  resolveFacilityBarrierOperationalStatus,
+} from "@/types/facilities.types";
 import { useFacilities } from "@/hooks/facilities/useFacilities";
 import { useFacility } from "@/hooks/facilities/useFacility";
 import { useFacilitiesSummary } from "@/hooks/facilities/useFacilitiesSummary";
@@ -63,6 +68,7 @@ import {
   useEditFacilityInformation,
 } from "@/hooks/facilities/useFacilityActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
@@ -110,24 +116,6 @@ const TOGGLEABLE_COLUMNS = [
 
 type ColumnKey = typeof TOGGLEABLE_COLUMNS[number]["key"];
 const ALL_COLUMN_KEYS = TOGGLEABLE_COLUMNS.map((c) => c.key);
-
-const LINKED_TRANSIT_PARK_OPTIONS = [
-  { value: "Apapa PG-A", label: "Apapa PG-A (Pregate)" },
-  { value: "Apapa PG-B", label: "Apapa PG-B (Pregate)" },
-  { value: "Tincan PG-A", label: "Tincan PG-A (Pregate)" },
-  { value: "Tincan PG-B", label: "Tincan PG-B (Pregate)" },
-  { value: "Mile 2 PG", label: "Mile 2 PG (Pregate)" },
-  { value: "Kirikiri PG", label: "Kirikiri PG (Pregate)" },
-  { value: "Maza Maza", label: "Maza Maza (Pregate)" },
-  { value: "Orile PG", label: "Orile PG (Pregate)" },
-  { value: "Apapa EPT-1", label: "Apapa EPT-1 (EPT)" },
-  { value: "Apapa EPT-2", label: "Apapa EPT-2 (EPT)" },
-  { value: "Tincan EPT-1", label: "Tincan EPT-1 (EPT)" },
-  { value: "Tincan EPT-2", label: "Tincan EPT-2 (EPT)" },
-  { value: "Mile 2 EPT", label: "Mile 2 EPT (EPT)" },
-  { value: "Kirikiri EPT", label: "Kirikiri EPT (EPT)" },
-  { value: "Orile EPT", label: "Orile EPT (EPT)" },
-] as const;
 
 // ─── Tab Config ───
 const TAB_CONFIG: Record<TabId, {
@@ -227,6 +215,8 @@ function formatCategoryLabel(category: string) {
     EXPORT: "Export",
     EMPTY: "Empty",
     DOMESTIC: "Domestic",
+    ENTRY: "Entry",
+    EXIT: "Exit",
   };
   return map[category] ?? category.replace(/_/g, " ");
 }
@@ -239,20 +229,6 @@ function formatTimeWindow(
   if (allDay || (!from?.trim() && !to?.trim())) return "All Day";
   if (!from?.trim() || !to?.trim()) return "—";
   return `${from} to ${to}`;
-}
-
-function resolveHoursMode(hours?: FacilityDetail["operational_hours"]): FacilityHoursMode {
-  if (hours?.all_day) return "ALL_DAY";
-  if (hours?.opens_at?.trim() && hours?.closes_at?.trim()) return "CUSTOM";
-  return "ALL_DAY";
-}
-
-function buildTransitParkOptions(linked: string[]) {
-  const known = new Set<string>(LINKED_TRANSIT_PARK_OPTIONS.map((option) => option.value));
-  const extras = linked
-    .filter((name) => name.trim() && !known.has(name))
-    .map((name) => ({ value: name, label: name }));
-  return [...LINKED_TRANSIT_PARK_OPTIONS, ...extras];
 }
 
 function DrawerSection({
@@ -564,13 +540,25 @@ function FacilityDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {entryBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <div className="flex min-w-0 items-center gap-2">
+                      <DoorOpen className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs font-medium text-gray-800">
+                          {resolveFacilityBarrierNumber(barrier)}
+                        </p>
+                        {barrier.barrier_type && (
+                          <p className="text-[10px] text-gray-400">{formatCategoryLabel(barrier.barrier_type)}</p>
+                        )}
+                      </div>
+                    </div>
+                    <BarrierStatusBadge status={resolveFacilityBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="px-4 py-3"><EmptySectionNote /></div>
+              <div className="px-4 py-3">
+                <EmptySectionNote message="No entry barriers assigned. Edit facility to link barriers from the catalog." />
+              </div>
             )}
           </DrawerSection>
 
@@ -579,13 +567,25 @@ function FacilityDetailDrawer({
               <div className="divide-y divide-gray-50">
                 {exitBarriers.map((barrier) => (
                   <div key={barrier.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                    <span className="font-mono text-xs font-medium text-gray-800">{barrier.id}</span>
-                    <BarrierStatusBadge status={barrier.status} />
+                    <div className="flex min-w-0 items-center gap-2">
+                      <DoorOpen className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs font-medium text-gray-800">
+                          {resolveFacilityBarrierNumber(barrier)}
+                        </p>
+                        {barrier.barrier_type && (
+                          <p className="text-[10px] text-gray-400">{formatCategoryLabel(barrier.barrier_type)}</p>
+                        )}
+                      </div>
+                    </div>
+                    <BarrierStatusBadge status={resolveFacilityBarrierOperationalStatus(barrier)} />
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="px-4 py-3"><EmptySectionNote /></div>
+              <div className="px-4 py-3">
+                <EmptySectionNote message="No exit barriers assigned. Edit facility to link barriers from the catalog." />
+              </div>
             )}
           </DrawerSection>
 
@@ -719,16 +719,18 @@ function EditFacilityInformationModal({
   onClose: () => void;
   onSaved: (updates: EditFacilityInformationPayload) => void;
 }) {
-  const cfg = TAB_CONFIG[tab];
   const { data: detail, isLoading: detailLoading } = useFacility(facility.id);
   const editFacility = useEditFacilityInformation();
+  const { data: barriersData, isLoading: barriersLoading } = useBarriers({
+    limit: 100,
+    status: "ACTIVE",
+  });
 
   const [trucksPerHour, setTrucksPerHour] = useState("");
-  const [hoursMode, setHoursMode] = useState<FacilityHoursMode>("ALL_DAY");
-  const [opensAt, setOpensAt] = useState("06:00");
-  const [closesAt, setClosesAt] = useState("22:00");
-  const [transitParks, setTransitParks] = useState<Set<string>>(new Set());
-  const [transitParkMenuOpen, setTransitParkMenuOpen] = useState(false);
+  const [entryBarrierIds, setEntryBarrierIds] = useState<Set<string>>(new Set());
+  const [exitBarrierIds, setExitBarrierIds] = useState<Set<string>>(new Set());
+  const [entryBarrierMenuOpen, setEntryBarrierMenuOpen] = useState(false);
+  const [exitBarrierMenuOpen, setExitBarrierMenuOpen] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [initialized, setInitialized] = useState(false);
 
@@ -738,21 +740,27 @@ function EditFacilityInformationModal({
 
     const source = detail ?? facility;
     setTrucksPerHour(String(source.approved_truck_exits_per_hour ?? 0));
-    const hours = detail?.operational_hours;
-    setHoursMode(resolveHoursMode(hours));
-    setOpensAt(hours?.opens_at?.trim() || "06:00");
-    setClosesAt(hours?.closes_at?.trim() || "22:00");
-    setTransitParks(new Set(detail?.linked_transit_parks ?? []));
+    setEntryBarrierIds(new Set(extractFacilityBarrierIds(detail?.entry_barriers)));
+    setExitBarrierIds(new Set(extractFacilityBarrierIds(detail?.exit_barriers)));
     setInitialized(true);
   }, [detail, detailLoading, facility, initialized]);
 
-  const transitParkOptions = buildTransitParkOptions(Array.from(transitParks));
+  const barrierOptions = barriersData?.data ?? [];
 
-  function toggleTransitPark(value: string) {
-    setTransitParks((prev) => {
+  function toggleEntryBarrier(id: string) {
+    setEntryBarrierIds((prev) => {
       const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleExitBarrier(id: string) {
+    setExitBarrierIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
@@ -765,14 +773,6 @@ function EditFacilityInformationModal({
       nextErrors.trucksPerHour = "Enter a valid trucks-per-hour override greater than 0.";
     }
 
-    if (hoursMode === "CUSTOM") {
-      if (!opensAt || !closesAt) {
-        nextErrors.operationalHours = "Both opening and closing times are required.";
-      } else if (opensAt >= closesAt) {
-        nextErrors.operationalHours = "Opening time must be before closing time.";
-      }
-    }
-
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
@@ -782,15 +782,12 @@ function EditFacilityInformationModal({
 
     const payload: EditFacilityInformationPayload = {
       approved_truck_exits_per_hour: Number(trucksPerHour),
-      operational_hours_mode: hoursMode,
-      operational_hours: hoursMode === "ALL_DAY"
-        ? { all_day: true, opens_at: null, closes_at: null }
-        : { all_day: false, opens_at: opensAt, closes_at: closesAt },
-      linked_transit_parks: Array.from(transitParks),
+      entry_barrier_ids: Array.from(entryBarrierIds),
+      exit_barrier_ids: Array.from(exitBarrierIds),
     };
 
     editFacility.mutate(
-      { id: facility.id, payload },
+      { id: facility.id, facility, payload },
       {
         onSuccess: () => {
           onSaved(payload);
@@ -800,9 +797,19 @@ function EditFacilityInformationModal({
     );
   }
 
-  const selectedTransitParkLabels = transitParkOptions
-    .filter((option) => transitParks.has(option.value))
-    .map((option) => option.label);
+  const selectedEntryBarrierLabels = Array.from(entryBarrierIds).map((id) => {
+    const fromCatalog = barrierOptions.find((barrier) => barrier.id === id);
+    if (fromCatalog) return fromCatalog.barrier_id_number;
+    const fromDetail = detail?.entry_barriers?.find((barrier) => barrier.id === id);
+    return fromDetail ? resolveFacilityBarrierNumber(fromDetail) : id;
+  });
+
+  const selectedExitBarrierLabels = Array.from(exitBarrierIds).map((id) => {
+    const fromCatalog = barrierOptions.find((barrier) => barrier.id === id);
+    if (fromCatalog) return fromCatalog.barrier_id_number;
+    const fromDetail = detail?.exit_barriers?.find((barrier) => barrier.id === id);
+    return fromDetail ? resolveFacilityBarrierNumber(fromDetail) : id;
+  });
 
   return (
     <>
@@ -815,7 +822,9 @@ function EditFacilityInformationModal({
             </div>
             <div>
               <h2 className="text-sm font-bold text-gray-900">Edit Facility Information</h2>
-              <p className="text-xs text-gray-500">{facility.name} · {cfg.entityLabel}</p>
+              <p className="text-xs text-gray-500">
+                Update truck release rate and barrier assignments for {facility.name}
+              </p>
             </div>
           </div>
           <button
@@ -854,115 +863,141 @@ function EditFacilityInformationModal({
           </div>
 
           <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Facility Operational Hours <span className="text-red-500">*</span>
-            </label>
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4">
-              <label className="flex cursor-pointer items-center gap-3">
-                <input
-                  type="radio"
-                  name="facilityHoursMode"
-                  checked={hoursMode === "ALL_DAY"}
-                  onChange={() => setHoursMode("ALL_DAY")}
-                  className="h-4 w-4 accent-emerald-600"
-                />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">All Day</p>
-                  <p className="text-[11px] text-gray-500">Facility operates 24 hours.</p>
-                </div>
-              </label>
-              <label className="flex cursor-pointer items-start gap-3">
-                <input
-                  type="radio"
-                  name="facilityHoursMode"
-                  checked={hoursMode === "CUSTOM"}
-                  onChange={() => setHoursMode("CUSTOM")}
-                  className="mt-0.5 h-4 w-4 accent-emerald-600"
-                />
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">Custom Hours</p>
-                  <p className="text-[11px] text-gray-500">Set authorised operating window.</p>
-                  {hoursMode === "CUSTOM" && (
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">From</label>
-                        <input
-                          type="time"
-                          value={opensAt}
-                          onChange={(e) => setOpensAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                      <div>
-                        <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">To</label>
-                        <input
-                          type="time"
-                          value={closesAt}
-                          onChange={(e) => setClosesAt(e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </label>
-            </div>
-            {errors.operationalHours && <p className="mt-1 text-xs text-red-500">{errors.operationalHours}</p>}
-          </div>
-
-          <div>
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-              Linked Transit Park(s)
+              Entry Barriers
             </label>
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setTransitParkMenuOpen((open) => !open)}
-                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+                onClick={() => setEntryBarrierMenuOpen((open) => !open)}
+                disabled={barriersLoading}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
               >
-                <span className={selectedTransitParkLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
-                  {selectedTransitParkLabels.length > 0
-                    ? selectedTransitParkLabels.join(", ")
-                    : "Select transit parks (Pregates & EPTs)..."}
+                <span className={selectedEntryBarrierLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {barriersLoading
+                    ? "Loading barriers..."
+                    : selectedEntryBarrierLabels.length > 0
+                      ? selectedEntryBarrierLabels.join(", ")
+                      : "Select entry barriers..."}
                 </span>
-                <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${transitParkMenuOpen ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-400 transition-transform ${entryBarrierMenuOpen ? "rotate-180" : ""}`}
+                />
               </button>
-              {transitParkMenuOpen && (
+              {entryBarrierMenuOpen && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setTransitParkMenuOpen(false)} />
+                  <div className="fixed inset-0 z-10" onClick={() => setEntryBarrierMenuOpen(false)} />
                   <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                    {transitParkOptions.map((option) => (
-                      <label
-                        key={option.value}
-                        className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={transitParks.has(option.value)}
-                          onChange={() => toggleTransitPark(option.value)}
-                          className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
-                        />
-                        {option.label}
-                      </label>
-                    ))}
+                    {barrierOptions.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-gray-400">No active barriers available.</p>
+                    ) : (
+                      barrierOptions.map((barrier) => (
+                        <label
+                          key={barrier.id}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={entryBarrierIds.has(barrier.id)}
+                            onChange={() => toggleEntryBarrier(barrier.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs font-medium">{barrier.barrier_id_number}</span>
+                            <span className="ml-1.5 text-[11px] text-gray-400">{barrier.service_provider_name}</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
                   </div>
                 </>
               )}
             </div>
-            {transitParks.size > 0 && (
+            {entryBarrierIds.size > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
-                {selectedTransitParkLabels.map((label) => (
+                {selectedEntryBarrierLabels.map((label) => (
                   <span
                     key={label}
-                    className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 font-mono text-[11px] font-medium text-blue-700"
                   >
-                    <ParkingCircle className="h-3 w-3" />
+                    <DoorOpen className="h-3 w-3" />
                     {label}
                   </span>
                 ))}
               </div>
             )}
-            <p className="mt-1 text-[11px] text-gray-400">NPA-authorised Pregates and EPTs that can receive trucks from this facility.</p>
+            <p className="mt-1 text-[11px] text-gray-400">
+              Barriers assigned as entry gates for this facility. Create barriers under Infrastructure → Barriers first.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              Exit Barriers
+            </label>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setExitBarrierMenuOpen((open) => !open)}
+                disabled={barriersLoading}
+                className="flex w-full items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-left text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100 disabled:opacity-60"
+              >
+                <span className={selectedExitBarrierLabels.length > 0 ? "text-gray-900" : "text-gray-400"}>
+                  {barriersLoading
+                    ? "Loading barriers..."
+                    : selectedExitBarrierLabels.length > 0
+                      ? selectedExitBarrierLabels.join(", ")
+                      : "Select exit barriers..."}
+                </span>
+                <ChevronDown
+                  className={`h-4 w-4 text-gray-400 transition-transform ${exitBarrierMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              {exitBarrierMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setExitBarrierMenuOpen(false)} />
+                  <div className="absolute bottom-full left-0 right-0 z-20 mb-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                    {barrierOptions.length === 0 ? (
+                      <p className="px-3 py-2.5 text-sm text-gray-400">No active barriers available.</p>
+                    ) : (
+                      barrierOptions.map((barrier) => (
+                        <label
+                          key={barrier.id}
+                          className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={exitBarrierIds.has(barrier.id)}
+                            onChange={() => toggleExitBarrier(barrier.id)}
+                            className="h-3.5 w-3.5 rounded border-gray-300 accent-emerald-600"
+                          />
+                          <span className="min-w-0">
+                            <span className="font-mono text-xs font-medium">{barrier.barrier_id_number}</span>
+                            <span className="ml-1.5 text-[11px] text-gray-400">{barrier.service_provider_name}</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            {exitBarrierIds.size > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {selectedExitBarrierLabels.map((label) => (
+                  <span
+                    key={label}
+                    className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 font-mono text-[11px] font-medium text-violet-700"
+                  >
+                    <DoorOpen className="h-3 w-3" />
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">
+              Barriers assigned as exit gates for this facility.
+            </p>
           </div>
         </div>
 
@@ -1182,8 +1217,8 @@ export function FacilitiesPage() {
         ? {
             ...current,
             approved_truck_exits_per_hour: payload.approved_truck_exits_per_hour,
-            linked_transit_parks: payload.linked_transit_parks,
-            operational_hours: payload.operational_hours ?? undefined,
+            entry_barriers: payload.entry_barrier_ids.map((id) => ({ id })),
+            exit_barriers: payload.exit_barrier_ids.map((id) => ({ id })),
           }
         : current,
     );

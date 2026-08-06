@@ -16,6 +16,7 @@ import {
   Landmark,
   ParkingCircle,
   Warehouse,
+  DoorOpen,
   Ticket,
   FileCheck,
   Gavel,
@@ -63,6 +64,7 @@ const navGroups = [
       { label: "Terminals", icon: Landmark, href: "/dashboard/terminals" },
       { label: "Transit Parks", icon: ParkingCircle, href: "/dashboard/transit-parks" },
       { label: "Facilities", icon: Warehouse, href: "/dashboard/facilities" },
+      { label: "Barriers", icon: DoorOpen, href: "/dashboard/barriers" },
     ],
   },
   {
