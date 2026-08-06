@@ -8,6 +8,7 @@ import type {
   TransitParkActionResponse,
   TransitPark,
   TransitParkDetail,
+  CreateTransitParkPayload,
   UpdateTransitParkPayload,
   TransitParkStatus,
 } from "@/types/transit-parks.types";
@@ -28,6 +29,11 @@ export const transitParksService = {
   getById: async (id: string): Promise<TransitParkDetail> => {
     const { data } = await apiClient.get<ApiResponse<TransitParkDetail>>(TRANSIT_PARKS.BY_ID(id));
     return data.data;
+  },
+
+  create: async (payload: CreateTransitParkPayload): Promise<TransitParkActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<TransitParkDetail>>(TRANSIT_PARKS.LIST, payload);
+    return { message: data.message };
   },
 
   update: async (id: string, payload: UpdateTransitParkPayload): Promise<TransitParkActionResponse> => {

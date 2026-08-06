@@ -137,6 +137,10 @@ export interface UpdateFacilityPayload {
   exit_barrier_ids: string[];
 }
 
+// ─── Write Payload (create / update) ───
+export type CreateFacilityPayload = UpdateFacilityPayload;
+export type FacilityWritePayload = UpdateFacilityPayload;
+
 // ─── Action Response ───
 export interface FacilityActionResponse {
   message: string;

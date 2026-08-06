@@ -44,7 +44,10 @@ export type TerminalBarrierStatus = "ONLINE" | "OFFLINE";
 
 export interface TerminalBarrier {
   id: string;
-  status: TerminalBarrierStatus;
+  barrier_id_number?: string;
+  operational_status?: TerminalBarrierStatus;
+  /** @deprecated use operational_status */
+  status?: TerminalBarrierStatus;
 }
 
 export interface TerminalMovementTime {
@@ -131,8 +134,8 @@ export interface TerminalsListResponse {
   };
 }
 
-// ─── Update Payload ───
-export interface UpdateTerminalPayload {
+// ─── Write Payload (create / update) ───
+export interface TerminalWritePayload {
   name: string;
   terminal_type: TerminalType;
   location: TerminalLocation;
@@ -142,27 +145,34 @@ export interface UpdateTerminalPayload {
   hourly_truck_tat_minutes: number;
   status: TerminalStatus;
   booking_status: TerminalBookingStatus;
+  entry_barrier_ids: string[];
+  exit_barrier_ids: string[];
 }
 
-// ─── Edit Terminal Information ───
-export type TerminalHoursMode = "ALL_DAY" | "CUSTOM";
+export type CreateTerminalPayload = TerminalWritePayload;
+export type UpdateTerminalPayload = TerminalWritePayload;
 
-export interface EditTerminalInformationPayload {
-  approved_daily_truck_capacity: number;
-  operational_hours_mode: TerminalHoursMode;
-  operational_hours?: TerminalOperationalHours | null;
-  linked_booking_categories: string[];
+/** @deprecated use TerminalWritePayload */
+export type EditTerminalInformationPayload = TerminalWritePayload;
+
+export function extractTerminalBarrierIds(barriers?: TerminalBarrier[]): string[] {
+  return (barriers ?? []).map((barrier) => barrier.id);
 }
 
-// ─── Action Response ───
-export interface TerminalActionResponse {
-  message: string;
+export function resolveTerminalBarrierNumber(barrier: TerminalBarrier): string {
+  return barrier.barrier_id_number?.trim() || barrier.id;
+}
+
+export function resolveTerminalBarrierOperationalStatus(
+  barrier: TerminalBarrier,
+): TerminalBarrierStatus {
+  return barrier.operational_status ?? barrier.status ?? "OFFLINE";
 }
 
 export function toUpdatePayload(
   terminal: Terminal,
-  overrides: Partial<UpdateTerminalPayload> = {}
-): UpdateTerminalPayload {
+  overrides: Partial<TerminalWritePayload> = {},
+): TerminalWritePayload {
   return {
     name: terminal.name,
     terminal_type: terminal.terminal_type,
@@ -173,6 +183,13 @@ export function toUpdatePayload(
     hourly_truck_tat_minutes: terminal.hourly_truck_tat_minutes,
     status: terminal.status,
     booking_status: terminal.booking_status,
+    entry_barrier_ids: [],
+    exit_barrier_ids: [],
     ...overrides,
   };
+}
+
+// ─── Action Response ───
+export interface TerminalActionResponse {
+  message: string;
 }

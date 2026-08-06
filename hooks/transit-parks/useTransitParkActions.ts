@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { transitParksService } from "@/services/transit-parks.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
-import type { TransitPark, UpdateTransitParkPayload, EditTransitParkInformationPayload } from "@/types/transit-parks.types";
+import type { TransitPark, UpdateTransitParkPayload, TransitParkWritePayload } from "@/types/transit-parks.types";
 import { AxiosError } from "axios";
 
 function invalidateTransitParks(queryClient: ReturnType<typeof useQueryClient>) {
@@ -87,27 +87,39 @@ export function useDeleteTransitPark() {
   });
 }
 
+export function useCreateTransitPark() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: transitParksService.create,
+    onSuccess: (response) => {
+      invalidateTransitParks(queryClient);
+      toast.success(response.message ?? "Transit park created successfully.");
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to create transit park");
+    },
+  });
+}
+
 export function useEditTransitParkInformation() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({
-      id: _id,
-      payload: _payload,
+      id,
+      payload,
     }: {
       id: string;
-      payload: EditTransitParkInformationPayload;
-    }) => {
-      // Mock until dedicated edit-information endpoint is available.
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      return { message: "Transit park information updated successfully." };
-    },
-    onSuccess: (response) => {
+      payload: TransitParkWritePayload;
+    }) => transitParksService.update(id, payload),
+    onSuccess: (response, variables) => {
       invalidateTransitParks(queryClient);
-      toast.success(response.message);
+      queryClient.invalidateQueries({ queryKey: ["transit-parks", "detail", variables.id] });
+      toast.success(response.message ?? "Transit park updated successfully.");
     },
-    onError: () => {
-      toast.error("Failed to update transit park information");
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to update transit park");
     },
   });
 }

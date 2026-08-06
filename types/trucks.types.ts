@@ -40,6 +40,21 @@ export type PenaltyType =
 export type PaymentStatus = "UNPAID" | "PAID" | "OVERRIDDEN" | "DISPUTED";
 
 // ─── Sub-Models ───
+export interface TruckTypeRef {
+  id: string;
+  name: string;
+}
+
+export interface TruckLengthRef {
+  id: string;
+  length_value: string;
+}
+
+export interface TruckCapacityRef {
+  id: string;
+  capacity_value: string;
+}
+
 export interface TruckCompanyInfo {
   company_name: string;
   user_account: string;
@@ -65,13 +80,16 @@ export interface TruckDisableInfo {
 export interface Truck {
   id: string;
   plate_number: string;
-  truck_type: TruckType;
+  truck_type_id?: string;
+  truck_type: TruckType | TruckTypeRef;
   color: string;
   chassis_number: string;
   brand: string;
   model: string;
-  truck_length: string;
-  truck_capacity: string;
+  truck_length_id?: string | null;
+  truck_length?: TruckLengthRef | string | null;
+  truck_capacity_id?: string | null;
+  truck_capacity?: TruckCapacityRef | string | null;
   created_at: string;
   registration_status: RegistrationStatus;
   registered_by: TruckCompanyInfo;

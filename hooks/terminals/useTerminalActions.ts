@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { terminalsService } from "@/services/terminals.service";
 import { toast } from "sonner";
 import type { ApiError } from "@/types/api.types";
-import type { Terminal, UpdateTerminalPayload, EditTerminalInformationPayload } from "@/types/terminals.types";
+import type { Terminal, UpdateTerminalPayload, TerminalWritePayload } from "@/types/terminals.types";
 import { AxiosError } from "axios";
 
 function invalidateTerminals(queryClient: ReturnType<typeof useQueryClient>) {
@@ -75,27 +75,39 @@ export function useUnarchiveTerminal() {
   });
 }
 
+export function useCreateTerminal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: terminalsService.create,
+    onSuccess: (response) => {
+      invalidateTerminals(queryClient);
+      toast.success(response.message ?? "Terminal created successfully.");
+    },
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to create terminal");
+    },
+  });
+}
+
 export function useEditTerminalInformation() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({
-      id: _id,
-      payload: _payload,
+      id,
+      payload,
     }: {
       id: string;
-      payload: EditTerminalInformationPayload;
-    }) => {
-      // Mock until dedicated edit-information endpoint is available.
-      await new Promise((resolve) => setTimeout(resolve, 700));
-      return { message: "Terminal information updated successfully." };
-    },
-    onSuccess: (response) => {
+      payload: TerminalWritePayload;
+    }) => terminalsService.update(id, payload),
+    onSuccess: (response, variables) => {
       invalidateTerminals(queryClient);
-      toast.success(response.message);
+      queryClient.invalidateQueries({ queryKey: ["terminals", "detail", variables.id] });
+      toast.success(response.message ?? "Terminal updated successfully.");
     },
-    onError: () => {
-      toast.error("Failed to update terminal information");
+    onError: (error: AxiosError<ApiError>) => {
+      toast.error(error.response?.data?.message ?? "Failed to update terminal");
     },
   });
 }

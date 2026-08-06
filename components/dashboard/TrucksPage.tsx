@@ -33,6 +33,9 @@ import {
 import { toast } from "sonner";
 import type {
   Truck as TruckType,
+  TruckTypeRef,
+  TruckLengthRef,
+  TruckCapacityRef,
   RegistrationStatus,
   TruckStatus,
   Visibility,
@@ -115,8 +118,28 @@ function formatTimestamp(ts: string) {
   });
 }
 
-function formatLabel(s: string) {
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function formatLabel(value: string | null | undefined): string {
+  if (value == null || value === "") return "—";
+  if (value === "All") return "All";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function resolveTruckTypeLabel(truckType: TruckTypeRef | string | null | undefined): string {
+  if (truckType == null) return "—";
+  if (typeof truckType === "string") return formatLabel(truckType);
+  return truckType.name?.trim() || formatLabel(truckType.id);
+}
+
+function resolveTruckLength(value: TruckLengthRef | string | null | undefined): string {
+  if (value == null || value === "") return "N/A";
+  if (typeof value === "string") return value;
+  return value.length_value?.trim() || "N/A";
+}
+
+function resolveTruckCapacity(value: TruckCapacityRef | string | null | undefined): string {
+  if (value == null || value === "") return "N/A";
+  if (typeof value === "string") return value;
+  return value.capacity_value?.trim() || "N/A";
 }
 
 function isMssExpired(truck: TruckType): boolean {
@@ -204,7 +227,7 @@ function FleetTruckPreviewCard({ truck }: { truck: TruckType }) {
             <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Plate Number</p>
             <p className="font-mono text-sm font-bold text-gray-900">{truck.plate_number}</p>
             <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400">Truck Type</p>
-            <p className="text-xs font-bold text-gray-800">{formatLabel(truck.truck_type)}</p>
+            <p className="text-xs font-bold text-gray-800">{resolveTruckTypeLabel(truck.truck_type)}</p>
           </div>
           <div className="shrink-0 scale-110">
             <TruckAvatar color={truck.color} />
@@ -839,12 +862,12 @@ export function TrucksPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  ["Truck Type", formatLabel(selectedTruck.truck_type)],
+                  ["Truck Type", resolveTruckTypeLabel(selectedTruck.truck_type)],
                   ["Color", selectedTruck.color],
                   ["Brand", selectedTruck.brand],
                   ["Model", selectedTruck.model],
-                  ["Length", selectedTruck.truck_length],
-                  ["Capacity", selectedTruck.truck_capacity],
+                  ["Length", resolveTruckLength(selectedTruck.truck_length)],
+                  ["Capacity", resolveTruckCapacity(selectedTruck.truck_capacity)],
                 ].map(([k, v]) => (
                   <div key={k} className="rounded-xl bg-gray-50 p-3">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{k}</p>
@@ -1218,7 +1241,7 @@ export function TrucksPage() {
                     {/* Truck Type */}
                     {col("truck_type") && (
                       <td className="px-3 py-3">
-                        <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">{formatLabel(t.truck_type)}</span>
+                        <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">{resolveTruckTypeLabel(t.truck_type)}</span>
                       </td>
                     )}
 
@@ -1242,12 +1265,12 @@ export function TrucksPage() {
 
                     {/* Truck Length */}
                     {col("truck_length") && (
-                      <td className="px-3 py-3 text-xs text-gray-600">{t?.truck_length || "N/A"}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{resolveTruckLength(t.truck_length)}</td>
                     )}
 
                     {/* Truck Capacity */}
                     {col("truck_capacity") && (
-                      <td className="px-3 py-3 text-xs text-gray-600">{t?.truck_capacity || "N/A"}</td>
+                      <td className="px-3 py-3 text-xs text-gray-600">{resolveTruckCapacity(t.truck_capacity)}</td>
                     )}
 
                     {/* Created */}
