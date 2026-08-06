@@ -67,7 +67,7 @@ export function DisplayOptionsMenu<T extends string>({
   }
 
   return (
-    <div className="relative">
+    <div className={open ? "relative z-30" : "relative"}>
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
@@ -91,9 +91,9 @@ export function DisplayOptionsMenu<T extends string>({
 
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={close} />
+          <div className="fixed inset-0 z-30" onClick={close} />
           <div
-            className="absolute right-0 top-full z-20 mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg"
+            className="absolute right-0 top-full z-40 mt-1 w-52 rounded-xl border border-gray-200 bg-white shadow-lg"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2.5">
@@ -107,7 +107,7 @@ export function DisplayOptionsMenu<T extends string>({
               </button>
             </div>
 
-            <div className="max-h-64 overflow-y-auto py-1">
+            <div className="max-h-50 overflow-y-auto py-1">
               {columns.map((column) => (
                 <label
                   key={column.key}
