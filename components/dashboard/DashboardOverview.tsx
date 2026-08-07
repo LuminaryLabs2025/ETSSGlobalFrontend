@@ -29,7 +29,7 @@ import {
   bookingsByTerminal,
   matchingsByTerminal,
 } from "@/lib/mock-data";
-import type { TransferType } from "@/types/bookings.types";
+import { BONDED_BOOKING_CATEGORIES } from "@/lib/book-assist-mock-data";
 import {
   BarChart,
   Bar,
@@ -82,45 +82,33 @@ const manifestLifecycleGroups = [
   },
 ];
 
-// ─── Mock: Bookings by transfer type (matches Bookings page filters) ───
-const TRANSFER_LABELS: Record<TransferType, string> = {
-  INBOUND: "Inbound",
-  OUTBOUND: "Outbound",
-  INTER_TERMINAL: "Inter-Terminal",
-  EMPTY_RETURN: "Empty Return",
-  LOCAL: "Local",
-};
-
-const TRANSFER_TYPE_ORDER: TransferType[] = [
-  "INBOUND",
-  "OUTBOUND",
-  "INTER_TERMINAL",
-  "EMPTY_RETURN",
-  "LOCAL",
-];
-
-const BOOKINGS_BY_TRANSFER_TYPE_COLORS = [
+// ─── Mock: Bookings by category (platform booking categories) ───
+const BOOKINGS_BY_CATEGORY_COLORS = [
   "#3b82f6",
-  "#10b981",
-  "#8b5cf6",
-  "#f59e0b",
+  "#6366f1",
   "#06b6d4",
+  "#10b981",
+  "#14b8a6",
+  "#f59e0b",
+  "#8b5cf6",
 ];
 
-const BOOKINGS_BY_TRANSFER_TYPE_MOCK_VALUES: Record<TransferType, number> = {
-  INBOUND: 42,
-  OUTBOUND: 38,
-  INTER_TERMINAL: 24,
-  EMPTY_RETURN: 19,
-  LOCAL: 33,
+const BOOKINGS_BY_CATEGORY_MOCK_VALUES: Record<string, number> = {
+  IMPORT_CONTAINER: 34,
+  IMPORT_NON_CONTAINER: 18,
+  EMPTY_CONTAINER: 28,
+  EXPORT_CONTAINER: 31,
+  EXPORT_NON_CONTAINER: 15,
+  FMCG: 22,
+  FISH: 8,
 };
 
-const bookingsByTransferType = TRANSFER_TYPE_ORDER.map((type, index) => ({
-  name: TRANSFER_LABELS[type],
-  value: BOOKINGS_BY_TRANSFER_TYPE_MOCK_VALUES[type],
-  color: BOOKINGS_BY_TRANSFER_TYPE_COLORS[index] ?? "#94a3b8",
+const bookingsByCategory = BONDED_BOOKING_CATEGORIES.map((category, index) => ({
+  name: category.label,
+  value: BOOKINGS_BY_CATEGORY_MOCK_VALUES[category.value] ?? 0,
+  color: BOOKINGS_BY_CATEGORY_COLORS[index] ?? "#94a3b8",
 }));
-const totalBookingsByTransferType = bookingsByTransferType.reduce((s, c) => s + c.value, 0);
+const totalBookingsByCategory = bookingsByCategory.reduce((s, c) => s + c.value, 0);
 
 // ─── Mock: Incident Notification Board ───
 const severityStyles = {
@@ -418,17 +406,17 @@ function ManifestLifecycle() {
   );
 }
 
-// ─── Bookings by Transfer Type ───
-function BookingsByTransferType() {
+// ─── Bookings by Category ───
+function BookingsByCategory() {
   return (
     <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
-      <h3 className="text-sm font-bold text-gray-900">Bookings by transfer type</h3>
+      <h3 className="text-sm font-bold text-gray-900">Bookings by transfer types</h3>
       <div className="relative mx-auto mt-3 w-full max-w-[240px]">
         <div className="h-52 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={bookingsByTransferType}
+                data={bookingsByCategory}
                 cx="50%"
                 cy="50%"
                 innerRadius={56}
@@ -439,7 +427,7 @@ function BookingsByTransferType() {
                 stroke="#ffffff"
                 strokeWidth={2}
               >
-                {bookingsByTransferType.map((entry) => (
+                {bookingsByCategory.map((entry) => (
                   <Cell key={entry.name} fill={entry.color} />
                 ))}
               </Pie>
@@ -451,21 +439,21 @@ function BookingsByTransferType() {
           </ResponsiveContainer>
         </div>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-          <p className="text-2xl font-bold text-gray-900 tabular-nums">{totalBookingsByTransferType}</p>
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">{totalBookingsByCategory}</p>
           <p className="text-[11px] text-gray-500">Total bookings</p>
         </div>
       </div>
       <div className="mt-3 space-y-1.5">
-        {bookingsByTransferType.map((item) => (
-          <div key={item.name} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
+        {bookingsByCategory.map((cat) => (
+          <div key={cat.name} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 px-2.5 py-1.5">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-              <span className="truncate text-[11px] text-gray-600">{item.name}</span>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: cat.color }} />
+              <span className="truncate text-[11px] text-gray-600">{cat.name}</span>
             </div>
             <span className="shrink-0 text-[11px] font-bold text-gray-900 tabular-nums">
-              {item.value}
+              {cat.value}
               <span className="ml-1 font-normal text-gray-400">
-                ({Math.round((item.value / totalBookingsByTransferType) * 100)}%)
+                ({Math.round((cat.value / totalBookingsByCategory) * 100)}%)
               </span>
             </span>
           </div>
@@ -700,9 +688,9 @@ export function DashboardOverview() {
         <LiveFeed />
       </div>
 
-      {/* Row 2: Bookings by transfer type · Incident board */}
+      {/* Row 2: Bookings by category · Incident board */}
       <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-[minmax(280px,1fr)_2fr]">
-        <BookingsByTransferType />
+        <BookingsByCategory />
         <IncidentNotificationBoard />
       </div>
 
