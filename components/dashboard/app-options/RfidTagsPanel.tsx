@@ -886,9 +886,6 @@ export function RfidTagsPanel() {
                       Transporter
                     </th>
                     <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                      Created By
-                    </th>
-                    <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                       Upload Timestamp
                     </th>
                     <th className="px-4 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">
@@ -899,7 +896,7 @@ export function RfidTagsPanel() {
                 <tbody className="divide-y divide-gray-100">
                   {items.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center">
+                      <td colSpan={7} className="px-4 py-12 text-center">
                         <Radio className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No RFID tags found</p>
                       </td>
@@ -923,9 +920,6 @@ export function RfidTagsPanel() {
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-xs text-gray-600">{displayOrDash(item.transporter_name)}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <p className="text-xs text-gray-600">{displayOrDash(item.created_by)}</p>
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-xs text-gray-600">
