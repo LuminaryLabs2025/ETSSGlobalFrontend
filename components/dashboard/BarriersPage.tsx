@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ChevronRight as Chevron,
   X,
-  Plus,
   Edit2,
   Eye,
   Ban,
@@ -26,7 +25,8 @@ import {
   Smartphone,
   Download,
   FileText,
-  LayoutGrid,
+  Landmark,
+  ParkingCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FacilityParkType } from "@/types/facilities.types";
@@ -36,13 +36,13 @@ import type {
   BarrierPayload,
   BarrierRecord,
   BarrierRole,
+  BarrierSiteType,
   BarriersSummaryResponse,
 } from "@/types/barriers.types";
 import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { useBarriersSummary } from "@/hooks/barriers/useBarriersSummary";
 import { useBarrier } from "@/hooks/barriers/useBarrier";
 import {
-  useCreateBarrier,
   useDisableBarrier,
   useUpdateBarrier,
 } from "@/hooks/barriers/useBarrierActions";
@@ -51,64 +51,77 @@ import { DisplayOptionsMenu } from "@/components/dashboard/DisplayOptionsMenu";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 const PAGE_SIZE = 20;
-const SITE_TYPE = "FACILITY" as const;
 
-type TabId = "all" | "bonded" | "truck_parks" | "fish_van";
+type SiteTabId = "facilities" | "transit_parks" | "terminals";
+type FacilityParkTabId = "bonded" | "truck_parks" | "fish_van";
 
-const TAB_TO_PARK_TYPE: Record<Exclude<TabId, "all">, FacilityParkType> = {
+const FACILITY_PARK_TAB_TO_TYPE: Record<FacilityParkTabId, FacilityParkType> = {
   bonded: "BONDED_TERMINAL",
   truck_parks: "TRUCK_PARK",
   fish_van: "FISH_VAN_PARK",
 };
 
-function getTabFilters(tab: TabId): { site_type?: typeof SITE_TYPE; park_type?: FacilityParkType } {
-  if (tab === "all") return {};
-  return { site_type: SITE_TYPE, park_type: TAB_TO_PARK_TYPE[tab] };
+function getSiteTabFilters(
+  siteTab: SiteTabId,
+  facilityParkTab: FacilityParkTabId,
+): { site_type: BarrierSiteType; park_type?: FacilityParkType } {
+  if (siteTab === "facilities") {
+    return { site_type: "FACILITY", park_type: FACILITY_PARK_TAB_TO_TYPE[facilityParkTab] };
+  }
+  if (siteTab === "transit_parks") {
+    return { site_type: "TRANSIT_PARK" };
+  }
+  return { site_type: "TERMINAL" };
 }
 
-const TAB_CONFIG: Record<
-  TabId,
+const SITE_TAB_CONFIG: Record<
+  SiteTabId,
   {
     label: string;
     entityLabel: string;
     description: string;
     integratedLabel: string;
     searchPlaceholder: string;
+    linkedSiteLabel: string;
     Icon: React.ElementType;
   }
 > = {
-  all: {
-    label: "All",
-    entityLabel: "All Barriers",
-    description: "Full barrier catalog — unlinked barriers appear here after creation.",
-    integratedLabel: "All registered barriers across facility types",
-    searchPlaceholder: "Search by barrier ID number or service provider...",
-    Icon: LayoutGrid,
-  },
-  bonded: {
-    label: "Bonded Terminals",
-    entityLabel: "Bonded Terminal",
-    description: "Registered barriers for approved bonded terminals.",
-    integratedLabel: "Integrated Barriers for Bonded Terminals",
-    searchPlaceholder: "Search by bonded terminal name or barrier ID number...",
+  facilities: {
+    label: "Facilities",
+    entityLabel: "Facility",
+    description: "Barriers linked to bonded terminals, truck parks, and fish-van parks.",
+    integratedLabel: "Integrated barriers assigned to facilities",
+    searchPlaceholder: "Search by facility name or barrier ID number...",
+    linkedSiteLabel: "Linked Facility",
     Icon: Warehouse,
   },
-  truck_parks: {
-    label: "Truck Parks",
-    entityLabel: "Truck Park",
-    description: "Registered barriers for approved truck parks.",
-    integratedLabel: "Integrated Barriers for Truck Parks",
-    searchPlaceholder: "Search by truck park name or barrier ID number...",
-    Icon: Truck,
+  transit_parks: {
+    label: "Transit Parks",
+    entityLabel: "Transit Park",
+    description: "Barriers linked to pre-gates and export processing terminals.",
+    integratedLabel: "Integrated barriers assigned to transit parks",
+    searchPlaceholder: "Search by transit park name or barrier ID number...",
+    linkedSiteLabel: "Linked Transit Park",
+    Icon: ParkingCircle,
   },
-  fish_van: {
-    label: "Fish-Van Parks",
-    entityLabel: "Fish-Van Park",
-    description: "Registered barriers for approved fish-van parks.",
-    integratedLabel: "Integrated Barriers for Fish-Van Parks",
-    searchPlaceholder: "Search by fish-van park name or barrier ID number...",
-    Icon: Fish,
+  terminals: {
+    label: "Terminals",
+    entityLabel: "Terminal",
+    description: "Barriers linked to port and non-port terminals.",
+    integratedLabel: "Integrated barriers assigned to terminals",
+    searchPlaceholder: "Search by terminal name or barrier ID number...",
+    linkedSiteLabel: "Linked Terminal",
+    Icon: Landmark,
   },
+};
+
+const FACILITY_PARK_TAB_CONFIG: Record<
+  FacilityParkTabId,
+  { label: string; Icon: React.ElementType }
+> = {
+  bonded: { label: "Bonded Terminals", Icon: Warehouse },
+  truck_parks: { label: "Truck Parks", Icon: Truck },
+  fish_van: { label: "Fish-Van Parks", Icon: Fish },
 };
 
 const OPERATIONAL_STATUS_FILTERS = ["All", "ONLINE", "OFFLINE"] as const;
@@ -149,7 +162,7 @@ function displayOrDash(value?: string | null) {
   return trimmed ? trimmed : "—";
 }
 
-function resolveLinkedFacility(item: BarrierRecord) {
+function resolveLinkedSite(item: BarrierRecord) {
   return item.linked_facility?.name ?? item.linked_site?.site?.name ?? "—";
 }
 
@@ -250,16 +263,20 @@ function ConfirmDialog({
 
 function SummaryPanel({
   summary,
-  tab,
+  siteTab,
+  facilityParkTab,
   isLoading,
-  onAdd,
 }: {
   summary?: BarriersSummaryResponse;
-  tab: TabId;
+  siteTab: SiteTabId;
+  facilityParkTab?: FacilityParkTabId;
   isLoading?: boolean;
-  onAdd: () => void;
 }) {
-  const cfg = TAB_CONFIG[tab];
+  const cfg = SITE_TAB_CONFIG[siteTab];
+  const facilityLabel =
+    siteTab === "facilities" && facilityParkTab
+      ? FACILITY_PARK_TAB_CONFIG[facilityParkTab].label.replace(/s$/, "")
+      : cfg.entityLabel;
 
   const cards = [
     {
@@ -281,18 +298,9 @@ function SummaryPanel({
 
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-white">{cfg.entityLabel} Barrier Management</h2>
-          <p className="text-xs text-gray-400">{cfg.description}</p>
-        </div>
-        <button
-          onClick={onAdd}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-emerald-700"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add New Barrier
-        </button>
+      <div className="mb-4">
+        <h2 className="text-lg font-bold text-white">{facilityLabel} Barrier Management</h2>
+        <p className="text-xs text-gray-400">{cfg.description}</p>
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -318,20 +326,15 @@ function SummaryPanel({
 }
 
 function BarrierFormModal({
-  mode,
   barrier,
   onClose,
   onSaved,
 }: {
-  mode: "create" | "edit";
-  barrier?: BarrierRecord;
+  barrier: BarrierRecord;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: detail, isLoading: detailLoading } = useBarrier(
-    mode === "edit" && barrier ? barrier.id : null,
-  );
-  const createBarrier = useCreateBarrier();
+  const { data: detail, isLoading: detailLoading } = useBarrier(barrier.id);
   const updateBarrier = useUpdateBarrier();
 
   const [serviceProviderName, setServiceProviderName] = useState("");
@@ -341,10 +344,6 @@ function BarrierFormModal({
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (mode === "create") {
-      setInitialized(true);
-      return;
-    }
     if (initialized) return;
     if (detailLoading && !detail) return;
 
@@ -355,7 +354,7 @@ function BarrierFormModal({
     setBarrierIdNumber(source.barrier_id_number ?? "");
     setOperationalStatus(source.operational_status ?? "OFFLINE");
     setInitialized(true);
-  }, [mode, detail, detailLoading, barrier, initialized]);
+  }, [detail, detailLoading, barrier, initialized]);
 
   function validate() {
     const nextErrors: Record<string, string> = {};
@@ -377,18 +376,6 @@ function BarrierFormModal({
     if (!validate()) return;
     const payload = buildPayload();
 
-    if (mode === "create") {
-      createBarrier.mutate(payload, {
-        onSuccess: () => {
-          toast.success("Barrier created successfully.");
-          onSaved();
-          onClose();
-        },
-      });
-      return;
-    }
-
-    if (!barrier) return;
     updateBarrier.mutate(
       { id: barrier.id, payload },
       {
@@ -401,7 +388,7 @@ function BarrierFormModal({
     );
   }
 
-  const isPending = createBarrier.isPending || updateBarrier.isPending;
+  const isPending = updateBarrier.isPending;
 
   return (
     <>
@@ -413,14 +400,8 @@ function BarrierFormModal({
               <DoorOpen className="h-4 w-4 text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-gray-900">
-                {mode === "create" ? "Add New Barrier" : "Edit Barrier Information"}
-              </h2>
-              <p className="text-xs text-gray-500">
-                {mode === "create"
-                  ? "Register a new barrier in the catalog"
-                  : displayOrDash(barrier?.barrier_id_number)}
-              </p>
+              <h2 className="text-sm font-bold text-gray-900">Edit Barrier Information</h2>
+              <p className="text-xs text-gray-500">{displayOrDash(barrier.barrier_id_number)}</p>
             </div>
           </div>
           <button
@@ -433,7 +414,7 @@ function BarrierFormModal({
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto px-6 py-5">
-          {mode === "edit" && detailLoading && !initialized && (
+          {detailLoading && !initialized && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-500" />
               Loading barrier...
@@ -474,24 +455,22 @@ function BarrierFormModal({
             )}
           </div>
 
-          {mode === "edit" && (
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                Operational Status
-              </label>
-              <select
-                value={operationalStatus}
-                onChange={(e) => setOperationalStatus(e.target.value as BarrierOperationalStatus)}
-                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              >
-                <option value="ONLINE">Online</option>
-                <option value="OFFLINE">Offline</option>
-              </select>
-              <p className="mt-1 text-[11px] text-gray-400">
-                Partner sync is not live yet — update manually when needed.
-              </p>
-            </div>
-          )}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+              Operational Status
+            </label>
+            <select
+              value={operationalStatus}
+              onChange={(e) => setOperationalStatus(e.target.value as BarrierOperationalStatus)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="ONLINE">Online</option>
+              <option value="OFFLINE">Offline</option>
+            </select>
+            <p className="mt-1 text-[11px] text-gray-400">
+              Partner sync is not live yet — update manually when needed.
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
@@ -508,7 +487,7 @@ function BarrierFormModal({
             className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {mode === "create" ? "Create Barrier" : "Save Changes"}
+            Save Changes
           </button>
         </div>
       </div>
@@ -602,7 +581,7 @@ function BarrierDetailDrawer({
                 <div className="divide-y divide-gray-100">
                   {(barrier.linked_sites?.length ?? 0) === 0 ? (
                     <p className="px-4 py-3 text-xs text-gray-400">
-                      Not linked to any site yet. Assign on Facility edit.
+                      Not linked to any site yet. Assign when editing a facility, transit park, or terminal.
                     </p>
                   ) : (
                     barrier.linked_sites.map((link) => (
@@ -695,7 +674,8 @@ function BarrierDetailDrawer({
 }
 
 export function BarriersPage() {
-  const [activeTab, setActiveTab] = useState<TabId>("all");
+  const [activeSiteTab, setActiveSiteTab] = useState<SiteTabId>("facilities");
+  const [activeFacilityTab, setActiveFacilityTab] = useState<FacilityParkTabId>("bonded");
   const [page, setPage] = useState(1);
   const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [operationalFilter, setOperationalFilter] = useState<(typeof OPERATIONAL_STATUS_FILTERS)[number]>("All");
@@ -706,7 +686,6 @@ export function BarriersPage() {
     new Set(TOGGLEABLE_COLUMNS.map((c) => c.key)),
   );
 
-  const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<BarrierRecord | null>(null);
   const [viewTargetId, setViewTargetId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -718,8 +697,8 @@ export function BarriersPage() {
   } | null>(null);
 
   const disableBarrier = useDisableBarrier();
-  const tabFilters = getTabFilters(activeTab);
-  const cfg = TAB_CONFIG[activeTab];
+  const tabFilters = getSiteTabFilters(activeSiteTab, activeFacilityTab);
+  const cfg = SITE_TAB_CONFIG[activeSiteTab];
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
   const listParams = {
@@ -735,18 +714,26 @@ export function BarriersPage() {
   const { data, isLoading, isError } = useBarriers(listParams);
   const { data: summary, isLoading: summaryLoading } = useBarriersSummary(tabFilters);
 
-  const allSummary = useBarriersSummary();
-  const bondedSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "BONDED_TERMINAL" });
-  const truckSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "TRUCK_PARK" });
-  const fishSummary = useBarriersSummary({ site_type: SITE_TYPE, park_type: "FISH_VAN_PARK" });
+  const facilitiesSummary = useBarriersSummary({ site_type: "FACILITY" });
+  const transitParksSummary = useBarriersSummary({ site_type: "TRANSIT_PARK" });
+  const terminalsSummary = useBarriersSummary({ site_type: "TERMINAL" });
+
+  const bondedSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "BONDED_TERMINAL" });
+  const truckSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "TRUCK_PARK" });
+  const fishSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "FISH_VAN_PARK" });
 
   const items = data?.data ?? [];
   const meta = data?.meta;
   const totalPages = meta?.total_pages ?? 1;
   const currentPage = meta?.page ?? page;
 
-  const tabCounts: Record<TabId, number> = {
-    all: allSummary.data?.all.total ?? 0,
+  const siteTabCounts: Record<SiteTabId, number> = {
+    facilities: facilitiesSummary.data?.all.total ?? 0,
+    transit_parks: transitParksSummary.data?.all.total ?? 0,
+    terminals: terminalsSummary.data?.all.total ?? 0,
+  };
+
+  const facilityTabCounts: Record<FacilityParkTabId, number> = {
     bonded: bondedSummary.data?.all.total ?? 0,
     truck_parks: truckSummary.data?.all.total ?? 0,
     fish_van: fishSummary.data?.all.total ?? 0,
@@ -760,14 +747,23 @@ export function BarriersPage() {
     adminStatusFilter !== "All",
   ].filter(Boolean).length;
 
-  function switchTab(tab: TabId) {
-    setActiveTab(tab);
+  function resetFilters() {
     setPage(1);
     resetSearch();
     setOperationalFilter("All");
     setBarrierTypeFilter("All");
     setAdminStatusFilter("All");
     setShowFilters(false);
+  }
+
+  function switchSiteTab(tab: SiteTabId) {
+    setActiveSiteTab(tab);
+    resetFilters();
+  }
+
+  function switchFacilityTab(tab: FacilityParkTabId) {
+    setActiveFacilityTab(tab);
+    resetFilters();
   }
 
   function handleDisable(item: BarrierRecord) {
@@ -786,7 +782,6 @@ export function BarriersPage() {
     }
     if (action === "edit") {
       setEditTarget(item);
-      setFormMode("edit");
       return;
     }
     if (action === "disable") {
@@ -803,7 +798,8 @@ export function BarriersPage() {
     }
   }
 
-  const TABS: TabId[] = ["all", "bonded", "truck_parks", "fish_van"];
+  const SITE_TABS: SiteTabId[] = ["facilities", "transit_parks", "terminals"];
+  const FACILITY_TABS: FacilityParkTabId[] = ["bonded", "truck_parks", "fish_van"];
 
   return (
     <div className="space-y-5 p-6">
@@ -815,18 +811,11 @@ export function BarriersPage() {
         />
       )}
 
-      {formMode && (
+      {editTarget && (
         <BarrierFormModal
-          mode={formMode}
-          barrier={formMode === "edit" ? editTarget ?? undefined : undefined}
-          onClose={() => {
-            setFormMode(null);
-            setEditTarget(null);
-          }}
-          onSaved={() => {
-            setFormMode(null);
-            setEditTarget(null);
-          }}
+          barrier={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => setEditTarget(null)}
         />
       )}
 
@@ -837,7 +826,6 @@ export function BarriersPage() {
           onEdit={(barrier) => {
             setViewTargetId(null);
             setEditTarget(barrier);
-            setFormMode("edit");
           }}
           onDisable={(barrier) => {
             setConfirm({
@@ -859,16 +847,22 @@ export function BarriersPage() {
         <Chevron className="h-3 w-3" />
         <span>Barriers</span>
         <Chevron className="h-3 w-3" />
-        <span>Facilities</span>
-        <Chevron className="h-3 w-3" />
         <span className="font-semibold text-gray-800">{cfg.label}</span>
+        {activeSiteTab === "facilities" && (
+          <>
+            <Chevron className="h-3 w-3" />
+            <span className="font-semibold text-gray-800">
+              {FACILITY_PARK_TAB_CONFIG[activeFacilityTab].label}
+            </span>
+          </>
+        )}
       </nav>
 
       <SummaryPanel
         summary={summary}
-        tab={activeTab}
+        siteTab={activeSiteTab}
+        facilityParkTab={activeSiteTab === "facilities" ? activeFacilityTab : undefined}
         isLoading={summaryLoading}
-        onAdd={() => setFormMode("create")}
       />
 
       <div className="rounded-xl border border-gray-200 bg-white">
@@ -878,21 +872,21 @@ export function BarriersPage() {
               <BarChart3 className="h-4 w-4 text-emerald-400" />
             </div>
             <div>
-              <h1 className="text-base font-bold text-gray-900">Facility Barrier Management</h1>
+              <h1 className="text-base font-bold text-gray-900">Barrier Management</h1>
               <p className="text-xs text-gray-500">
-                Manage barriers for bonded terminals, truck parks, and fish-van parks
+                View and manage barriers linked to facilities, transit parks, and terminals
               </p>
             </div>
           </div>
 
           <div className="flex gap-0.5 overflow-x-auto">
-            {TABS.map((tab) => {
-              const tcfg = TAB_CONFIG[tab];
-              const isActive = activeTab === tab;
+            {SITE_TABS.map((tab) => {
+              const tcfg = SITE_TAB_CONFIG[tab];
+              const isActive = activeSiteTab === tab;
               return (
                 <button
                   key={tab}
-                  onClick={() => switchTab(tab)}
+                  onClick={() => switchSiteTab(tab)}
                   className={`flex items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-4 py-3 text-xs font-semibold transition-colors ${
                     isActive
                       ? "border-emerald-600 text-emerald-700"
@@ -906,7 +900,7 @@ export function BarriersPage() {
                       isActive ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-500"
                     }`}
                   >
-                    {tabCounts[tab]}
+                    {siteTabCounts[tab]}
                   </span>
                 </button>
               );
@@ -914,8 +908,50 @@ export function BarriersPage() {
           </div>
         </div>
 
+        {activeSiteTab === "facilities" && (
+          <div className="border-b border-gray-100 bg-gray-50/70 px-6 py-3">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+              <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Facility type
+              </p>
+              <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
+                {FACILITY_TABS.map((tab) => {
+                  const fcfg = FACILITY_PARK_TAB_CONFIG[tab];
+                  const isActive = activeFacilityTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => switchFacilityTab(tab)}
+                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                        isActive
+                          ? "bg-white text-emerald-700 shadow-sm ring-1 ring-gray-200/80"
+                          : "text-gray-500 hover:text-gray-700"
+                      }`}
+                    >
+                      <fcfg.Icon className="h-3 w-3 shrink-0" />
+                      <span className="whitespace-nowrap">{fcfg.label}</span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          isActive ? "bg-emerald-100 text-emerald-700" : "bg-gray-200/60 text-gray-500"
+                        }`}
+                      >
+                        {facilityTabCounts[tab]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="px-6 py-2.5">
-          <p className="text-xs text-gray-500">{cfg.integratedLabel}</p>
+          <p className="text-xs text-gray-500">
+            {activeSiteTab === "facilities"
+              ? `Integrated barriers assigned to ${FACILITY_PARK_TAB_CONFIG[activeFacilityTab].label.toLowerCase()}`
+              : cfg.integratedLabel}
+          </p>
         </div>
       </div>
 
@@ -1094,7 +1130,7 @@ export function BarriersPage() {
                     )}
                     {col("linked_facility") && (
                       <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                        Linked Facility
+                        {cfg.linkedSiteLabel}
                       </th>
                     )}
                     {col("linked_handheld") && (
@@ -1114,9 +1150,8 @@ export function BarriersPage() {
                         <DoorOpen className="mx-auto h-8 w-8 text-gray-300" />
                         <p className="mt-2 text-sm font-medium text-gray-400">No barriers found</p>
                         <p className="mt-1 text-xs text-gray-400">
-                          {activeTab === "all"
-                            ? "No barriers in the catalog yet — add a barrier to get started."
-                            : "No barriers linked to this category yet — create barriers then assign them on Facility edit."}
+                          No barriers linked to this {cfg.entityLabel.toLowerCase()} category yet — register
+                          barriers in App Options, then assign them when editing a site.
                         </p>
                       </td>
                     </tr>
@@ -1158,7 +1193,7 @@ export function BarriersPage() {
                           </td>
                         )}
                         {col("linked_facility") && (
-                          <td className="px-4 py-3 text-xs text-gray-700">{resolveLinkedFacility(item)}</td>
+                          <td className="px-4 py-3 text-xs text-gray-700">{resolveLinkedSite(item)}</td>
                         )}
                         {col("linked_handheld") && (
                           <td className="px-4 py-3 font-mono text-xs text-gray-700">
