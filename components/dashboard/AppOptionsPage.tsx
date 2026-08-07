@@ -15,6 +15,7 @@ import {
   CreditCard,
   Smartphone,
   Radio,
+  DoorOpen,
   ChevronRight,
   X,
   Hash,
@@ -53,6 +54,7 @@ import {
   useHandheldDevicesCount,
 } from "@/components/dashboard/app-options/HandheldDevicesPanel";
 import { RfidTagsPanel, useRfidTagsCount } from "@/components/dashboard/app-options/RfidTagsPanel";
+import { BarriersPanel, useBarriersCount } from "@/components/dashboard/app-options/BarriersPanel";
 
 // ─── Types ───
 interface OptionItem {
@@ -172,6 +174,15 @@ const MOCK_OPTIONS: OptionCategory[] = [
     icon: Smartphone,
     description: "Handheld devices linked to users and gate/facility locations",
     color: "text-fuchsia-600 bg-fuchsia-50 border-fuchsia-200",
+    isLive: true,
+    items: [],
+  },
+  {
+    key: "barriers",
+    label: "Barriers",
+    icon: DoorOpen,
+    description: "Barrier hardware catalog — register barriers before linking to sites",
+    color: "text-teal-600 bg-teal-50 border-teal-200",
     isLive: true,
     items: [],
   },
@@ -391,6 +402,8 @@ function renderLivePanel(key: string) {
       return <LocationsPanel />;
     case "handheld-devices":
       return <HandheldDevicesPanel />;
+    case "barriers":
+      return <BarriersPanel />;
     case "rfid-tags":
       return <RfidTagsPanel />;
     default:
@@ -417,6 +430,7 @@ export function AppOptionsPage() {
   const facilityTypesTotal = useFacilityTypesCount();
   const locationsTotal = useLocationsCount();
   const handheldDevicesTotal = useHandheldDevicesCount();
+  const barriersTotal = useBarriersCount();
   const rfidTagsTotal = useRfidTagsCount();
 
   const liveCounts: Record<string, number> = {
@@ -431,6 +445,7 @@ export function AppOptionsPage() {
     "facility-timeslots": facilityTimeslotsTotal,
     locations: locationsTotal,
     "handheld-devices": handheldDevicesTotal,
+    barriers: barriersTotal,
     "rfid-tags": rfidTagsTotal,
   };
 
@@ -456,6 +471,7 @@ export function AppOptionsPage() {
     facilityTypesTotal +
     locationsTotal +
     handheldDevicesTotal +
+    barriersTotal +
     rfidTagsTotal;
   const totalActive = MOCK_OPTIONS.reduce(
     (sum, c) => sum + c.items.filter((i) => i.is_active).length,
