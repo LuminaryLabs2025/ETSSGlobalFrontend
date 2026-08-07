@@ -1,4 +1,6 @@
 import type { FacilityParkType } from "@/types/facilities.types";
+import type { TransitParkType } from "@/types/transit-parks.types";
+import type { TerminalType } from "@/types/terminals.types";
 
 export type BarrierOperationalStatus = "ONLINE" | "OFFLINE";
 export type BarrierStatus = "ACTIVE" | "INACTIVE";
@@ -49,6 +51,8 @@ export interface BarriersListParams {
   search?: string;
   site_type?: BarrierSiteType;
   park_type?: FacilityParkType;
+  transit_park_type?: TransitParkType;
+  terminal_type?: TerminalType;
   operational_status?: BarrierOperationalStatus;
   barrier_type?: BarrierRole;
   status?: BarrierStatus;
@@ -67,6 +71,8 @@ export interface BarriersListResponse {
 export interface BarriersSummaryParams {
   site_type?: BarrierSiteType;
   park_type?: FacilityParkType;
+  transit_park_type?: TransitParkType;
+  terminal_type?: TerminalType;
 }
 
 export interface BarrierSummaryBucket {
