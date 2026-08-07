@@ -30,13 +30,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FacilityParkType } from "@/types/facilities.types";
+import type { TransitParkType } from "@/types/transit-parks.types";
+import type { TerminalType } from "@/types/terminals.types";
 import type {
   BarrierDetail,
   BarrierOperationalStatus,
   BarrierPayload,
   BarrierRecord,
   BarrierRole,
-  BarrierSiteType,
+  BarriersListParams,
   BarriersSummaryResponse,
 } from "@/types/barriers.types";
 import { useBarriers } from "@/hooks/barriers/useBarriers";
@@ -54,6 +56,7 @@ const PAGE_SIZE = 20;
 
 type SiteTabId = "facilities" | "transit_parks" | "terminals";
 type FacilityParkTabId = "bonded" | "truck_parks" | "fish_van";
+type TransitParkTabId = "pregate" | "ept";
 
 const FACILITY_PARK_TAB_TO_TYPE: Record<FacilityParkTabId, FacilityParkType> = {
   bonded: "BONDED_TERMINAL",
@@ -61,17 +64,28 @@ const FACILITY_PARK_TAB_TO_TYPE: Record<FacilityParkTabId, FacilityParkType> = {
   fish_van: "FISH_VAN_PARK",
 };
 
+const TRANSIT_PARK_TAB_TO_TYPE: Record<TransitParkTabId, TransitParkType> = {
+  pregate: "PREGATE",
+  ept: "EPT",
+};
+
+const TERMINAL_TAB_TYPE: TerminalType = "PORT_TERMINAL";
+
 function getSiteTabFilters(
   siteTab: SiteTabId,
   facilityParkTab: FacilityParkTabId,
-): { site_type: BarrierSiteType; park_type?: FacilityParkType } {
+  transitParkTab: TransitParkTabId,
+): Pick<BarriersListParams, "site_type" | "park_type" | "transit_park_type" | "terminal_type"> {
   if (siteTab === "facilities") {
     return { site_type: "FACILITY", park_type: FACILITY_PARK_TAB_TO_TYPE[facilityParkTab] };
   }
   if (siteTab === "transit_parks") {
-    return { site_type: "TRANSIT_PARK" };
+    return {
+      site_type: "TRANSIT_PARK",
+      transit_park_type: TRANSIT_PARK_TAB_TO_TYPE[transitParkTab],
+    };
   }
-  return { site_type: "TERMINAL" };
+  return { site_type: "TERMINAL", terminal_type: TERMINAL_TAB_TYPE };
 }
 
 const SITE_TAB_CONFIG: Record<
@@ -106,9 +120,9 @@ const SITE_TAB_CONFIG: Record<
   },
   terminals: {
     label: "Terminals",
-    entityLabel: "Terminal",
-    description: "Barriers linked to port and non-port terminals.",
-    integratedLabel: "Integrated barriers assigned to terminals",
+    entityLabel: "Port Terminal",
+    description: "Barriers linked to port terminals.",
+    integratedLabel: "Integrated barriers assigned to port terminals",
     searchPlaceholder: "Search by terminal name or barrier ID number...",
     linkedSiteLabel: "Linked Terminal",
     Icon: Landmark,
@@ -123,6 +137,43 @@ const FACILITY_PARK_TAB_CONFIG: Record<
   truck_parks: { label: "Truck Parks", Icon: Truck },
   fish_van: { label: "Fish-Van Parks", Icon: Fish },
 };
+
+const TRANSIT_PARK_TAB_CONFIG: Record<
+  TransitParkTabId,
+  { label: string; Icon: React.ElementType }
+> = {
+  pregate: { label: "Pregate", Icon: DoorOpen },
+  ept: { label: "Export Processing Terminal (EPT)", Icon: Truck },
+};
+
+function getSummaryTitle(
+  siteTab: SiteTabId,
+  facilityParkTab?: FacilityParkTabId,
+  transitParkTab?: TransitParkTabId,
+) {
+  const cfg = SITE_TAB_CONFIG[siteTab];
+  if (siteTab === "facilities" && facilityParkTab) {
+    return `${FACILITY_PARK_TAB_CONFIG[facilityParkTab].label.replace(/s$/, "")} Barrier Management`;
+  }
+  if (siteTab === "transit_parks" && transitParkTab) {
+    return `${TRANSIT_PARK_TAB_CONFIG[transitParkTab].label} Barrier Management`;
+  }
+  return `${cfg.entityLabel} Barrier Management`;
+}
+
+function getIntegratedScopeLabel(
+  siteTab: SiteTabId,
+  facilityParkTab: FacilityParkTabId,
+  transitParkTab: TransitParkTabId,
+) {
+  if (siteTab === "facilities") {
+    return `Integrated barriers assigned to ${FACILITY_PARK_TAB_CONFIG[facilityParkTab].label.toLowerCase()}`;
+  }
+  if (siteTab === "transit_parks") {
+    return `Integrated barriers assigned to ${TRANSIT_PARK_TAB_CONFIG[transitParkTab].label.toLowerCase()}`;
+  }
+  return SITE_TAB_CONFIG.terminals.integratedLabel;
+}
 
 const OPERATIONAL_STATUS_FILTERS = ["All", "ONLINE", "OFFLINE"] as const;
 const BARRIER_TYPE_FILTERS = ["All", "ENTRY", "EXIT"] as const;
@@ -265,18 +316,17 @@ function SummaryPanel({
   summary,
   siteTab,
   facilityParkTab,
+  transitParkTab,
   isLoading,
 }: {
   summary?: BarriersSummaryResponse;
   siteTab: SiteTabId;
   facilityParkTab?: FacilityParkTabId;
+  transitParkTab?: TransitParkTabId;
   isLoading?: boolean;
 }) {
   const cfg = SITE_TAB_CONFIG[siteTab];
-  const facilityLabel =
-    siteTab === "facilities" && facilityParkTab
-      ? FACILITY_PARK_TAB_CONFIG[facilityParkTab].label.replace(/s$/, "")
-      : cfg.entityLabel;
+  const title = getSummaryTitle(siteTab, facilityParkTab, transitParkTab);
 
   const cards = [
     {
@@ -299,7 +349,7 @@ function SummaryPanel({
   return (
     <div className="rounded-2xl bg-[#0f1e2e] p-6">
       <div className="mb-4">
-        <h2 className="text-lg font-bold text-white">{facilityLabel} Barrier Management</h2>
+        <h2 className="text-lg font-bold text-white">{title}</h2>
         <p className="text-xs text-gray-400">{cfg.description}</p>
       </div>
 
@@ -320,6 +370,60 @@ function SummaryPanel({
             </div>
           ))
         )}
+      </div>
+    </div>
+  );
+}
+
+function SiteSubFilterBar<T extends string>({
+  filterLabel,
+  tabs,
+  activeTab,
+  tabCounts,
+  tabConfig,
+  onSwitch,
+}: {
+  filterLabel: string;
+  tabs: T[];
+  activeTab: T;
+  tabCounts: Record<T, number>;
+  tabConfig: Record<T, { label: string; Icon: React.ElementType }>;
+  onSwitch: (tab: T) => void;
+}) {
+  return (
+    <div className="border-b border-gray-100 bg-gray-50/70 px-6 py-3">
+      <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+        <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          {filterLabel}
+        </p>
+        <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
+          {tabs.map((tab) => {
+            const tcfg = tabConfig[tab];
+            const isActive = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => onSwitch(tab)}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-white text-emerald-700 shadow-sm ring-1 ring-gray-200/80"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                <tcfg.Icon className="h-3 w-3 shrink-0" />
+                <span className="whitespace-nowrap">{tcfg.label}</span>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    isActive ? "bg-emerald-100 text-emerald-700" : "bg-gray-200/60 text-gray-500"
+                  }`}
+                >
+                  {tabCounts[tab]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -676,6 +780,7 @@ function BarrierDetailDrawer({
 export function BarriersPage() {
   const [activeSiteTab, setActiveSiteTab] = useState<SiteTabId>("facilities");
   const [activeFacilityTab, setActiveFacilityTab] = useState<FacilityParkTabId>("bonded");
+  const [activeTransitParkTab, setActiveTransitParkTab] = useState<TransitParkTabId>("pregate");
   const [page, setPage] = useState(1);
   const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
   const [operationalFilter, setOperationalFilter] = useState<(typeof OPERATIONAL_STATUS_FILTERS)[number]>("All");
@@ -697,7 +802,7 @@ export function BarriersPage() {
   } | null>(null);
 
   const disableBarrier = useDisableBarrier();
-  const tabFilters = getSiteTabFilters(activeSiteTab, activeFacilityTab);
+  const tabFilters = getSiteTabFilters(activeSiteTab, activeFacilityTab, activeTransitParkTab);
   const cfg = SITE_TAB_CONFIG[activeSiteTab];
   const col = (key: ColumnKey) => visibleColumns.has(key);
 
@@ -716,11 +821,18 @@ export function BarriersPage() {
 
   const facilitiesSummary = useBarriersSummary({ site_type: "FACILITY" });
   const transitParksSummary = useBarriersSummary({ site_type: "TRANSIT_PARK" });
-  const terminalsSummary = useBarriersSummary({ site_type: "TERMINAL" });
 
   const bondedSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "BONDED_TERMINAL" });
   const truckSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "TRUCK_PARK" });
   const fishSummary = useBarriersSummary({ site_type: "FACILITY", park_type: "FISH_VAN_PARK" });
+
+  const pregateSummary = useBarriersSummary({ site_type: "TRANSIT_PARK", transit_park_type: "PREGATE" });
+  const eptSummary = useBarriersSummary({ site_type: "TRANSIT_PARK", transit_park_type: "EPT" });
+
+  const portTerminalSummary = useBarriersSummary({
+    site_type: "TERMINAL",
+    terminal_type: "PORT_TERMINAL",
+  });
 
   const items = data?.data ?? [];
   const meta = data?.meta;
@@ -730,13 +842,18 @@ export function BarriersPage() {
   const siteTabCounts: Record<SiteTabId, number> = {
     facilities: facilitiesSummary.data?.all.total ?? 0,
     transit_parks: transitParksSummary.data?.all.total ?? 0,
-    terminals: terminalsSummary.data?.all.total ?? 0,
+    terminals: portTerminalSummary.data?.all.total ?? 0,
   };
 
   const facilityTabCounts: Record<FacilityParkTabId, number> = {
     bonded: bondedSummary.data?.all.total ?? 0,
     truck_parks: truckSummary.data?.all.total ?? 0,
     fish_van: fishSummary.data?.all.total ?? 0,
+  };
+
+  const transitParkTabCounts: Record<TransitParkTabId, number> = {
+    pregate: pregateSummary.data?.all.total ?? 0,
+    ept: eptSummary.data?.all.total ?? 0,
   };
 
   const hasActiveFilters =
@@ -763,6 +880,11 @@ export function BarriersPage() {
 
   function switchFacilityTab(tab: FacilityParkTabId) {
     setActiveFacilityTab(tab);
+    resetFilters();
+  }
+
+  function switchTransitParkTab(tab: TransitParkTabId) {
+    setActiveTransitParkTab(tab);
     resetFilters();
   }
 
@@ -800,6 +922,7 @@ export function BarriersPage() {
 
   const SITE_TABS: SiteTabId[] = ["facilities", "transit_parks", "terminals"];
   const FACILITY_TABS: FacilityParkTabId[] = ["bonded", "truck_parks", "fish_van"];
+  const TRANSIT_PARK_TABS: TransitParkTabId[] = ["pregate", "ept"];
 
   return (
     <div className="space-y-5 p-6">
@@ -856,12 +979,21 @@ export function BarriersPage() {
             </span>
           </>
         )}
+        {activeSiteTab === "transit_parks" && (
+          <>
+            <Chevron className="h-3 w-3" />
+            <span className="font-semibold text-gray-800">
+              {TRANSIT_PARK_TAB_CONFIG[activeTransitParkTab].label}
+            </span>
+          </>
+        )}
       </nav>
 
       <SummaryPanel
         summary={summary}
         siteTab={activeSiteTab}
         facilityParkTab={activeSiteTab === "facilities" ? activeFacilityTab : undefined}
+        transitParkTab={activeSiteTab === "transit_parks" ? activeTransitParkTab : undefined}
         isLoading={summaryLoading}
       />
 
@@ -909,48 +1041,30 @@ export function BarriersPage() {
         </div>
 
         {activeSiteTab === "facilities" && (
-          <div className="border-b border-gray-100 bg-gray-50/70 px-6 py-3">
-            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
-              <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                Facility type
-              </p>
-              <div className="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-gray-100 p-1">
-                {FACILITY_TABS.map((tab) => {
-                  const fcfg = FACILITY_PARK_TAB_CONFIG[tab];
-                  const isActive = activeFacilityTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => switchFacilityTab(tab)}
-                      className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                        isActive
-                          ? "bg-white text-emerald-700 shadow-sm ring-1 ring-gray-200/80"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      <fcfg.Icon className="h-3 w-3 shrink-0" />
-                      <span className="whitespace-nowrap">{fcfg.label}</span>
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                          isActive ? "bg-emerald-100 text-emerald-700" : "bg-gray-200/60 text-gray-500"
-                        }`}
-                      >
-                        {facilityTabCounts[tab]}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <SiteSubFilterBar
+            filterLabel="Facility type"
+            tabs={FACILITY_TABS}
+            activeTab={activeFacilityTab}
+            tabCounts={facilityTabCounts}
+            tabConfig={FACILITY_PARK_TAB_CONFIG}
+            onSwitch={switchFacilityTab}
+          />
+        )}
+
+        {activeSiteTab === "transit_parks" && (
+          <SiteSubFilterBar
+            filterLabel="Transit park type"
+            tabs={TRANSIT_PARK_TABS}
+            activeTab={activeTransitParkTab}
+            tabCounts={transitParkTabCounts}
+            tabConfig={TRANSIT_PARK_TAB_CONFIG}
+            onSwitch={switchTransitParkTab}
+          />
         )}
 
         <div className="px-6 py-2.5">
           <p className="text-xs text-gray-500">
-            {activeSiteTab === "facilities"
-              ? `Integrated barriers assigned to ${FACILITY_PARK_TAB_CONFIG[activeFacilityTab].label.toLowerCase()}`
-              : cfg.integratedLabel}
+            {getIntegratedScopeLabel(activeSiteTab, activeFacilityTab, activeTransitParkTab)}
           </p>
         </div>
       </div>
