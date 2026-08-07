@@ -178,7 +178,7 @@ function TruckPreviewCard({ booking }: { booking: Booking }) {
   const displayType = truck?.truck_type ? formatLabel(truck.truck_type) : "—";
 
   return (
-    <div className="w-72 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl ring-1 ring-black/5">
+    <div className="w-72 overflow-hidden rounded-xl border-2 border-emerald-600 bg-white shadow-xl">
       <div className="border-b border-gray-100 bg-gray-50/80 px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

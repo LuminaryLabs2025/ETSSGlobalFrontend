@@ -403,7 +403,7 @@ function getLiveCount(key: string, counts: Record<string, number>) {
 }
 
 export function AppOptionsPage() {
-  const [selectedKey, setSelectedKey] = useState<string>("payment-types");
+  const [selectedKey, setSelectedKey] = useState<string>("truck-types");
   const [search, setSearch] = useState("");
   const [categorySearch, setCategorySearch] = useState("");
   const paymentTypesTotal = usePaymentTypesCount();
