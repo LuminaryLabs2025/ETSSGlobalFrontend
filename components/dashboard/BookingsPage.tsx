@@ -24,7 +24,6 @@ import {
   AlertCircle,
   Download,
   MapPin,
-  Calendar,
   Fish,
   Warehouse,
   ParkingCircle,
@@ -147,6 +146,39 @@ function formatTimestamp(ts: string) {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
+}
+
+function formatTimelineTimestamp(ts: string) {
+  return new Date(ts).toLocaleString("en-NG", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function formatTurnaroundDuration(fromTimestamp: string, toTimestamp: string): string {
+  const diffMs = Math.max(0, new Date(toTimestamp).getTime() - new Date(fromTimestamp).getTime());
+
+  if (diffMs < 60_000) {
+    const seconds = Math.max(1, Math.round(diffMs / 1000));
+    return `${seconds}s`;
+  }
+
+  const totalMinutes = Math.floor(diffMs / 60_000);
+
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) {
+    return hours > 0 ? `${days}d ${hours}h` : `${days}d ${minutes}m`;
+  }
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  return `${minutes}m`;
 }
 
 const BOOKING_TYPE_LABELS: Record<string, string> = {
@@ -621,57 +653,63 @@ function BookingActivityTimeline({ booking }: { booking: Booking }) {
   }
 
   return (
-    <div className="relative space-y-0">
+    <div className="space-y-0">
       {entries.map((entry, index) => {
         const isLatest = entry.is_latest ?? index === 0;
-        const fromStatus = entry.from_status ?? (entries[index + 1] ? formatLabel(entries[index + 1].status) : undefined);
+        const previousEntry = entries[index + 1];
         const performer = entry.performed_by ?? "System";
+        const turnaroundTime = entry.tat_duration
+          ? entry.tat_duration.replace(/^<\s*1m$/i, "≤1m")
+          : previousEntry
+            ? formatTurnaroundDuration(previousEntry.timestamp, entry.timestamp)
+            : undefined;
 
         return (
-          <div key={entry.id} className="relative flex gap-3 pb-6 last:pb-0">
-            {index < entries.length - 1 && (
-              <span className="absolute left-[13px] top-7 bottom-0 w-px bg-gray-200" />
-            )}
-            <div className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0f1e2e]">
-              <CheckCircle2 className="h-3.5 w-3.5 text-white" />
-            </div>
-            <div className="min-w-0 flex-1 rounded-lg border border-gray-100 bg-gray-50/50 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-bold text-gray-900">{formatLabel(entry.status)}</p>
-                {isLatest && (
-                  <span className="rounded bg-[#0f1e2e] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
-                    Latest
-                  </span>
+          <div key={entry.id}>
+            <div className="relative flex gap-3">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0f1e2e]">
+                <CheckCircle2 className="h-3.5 w-3.5 text-white" />
+              </div>
+              <div className="min-w-0 flex-1 rounded-lg border border-gray-100 bg-gray-50/50 px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <p className="text-sm font-bold text-gray-900">{formatLabel(entry.status)}</p>
+                  {isLatest && (
+                    <span className="rounded bg-[#0f1e2e] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white">
+                      Latest
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  {performer} · {formatTimelineTimestamp(entry.timestamp)}
+                </p>
+                {entry.location && (
+                  <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+                    <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
+                    {entry.location}
+                  </p>
+                )}
+                {entry.notes && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-gray-500">{entry.notes}</p>
                 )}
               </div>
-              {fromStatus && (
-                <p className="mt-1 text-xs text-gray-600">
-                  <span className="text-gray-400">From:</span> {fromStatus}
-                </p>
-              )}
-              <p className="mt-0.5 text-xs text-gray-600">
-                <span className="text-gray-400">Updated by:</span> {performer}
-              </p>
-              {entry.location && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-gray-600">
-                  <MapPin className="h-3 w-3 shrink-0 text-gray-400" />
-                  {entry.location}
-                </p>
-              )}
-              <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
-                <Calendar className="h-3 w-3 shrink-0 text-gray-400" />
-                {formatTimestamp(entry.timestamp)}
-              </p>
-              {entry.tat_duration && (
-                <div className="mt-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Turn Around Time</p>
-                  <p className="text-xs font-bold text-gray-800">{entry.tat_duration}</p>
-                </div>
-              )}
-              {entry.notes && !entry.tat_duration && (
-                <p className="mt-1 text-[11px] text-gray-500">{entry.notes}</p>
-              )}
             </div>
+
+            {index < entries.length - 1 && (
+              <div className="flex gap-3 py-1.5">
+                <div className="relative flex w-7 shrink-0 justify-center overflow-visible">
+                  <span className="absolute inset-y-0 w-px bg-gray-200" />
+                  {turnaroundTime && (
+                    <span
+                      className="relative z-10 my-0.5 inline-flex items-center gap-0.5 whitespace-nowrap rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[9px] font-semibold leading-none text-gray-600 shadow-sm"
+                      title="Turnaround time from previous step"
+                    >
+                      <Clock className="h-2.5 w-2.5 shrink-0 text-gray-400" />
+                      {turnaroundTime}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         );
       })}
