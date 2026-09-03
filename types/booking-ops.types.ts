@@ -13,7 +13,7 @@ export interface BookingQueueEntry extends Booking {
 
 export interface BookingQueueParams {
   facility_id?: string;
-  transit_park_id?: string;
+  terminal_id?: string;
   page?: number;
   limit?: number;
 }

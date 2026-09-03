@@ -87,7 +87,7 @@ export function usePregateQueue(params?: BookingQueueParams, enabled = true) {
   return useQuery({
     queryKey: ["bookings", "queue", "pregate", params],
     queryFn: () => bookingsService.queuePregate(params),
-    enabled: enabled && !!params?.transit_park_id,
+    enabled: enabled && !!params?.terminal_id,
   });
 }
 

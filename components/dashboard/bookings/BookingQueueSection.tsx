@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { AlertCircle, Eye, Loader2, Search } from "lucide-react";
 import { useFacilities } from "@/hooks/facilities/useFacilities";
-import { useTransitParks } from "@/hooks/transit-parks/useTransitParks";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
 import { useFacilityQueue, usePregateQueue } from "@/hooks/bookings/useBookingOps";
 import type { Booking } from "@/types/bookings.types";
 import type { BookingQueueEntry } from "@/types/booking-ops.types";
@@ -51,19 +51,19 @@ export function BookingQueueSection({
 }) {
   const [queueTab, setQueueTab] = useState<"facility" | "pregate">("facility");
   const [facilityId, setFacilityId] = useState("");
-  const [transitParkId, setTransitParkId] = useState("");
+  const [terminalId, setTerminalId] = useState("");
   const [page, setPage] = useState(1);
 
   const { data: facilitiesData } = useFacilities({ limit: 100 });
-  const { data: pregateParksData } = useTransitParks({ type: "PREGATE", limit: 100 });
+  const { data: terminalsData } = useTerminals({ limit: 100 });
 
   const facilityOptions = useMemo(
     () => (facilitiesData?.data ?? []).map((f) => ({ value: f.id, label: f.name })),
     [facilitiesData],
   );
-  const pregateOptions = useMemo(
-    () => (pregateParksData?.data ?? []).map((p) => ({ value: p.id, label: p.name })),
-    [pregateParksData],
+  const terminalOptions = useMemo(
+    () => (terminalsData?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    [terminalsData],
   );
 
   const facilityQueueParams = useMemo(
@@ -72,8 +72,8 @@ export function BookingQueueSection({
   );
   const pregateQueueParams = useMemo(
     () =>
-      transitParkId ? { transit_park_id: transitParkId, page, limit: QUEUE_PAGE_SIZE } : undefined,
-    [transitParkId, page],
+      terminalId ? { terminal_id: terminalId, page, limit: QUEUE_PAGE_SIZE } : undefined,
+    [terminalId, page],
   );
 
   const {
@@ -94,8 +94,8 @@ export function BookingQueueSection({
   const totalCount = queueData?.meta?.total ?? 0;
   const totalPages = queueData?.meta?.total_pages ?? 1;
 
-  const selectedSiteId = queueTab === "facility" ? facilityId : transitParkId;
-  const siteOptions = queueTab === "facility" ? facilityOptions : pregateOptions;
+  const selectedSiteId = queueTab === "facility" ? facilityId : terminalId;
+  const siteOptions = queueTab === "facility" ? facilityOptions : terminalOptions;
 
   function handleTabChange(tab: "facility" | "pregate") {
     setQueueTab(tab);
@@ -106,7 +106,7 @@ export function BookingQueueSection({
     if (queueTab === "facility") {
       setFacilityId(id);
     } else {
-      setTransitParkId(id);
+      setTerminalId(id);
     }
     setPage(1);
   }
@@ -143,7 +143,7 @@ export function BookingQueueSection({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-              {queueTab === "facility" ? "Select Facility" : "Select Pregate Transit Park"}
+              {queueTab === "facility" ? "Select Facility" : "Select Terminal"}
             </label>
             <select
               value={selectedSiteId}
@@ -151,7 +151,7 @@ export function BookingQueueSection({
               className="w-full rounded-lg border border-gray-200 py-2 pl-3 pr-8 text-sm outline-none focus:border-emerald-300"
             >
               <option value="">
-                {queueTab === "facility" ? "Choose a facility…" : "Choose a pregate…"}
+                {queueTab === "facility" ? "Choose a facility…" : "Choose a terminal…"}
               </option>
               {siteOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -196,7 +196,7 @@ export function BookingQueueSection({
               <tr>
                 <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                   <Search className="mx-auto mb-2 h-6 w-6 text-gray-300" />
-                  Select a {queueTab === "facility" ? "facility" : "pregate"} to view the queue
+                  Select a {queueTab === "facility" ? "facility" : "terminal"} to view the queue
                 </td>
               </tr>
             ) : isLoading ? (
