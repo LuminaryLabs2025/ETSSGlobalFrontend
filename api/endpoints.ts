@@ -49,6 +49,16 @@ export const BOOKINGS = {
   REMOVE_FROM_MANIFEST: (id: string) => `/bookings/${id}/remove-from-manifest`,
   ADD_TO_MANIFEST: (id: string) => `/bookings/${id}/add-to-manifest`,
   CANCEL: (id: string) => `/bookings/${id}/cancel`,
+  PREVIEW: (type: string) => `/bookings/${type}/preview`,
+  CREATE: (type: string) => `/bookings/${type}`,
+  CONFIRM_PAYMENT: (id: string) => `/bookings/${id}/confirm-payment`,
+  MARK_IN_FACILITY: (id: string) => `/bookings/${id}/mark-in-facility`,
+  MARK_IN_PREGATE: (id: string) => `/bookings/${id}/mark-in-pregate`,
+  MARK_MATCHED: (id: string) => `/bookings/${id}/mark-matched`,
+  MARK_GTG_FACILITY: (id: string) => `/bookings/${id}/mark-gtg-facility`,
+  MARK_GTG_PREGATE: (id: string) => `/bookings/${id}/mark-gtg-pregate`,
+  QUEUE_FACILITY: "/bookings/queue/facility",
+  QUEUE_PREGATE: "/bookings/queue/pregate",
 } as const;
 
 // ─── Utility Tickets ───
@@ -162,6 +172,7 @@ export const TRUCKS = {
   RE_ENABLE: (id: string) => `/trucks/${id}/re-enable`,
   OVERRIDE_PENALTY: (id: string) => `/trucks/${id}/override-penalty`,
   REQUEST_VERIFICATION: (id: string) => `/trucks/${id}/request-verification`,
+  BOOKING_OPTIONS: "/trucks/booking-options",
 } as const;
 
 // ─── Drivers ───
@@ -175,6 +186,7 @@ export const DRIVERS = {
   DISABLE: (id: string) => `/drivers/${id}/disable`,
   ARCHIVE: (id: string) => `/drivers/${id}/archive`,
   ENABLE: (id: string) => `/drivers/${id}/enable`,
+  BOOKING_OPTIONS: "/drivers/booking-options",
   CLEAR_FLAG: (id: string) => `/drivers/${id}/clear-flag`,
   START_VERIFICATION: (id: string) => `/drivers/${id}/start-verification`,
 } as const;

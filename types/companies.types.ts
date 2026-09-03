@@ -32,6 +32,11 @@ export interface CompanyTeamMember {
   updated_at?: string;
 }
 
+export interface CompaniesListParams {
+  search?: string;
+  user_type_slug?: string;
+}
+
 export interface Company {
   id: string;
   name: string;

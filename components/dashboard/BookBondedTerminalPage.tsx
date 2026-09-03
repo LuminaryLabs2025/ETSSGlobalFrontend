@@ -1,25 +1,42 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Truck, Calendar, CheckCircle2, Warehouse } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Truck, Calendar, CheckCircle2, Warehouse, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
 import {
-  BONDED_BOOKING_CATEGORIES,
-  BONDED_TERMINAL_FACILITIES,
   BONDED_TERMINAL_LOCATIONS,
-  BOOK_ASSIST_TRANSPORTERS,
-  FACILITY_ARRIVAL_TIMESLOTS,
-  TERMINALS_BY_BONDED_LOCATION,
-  buildGroupedDriverOptions,
-  buildGroupedTruckOptions,
+  getBondedLocationLabel,
+  parseBondedTerminalLocation,
+  type BondedTerminalLocation,
+} from "@/lib/booking-form-constants";
+import {
+  flattenBookingOptions,
   formatAssistDateLong,
   formatAssistDateShort,
-  getBondedLocationLabel,
-  type BondedTerminalLocation,
-} from "@/lib/book-assist-mock-data";
+  formatTimeslotLabel,
+  mapPreviewFee,
+  PREVIEW_REFERENCE_PLACEHOLDER,
+  stripGroupedLabel,
+} from "@/lib/booking-form-utils";
+import { useCompanies } from "@/hooks/companies/useCompanies";
+import { useFacilities } from "@/hooks/facilities/useFacilities";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
+import { useBookingCategories } from "@/hooks/booking-categories/useBookingCategories";
+import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBookingOptions";
+import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
+import { useFacilityTimeslots } from "@/hooks/booking-creation/useFacilityTimeslots";
+import {
+  useConfirmBookingPayment,
+  useCreateBooking,
+  usePreviewBooking,
+} from "@/hooks/booking-creation/useBookingCreationMutations";
+import type { BookingPreview } from "@/types/booking-creation.types";
+import type { CreateFacilityBookingRequest } from "@/types/booking-creation.types";
 import {
   BookAssistBreadcrumb,
+  BookingPaymentSuccessModal,
   PaymentSummaryPanel,
   PreviewDataCell,
   SearchableGroupedSelect,
@@ -28,18 +45,12 @@ import {
   SuperAdminGate,
   type PaymentMethod,
 } from "@/components/dashboard/book-assist/BookAssistUi";
-import {
-  BookingCategoryBadge,
-  buildBookingReferenceNumber,
-} from "@/components/dashboard/book-assist/BookingCategoryBadge";
+import { BookingCategoryBadge } from "@/components/dashboard/book-assist/BookingCategoryBadge";
 
 type Step = 1 | 2;
 
-function stripGroupedLabel(label: string) {
-  return label.split(" (")[0];
-}
-
 export function BookBondedTerminalPage() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -49,70 +60,132 @@ export function BookBondedTerminalPage() {
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [terminalLocation, setTerminalLocation] = useState<BondedTerminalLocation | "">("");
-  const [terminalDestination, setTerminalDestination] = useState("");
-  const [bookingCategory, setBookingCategory] = useState("");
+  const [terminalId, setTerminalId] = useState("");
+  const [bookingCategoryId, setBookingCategoryId] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
-  const [arrivalTimeslot, setArrivalTimeslot] = useState("");
+  const [arrivalTimeslotId, setArrivalTimeslotId] = useState("");
+
+  const [preview, setPreview] = useState<BookingPreview | null>(null);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+  const [bookingReference, setBookingReference] = useState(PREVIEW_REFERENCE_PLACEHOLDER);
+
+  const [paymentSuccess, setPaymentSuccess] = useState<{
+    booking_id: string;
+    journey_code: string;
+  } | null>(null);
 
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
-  const [isPaying, setIsPaying] = useState(false);
 
-  const selectedFacility = BONDED_TERMINAL_FACILITIES.find((f) => f.id === facilityId);
-  const facilityName = selectedFacility?.name ?? "";
+  const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
+  const { data: facilitiesData } = useFacilities({ park_type: "BONDED_TERMINAL", limit: 100 });
+  const { data: categoriesData } = useBookingCategories({ limit: 100, status: "ACTIVE" });
 
-  const transporter = BOOK_ASSIST_TRANSPORTERS.find((t) => t.id === transporterId);
-  const transporterName = transporter?.name ?? "";
+  const terminalParams = useMemo(() => {
+    if (!terminalLocation) return undefined;
+    const parsed = parseBondedTerminalLocation(terminalLocation);
+    return { type: parsed.type, location: parsed.location, limit: 100 };
+  }, [terminalLocation]);
 
-  const truckOptions = useMemo(
-    () => (transporterName ? buildGroupedTruckOptions(transporterName) : []),
-    [transporterName],
-  );
-  const driverOptions = useMemo(
-    () => (transporterName ? buildGroupedDriverOptions(transporterName) : []),
-    [transporterName],
-  );
+  const { data: terminalsData } = useTerminals(terminalParams);
+  const { data: truckOptionsData } = useTruckBookingOptions({ transporter_company_id: transporterId });
+  const { data: driverOptionsData } = useDriverBookingOptions({ transporter_company_id: transporterId });
+  const { data: timeslotsData } = useFacilityTimeslots(facilityId || undefined);
+
+  const previewMutation = usePreviewBooking("bonded-terminal");
+  const createMutation = useCreateBooking("bonded-terminal");
+  const confirmPaymentMutation = useConfirmBookingPayment();
+
+  const transporterName =
+    transporters.find((t) => t.id === transporterId)?.name ??
+    preview?.transporter_company.name ??
+    "";
+
+  const truckOptions = useMemo(() => flattenBookingOptions(truckOptionsData), [truckOptionsData]);
+  const driverOptions = useMemo(() => flattenBookingOptions(driverOptionsData), [driverOptionsData]);
 
   const selectedTruck = truckOptions.find((t) => t.value === truckId);
   const selectedDriver = driverOptions.find((d) => d.value === driverId);
-  const selectedCategory = BONDED_BOOKING_CATEGORIES.find((c) => c.value === bookingCategory);
-  const selectedTimeslot = FACILITY_ARRIVAL_TIMESLOTS.find((t) => t.value === arrivalTimeslot);
 
-  const terminalDestinationOptions = terminalLocation
-    ? TERMINALS_BY_BONDED_LOCATION[terminalLocation].map((name) => ({
-        value: name,
-        label: name,
-      }))
-    : [];
+  const facilityOptions = useMemo(
+    () => (facilitiesData?.data ?? []).map((f) => ({ value: f.id, label: f.name })),
+    [facilitiesData],
+  );
 
-  const facilityOptions = BONDED_TERMINAL_FACILITIES.map((f) => ({
-    value: f.id,
-    label: f.name,
-  }));
+  const selectedFacility = facilitiesData?.data.find((f) => f.id === facilityId);
+  const facilityName = selectedFacility?.name ?? preview?.facility?.name ?? "";
 
-  const transporterOptions = BOOK_ASSIST_TRANSPORTERS.map((t) => ({
-    value: t.id,
-    label: t.name,
-  }));
+  const terminalDestinationOptions = useMemo(
+    () => (terminalsData?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    [terminalsData],
+  );
+
+  const terminalDestinationName =
+    terminalsData?.data.find((t) => t.id === terminalId)?.name ??
+    preview?.terminal.name ??
+    "";
+
+  const categoryOptions = useMemo(
+    () => (categoriesData?.data ?? []).map((c) => ({ value: c.id, label: c.name })),
+    [categoriesData],
+  );
+
+  const selectedCategory = categoriesData?.data.find((c) => c.id === bookingCategoryId);
+  const categoryLabel = selectedCategory?.name ?? preview?.booking_category_ref?.name ?? "—";
+
+  const timeslotOptions = useMemo(
+    () =>
+      (timeslotsData?.data ?? [])
+        .filter((a) => a.is_active)
+        .map((a) => ({
+          value: a.timeslot.id,
+          label: formatTimeslotLabel(
+            a.timeslot.start_time,
+            a.timeslot.end_time,
+            a.timeslot.name,
+          ),
+        })),
+    [timeslotsData],
+  );
+
+  const selectedTimeslotOption = timeslotOptions.find((t) => t.value === arrivalTimeslotId);
+  const timeslotLabel =
+    selectedTimeslotOption?.label ??
+    (preview?.expected_arrival_time_slot
+      ? formatTimeslotLabel(
+          preview.expected_arrival_time_slot.start_time,
+          preview.expected_arrival_time_slot.end_time,
+          preview.expected_arrival_time_slot.name,
+        )
+      : "—");
+
+  const transporterOptions = transporters.map((t) => ({ value: t.id, label: t.name }));
 
   const bookedByName = user ? `${user.first_name} ${user.last_name}` : "SuperAdmin";
   const createdLabel = formatAssistDateShort(new Date().toISOString());
   const terminalLocationLabel = terminalLocation
     ? getBondedLocationLabel(terminalLocation)
-    : "—";
+    : preview?.terminal.location ?? "—";
 
-  const referenceNumber = useMemo(
-    () =>
-      buildBookingReferenceNumber(
-        selectedTruck ? stripGroupedLabel(selectedTruck.label) : undefined,
-        selectedCategory?.variant,
-      ),
-    [selectedTruck, selectedCategory],
-  );
+  const paymentFee = mapPreviewFee(preview?.fee);
+
+  function buildPayload(): CreateFacilityBookingRequest {
+    return {
+      facility_id: facilityId,
+      transporter_company_id: transporterId,
+      truck_id: truckId,
+      driver_id: driverId,
+      terminal_id: terminalId,
+      booking_category_id: bookingCategoryId,
+      expected_arrival_date: arrivalDate,
+      expected_arrival_time_slot_id: arrivalTimeslotId,
+    };
+  }
 
   function handleFacilityChange(id: string) {
     setFacilityId(id);
+    setArrivalTimeslotId("");
   }
 
   function handleTransporterChange(id: string) {
@@ -123,7 +196,7 @@ export function BookBondedTerminalPage() {
 
   function handleTerminalLocationChange(location: string) {
     setTerminalLocation(location as BondedTerminalLocation);
-    setTerminalDestination("");
+    setTerminalId("");
   }
 
   function validateStep1(): boolean {
@@ -147,11 +220,11 @@ export function BookBondedTerminalPage() {
       toast.error("Please select a terminal location.");
       return false;
     }
-    if (!terminalDestination) {
+    if (!terminalId) {
       toast.error("Please select a terminal destination.");
       return false;
     }
-    if (!bookingCategory) {
+    if (!bookingCategoryId) {
       toast.error("Please select a booking category.");
       return false;
     }
@@ -159,29 +232,47 @@ export function BookBondedTerminalPage() {
       toast.error("Please select an expected arrival date.");
       return false;
     }
-    if (!arrivalTimeslot) {
+    if (!arrivalTimeslotId) {
       toast.error("Please select an expected arrival time.");
       return false;
     }
     return true;
   }
 
-  function handleProceedToPreview() {
+  async function handleProceedToPreview() {
     if (!validateStep1()) return;
     setDetailsConfirmed(false);
     setTermsAccepted(false);
-    setStep(2);
+    setCreatedBookingId(null);
+    setBookingReference(PREVIEW_REFERENCE_PLACEHOLDER);
+
+    try {
+      const result = await previewMutation.mutateAsync(buildPayload());
+      setPreview(result);
+      setStep(2);
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   function handleGoBack() {
     setStep(1);
     setDetailsConfirmed(false);
     setTermsAccepted(false);
+    setCreatedBookingId(null);
+    setBookingReference(PREVIEW_REFERENCE_PLACEHOLDER);
   }
 
-  function handleConfirmDetails() {
-    setDetailsConfirmed(true);
-    toast.success("Booking details confirmed. You may now proceed to payment.");
+  async function handleConfirmDetails() {
+    try {
+      const booking = await createMutation.mutateAsync(buildPayload());
+      setCreatedBookingId(booking.id);
+      setBookingReference(booking.journey_code || booking.booking_id);
+      setDetailsConfirmed(true);
+      toast.success("Booking details confirmed. You may now proceed to payment.");
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   async function handleProceedToPay() {
@@ -193,11 +284,31 @@ export function BookBondedTerminalPage() {
       toast.error("Please accept the Maritime-ETSS terms and conditions.");
       return;
     }
-    setIsPaying(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsPaying(false);
-    toast.success("Bonded terminal booking payment processed successfully.");
+    if (!createdBookingId) {
+      toast.error("Booking not found. Please confirm details again.");
+      return;
+    }
+
+    try {
+      const booking = await confirmPaymentMutation.mutateAsync({
+        id: createdBookingId,
+        payload: {
+          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
+          terms_accepted: true,
+        },
+      });
+      setPaymentSuccess({
+        booking_id: booking.booking_id,
+        journey_code: booking.journey_code,
+      });
+    } catch {
+      // toast handled in mutation
+    }
   }
+
+  const isPreviewLoading = previewMutation.isPending;
+  const isCreating = createMutation.isPending;
+  const isPaying = confirmPaymentMutation.isPending;
 
   if (!isSuperAdmin) {
     return <SuperAdminGate featureLabel="Book Bonded Terminal" />;
@@ -304,8 +415,8 @@ export function BookBondedTerminalPage() {
             <SearchableSelect
               label="Terminal Destination"
               placeholder={terminalLocation ? "Choose terminal…" : "Select terminal location first"}
-              value={terminalDestination}
-              onChange={setTerminalDestination}
+              value={terminalId}
+              onChange={setTerminalId}
               options={terminalDestinationOptions}
               searchPlaceholder="Search terminals…"
               required
@@ -315,12 +426,9 @@ export function BookBondedTerminalPage() {
             <SearchableSelect
               label="Select Booking Category"
               placeholder="Choose booking category…"
-              value={bookingCategory}
-              onChange={setBookingCategory}
-              options={BONDED_BOOKING_CATEGORIES.map((c) => ({
-                value: c.value,
-                label: c.label,
-              }))}
+              value={bookingCategoryId}
+              onChange={setBookingCategoryId}
+              options={categoryOptions}
               searchPlaceholder="Search categories…"
               required
             />
@@ -343,12 +451,13 @@ export function BookBondedTerminalPage() {
 
             <SearchableSelect
               label="Expected Arrival Time (Facility)"
-              placeholder="Choose timeslot…"
-              value={arrivalTimeslot}
-              onChange={setArrivalTimeslot}
-              options={FACILITY_ARRIVAL_TIMESLOTS}
+              placeholder={facilityId ? "Choose timeslot…" : "Select facility first"}
+              value={arrivalTimeslotId}
+              onChange={setArrivalTimeslotId}
+              options={timeslotOptions}
               searchPlaceholder="Search timeslots…"
               required
+              disabled={!facilityId}
             />
           </div>
 
@@ -356,8 +465,10 @@ export function BookBondedTerminalPage() {
             <button
               type="button"
               onClick={handleProceedToPreview}
-              className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              disabled={isPreviewLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
+              {isPreviewLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               Proceed To Preview Data
             </button>
           </div>
@@ -380,21 +491,22 @@ export function BookBondedTerminalPage() {
                 <div>
                   <span className="text-gray-500">Vehicle Plate Number:</span>{" "}
                   <span className="font-semibold text-gray-900">
-                    {selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—"}
+                    {preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")}
                   </span>
                 </div>
                 <div>
                   <span className="text-gray-500">Destination:</span>{" "}
-                  <span className="font-semibold text-gray-900">{terminalDestination}</span>
+                  <span className="font-semibold text-gray-900">{terminalDestinationName}</span>
                 </div>
               </div>
 
               <div className="mt-6 flex flex-col items-center py-4">
-                {selectedCategory && (
+                {categoryLabel !== "—" && (
                   <BookingCategoryBadge
-                    variant={selectedCategory.variant}
-                    label={selectedCategory.label}
-                    referenceNumber={referenceNumber}
+                    categoryName={categoryLabel}
+                    label={categoryLabel}
+                    referenceNumber={bookingReference}
                   />
                 )}
               </div>
@@ -404,27 +516,30 @@ export function BookBondedTerminalPage() {
                   <PreviewDataCell label="Facility" value={facilityName || "—"} />
                   <PreviewDataCell
                     label="Truck Plate Number"
-                    value={selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—"}
+                    value={
+                      preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")
+                    }
                   />
                   <PreviewDataCell
                     label="Driver's Name"
-                    value={selectedDriver ? stripGroupedLabel(selectedDriver.label) : "—"}
+                    value={
+                      preview?.driver.name ??
+                      (selectedDriver ? stripGroupedLabel(selectedDriver.label) : "—")
+                    }
                   />
                 </div>
                 <div className="flex flex-wrap gap-4">
                   <PreviewDataCell label="Terminal Location" value={terminalLocationLabel} />
-                  <PreviewDataCell label="Terminal Destination" value={terminalDestination} />
-                  <PreviewDataCell label="Booking Category" value={selectedCategory?.label ?? "—"} />
+                  <PreviewDataCell label="Terminal Destination" value={terminalDestinationName} />
+                  <PreviewDataCell label="Booking Category" value={categoryLabel} />
                 </div>
                 <div className="flex flex-wrap gap-4">
                   <PreviewDataCell
                     label="Expected Arrival Date (Facility)"
-                    value={formatAssistDateLong(arrivalDate)}
+                    value={formatAssistDateLong(preview?.expected_arrival_date ?? arrivalDate)}
                   />
-                  <PreviewDataCell
-                    label="Expected Arrival Time (Facility)"
-                    value={selectedTimeslot?.label ?? "—"}
-                  />
+                  <PreviewDataCell label="Expected Arrival Time (Facility)" value={timeslotLabel} />
                 </div>
               </div>
 
@@ -445,10 +560,10 @@ export function BookBondedTerminalPage() {
                   </div>
                   <div className="text-center">
                     <p className="text-[10px] font-semibold uppercase text-gray-400">
-                      {terminalDestination}
+                      {terminalDestinationName}
                     </p>
                     <p className="text-sm font-bold text-gray-900">
-                      {formatAssistDateShort(arrivalDate)}
+                      {formatAssistDateShort(preview?.expected_arrival_date ?? arrivalDate)}
                     </p>
                   </div>
                 </div>
@@ -465,14 +580,18 @@ export function BookBondedTerminalPage() {
                 <button
                   type="button"
                   onClick={handleConfirmDetails}
-                  disabled={detailsConfirmed}
+                  disabled={detailsConfirmed || isCreating}
                   className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
                     detailsConfirmed
                       ? "cursor-default bg-emerald-100 text-emerald-700"
-                      : "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                   }`}
                 >
-                  {detailsConfirmed ? (
+                  {isCreating ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Confirming…
+                    </span>
+                  ) : detailsConfirmed ? (
                     <span className="inline-flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4" /> Details Confirmed
                     </span>
@@ -493,9 +612,18 @@ export function BookBondedTerminalPage() {
               onPaymentMethodChange={setPaymentMethod}
               onProceedToPay={handleProceedToPay}
               isPaying={isPaying}
+              fee={paymentFee}
             />
           </div>
         </div>
+      )}
+      {paymentSuccess && (
+        <BookingPaymentSuccessModal
+          bookingId={paymentSuccess.booking_id}
+          journeyCode={paymentSuccess.journey_code}
+          message="Your bonded terminal booking payment has been confirmed."
+          onContinue={() => router.push("/dashboard/bookings/all")}
+        />
       )}
     </div>
   );

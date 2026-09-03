@@ -34,6 +34,7 @@ import {
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useCompanies } from "@/hooks/companies/useCompanies";
 import { useBookings } from "@/hooks/bookings/useBookings";
 import { useBookingsSummary } from "@/hooks/bookings/useBookingsSummary";
 import { useBookingsManifest } from "@/hooks/bookings/useBookingsManifest";
@@ -44,6 +45,15 @@ import {
   useCancelBooking,
   useExportBookings,
 } from "@/hooks/bookings/useBookingActions";
+import {
+  useBookingOpsMutations,
+  useFacilityQueue,
+  usePregateQueue,
+} from "@/hooks/bookings/useBookingOps";
+import { BookingOpsLifecyclePanel } from "@/components/dashboard/bookings/BookingOpsLifecyclePanel";
+import { BookingQueueSection } from "@/components/dashboard/bookings/BookingQueueSection";
+import { findQueuePosition } from "@/lib/booking-ops-utils";
+import type { BookingOpsAction } from "@/types/booking-ops.types";
 import type {
   Booking,
   BookingStatus,
@@ -51,13 +61,14 @@ import type {
   BookingsSummaryResponse,
   BookingsListParams,
   BookingsManifestParams,
+  BookingEntityRef,
 } from "@/types/bookings.types";
 import { BookingETicketModal } from "@/components/dashboard/BookingETicket";
 import { TableActionsDropdown } from "@/components/dashboard/TableActionsDropdown";
 
 const PAGE_SIZE = 10;
 
-type MainSection = "all" | "manifest";
+type MainSection = "all" | "manifest" | "queue";
 type StatusTab = "all" | "COMPLETED" | "CANCELLED" | "FLAGGED";
 type ManifestTab = "in" | "left";
 
@@ -112,16 +123,6 @@ const TERMINAL_OPTIONS = [
   "Calabar Non-Port Terminal",
 ];
 
-const TRANSPORTER_OPTIONS = [
-  "All",
-  "ABC Logistics Ltd",
-  "BUA Transport Services",
-  "Dangote Transport Services",
-  "Mikano Logistics",
-  "Shina & Sons Logistics",
-  "Calabar Haulage Co.",
-];
-
 const TRANSFER_TYPE_OPTIONS: (TransferType | "All")[] = [
   "All", "INBOUND", "OUTBOUND", "INTER_TERMINAL", "EMPTY_RETURN", "LOCAL",
 ];
@@ -146,6 +147,75 @@ function formatTimestamp(ts: string) {
     day: "2-digit", month: "short", year: "numeric",
     hour: "2-digit", minute: "2-digit", hour12: true,
   });
+}
+
+const BOOKING_TYPE_LABELS: Record<string, string> = {
+  BONDED_TERMINAL: "Bonded Terminal",
+  TRUCK_PARK: "Truck Park",
+  FISH_VAN_PARK: "Fish",
+  EPT: "EPT",
+};
+
+function formatEntityRef(entity?: BookingEntityRef) {
+  if (!entity) return undefined;
+  return entity.code ? `${entity.name} (${entity.code})` : entity.name;
+}
+
+function resolveBookingTypeLabel(booking: Booking) {
+  if (!booking.booking_type) return undefined;
+  return BOOKING_TYPE_LABELS[booking.booking_type] ?? formatLabel(booking.booking_type);
+}
+
+function resolveFacilityDisplay(booking: Booking) {
+  const fromRef = formatEntityRef(booking.facility);
+  if (fromRef) return fromRef;
+  if (booking.facility_name) {
+    return booking.facility_code
+      ? `${booking.facility_name} (${booking.facility_code})`
+      : booking.facility_name;
+  }
+  return undefined;
+}
+
+function resolveTransitParkDisplay(booking: Booking) {
+  const fromRef = formatEntityRef(booking.transit_park);
+  if (fromRef) return fromRef;
+  if (booking.transit_park_name) {
+    return booking.transit_park_code
+      ? `${booking.transit_park_name} (${booking.transit_park_code})`
+      : booking.transit_park_name;
+  }
+  return undefined;
+}
+
+function resolveTerminalDestination(booking: Booking) {
+  const fromRef = formatEntityRef(booking.terminal);
+  if (fromRef) return fromRef;
+  return booking.terminal_destination || booking.terminal_name;
+}
+
+function resolveGatePass(booking: Booking) {
+  return booking.gate_pass_number || booking.tep_code;
+}
+
+function resolveBookingCategoryLabel(booking: Booking) {
+  if (booking.booking_category_ref?.name) return booking.booking_category_ref.name;
+  return CATEGORY_DISPLAY[booking.booking_category] ?? formatLabel(booking.booking_category);
+}
+
+function resolveArrivalDate(booking: Booking) {
+  return booking.expected_arrival_date || booking.arrival_date;
+}
+
+function resolveTimeSlotDisplay(booking: Booking) {
+  if (booking.expected_arrival_time_slot) {
+    const slot = booking.expected_arrival_time_slot;
+    return `${slot.name} (${slot.start_time} – ${slot.end_time})`;
+  }
+  if (booking.expected_arrival_time) {
+    return booking.expected_arrival_time.slice(0, 5);
+  }
+  return booking.time_slot;
 }
 
 function formatLabel(s: string) {
@@ -325,6 +395,43 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
+function PriorityBadge({ level }: { level: NonNullable<Booking["priority_level"]> }) {
+  const map: Record<NonNullable<Booking["priority_level"]>, { cls: string; label: string }> = {
+    HIGH: { cls: "bg-red-50 text-red-700 border-red-200", label: "High" },
+    MEDIUM: { cls: "bg-amber-50 text-amber-800 border-amber-200", label: "Medium" },
+    LOW: { cls: "bg-gray-100 text-gray-600 border-gray-200", label: "Low" },
+  };
+  const { cls, label } = map[level];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function PaymentStatusBadge({ status }: { status: NonNullable<Booking["payment_status"]> }) {
+  const map: Record<NonNullable<Booking["payment_status"]>, { cls: string; label: string }> = {
+    PAID: { cls: "bg-emerald-50 text-emerald-700 border-emerald-200", label: "Paid" },
+    PENDING: { cls: "bg-amber-50 text-amber-800 border-amber-200", label: "Pending" },
+    FAILED: { cls: "bg-red-50 text-red-700 border-red-200", label: "Failed" },
+  };
+  const { cls, label } = map[status];
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function BookingTypeBadge({ type }: { type: NonNullable<Booking["booking_type"]> }) {
+  const label = BOOKING_TYPE_LABELS[type] ?? formatLabel(type);
+  return (
+    <span className="rounded-md bg-violet-50 px-2 py-0.5 text-[11px] font-medium text-violet-700">
+      {label}
+    </span>
+  );
+}
+
 function SummaryPanel({
   summary,
   isLoading,
@@ -463,8 +570,8 @@ function DetailStatusBadge({ status }: { status: BookingStatus }) {
 }
 
 function ContainerBanner({ booking }: { booking: Booking }) {
-  const categoryLabel = CATEGORY_DISPLAY[booking.booking_category] ?? formatLabel(booking.booking_category);
-  const hasTep = Boolean(booking.tep_code);
+  const categoryLabel = resolveBookingCategoryLabel(booking);
+  const gatePass = resolveGatePass(booking);
 
   return (
     <div
@@ -475,10 +582,10 @@ function ContainerBanner({ booking }: { booking: Booking }) {
       }}
     >
       <div className="relative space-y-1">
-        {hasTep && (
+        {gatePass && (
           <>
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Truck Entry Permit</p>
-            <p className="font-mono text-sm font-bold text-gray-800">{booking.tep_code}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">Gate Pass / TEP</p>
+            <p className="font-mono text-sm font-bold text-gray-800">{gatePass}</p>
           </>
         )}
         <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">{categoryLabel}</p>
@@ -573,16 +680,38 @@ function BookingActivityTimeline({ booking }: { booking: Booking }) {
 }
 
 function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClose: () => void }) {
-  const { data: booking, isLoading, isError } = useBooking(bookingId);
+  const { data: booking, isLoading, isError, refetch } = useBooking(bookingId);
   const [showETicket, setShowETicket] = useState(false);
+  const [pendingAction, setPendingAction] = useState<BookingOpsAction | null>(null);
+  const { runAction, isPending: isOpsPending } = useBookingOpsMutations();
 
-  const facilityDisplay = booking?.facility_name
-    ? `${booking.facility_name}${booking.facility_code ? ` (${booking.facility_code})` : ""}`
-    : booking?.terminal_name;
+  const facilityId = booking?.facility?.id;
+  const pregateId = booking?.pregate_transit_park?.id;
 
-  const transitParkDisplay = booking?.transit_park_name
-    ? `${booking.transit_park_name}${booking.transit_park_code ? ` (${booking.transit_park_code})` : ""}`
-    : undefined;
+  const { data: facilityQueueData } = useFacilityQueue(
+    facilityId ? { facility_id: facilityId, limit: 100 } : undefined,
+    Boolean(facilityId && booking?.payment_status === "PAID"),
+  );
+  const { data: pregateQueueData } = usePregateQueue(
+    pregateId ? { transit_park_id: pregateId, limit: 100 } : undefined,
+    Boolean(pregateId && booking?.payment_status === "PAID"),
+  );
+
+  const facilityQueuePosition = findQueuePosition(facilityQueueData?.data, bookingId);
+  const pregateQueuePosition = findQueuePosition(pregateQueueData?.data, bookingId);
+
+  async function handleOpsAction(action: BookingOpsAction) {
+    setPendingAction(action);
+    try {
+      await runAction(action, bookingId);
+      await refetch();
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  const facilityDisplay = booking ? resolveFacilityDisplay(booking) : undefined;
+  const transitParkDisplay = booking ? resolveTransitParkDisplay(booking) : undefined;
 
   const currentTruckStatus = booking?.current_truck_status
     ?? booking?.truck?.truck_status
@@ -606,24 +735,14 @@ function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClos
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {booking && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => toast.info("Update truck status coming soon")}
-                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    <Truck className="h-3.5 w-3.5" />
-                    Update Truck Status
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowETicket(true)}
-                    className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Download E-Ticket
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setShowETicket(true)}
+                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download E-Ticket
+                </button>
               )}
               <button onClick={onClose} className="rounded-lg border border-gray-200 p-2 text-gray-500 hover:bg-gray-50">
                 <X className="h-4 w-4" />
@@ -653,7 +772,12 @@ function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClos
                       <p className="font-mono text-lg font-bold text-gray-900">{booking.booking_id}</p>
                       <p className="mt-0.5 font-mono text-xs text-gray-500">{booking.journey_code}</p>
                     </div>
-                    <DetailStatusBadge status={booking.status} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {booking.booking_type && <BookingTypeBadge type={booking.booking_type} />}
+                      {booking.priority_level && <PriorityBadge level={booking.priority_level} />}
+                      {booking.payment_status && <PaymentStatusBadge status={booking.payment_status} />}
+                      <DetailStatusBadge status={booking.status} />
+                    </div>
                   </div>
 
                   <ContainerBanner booking={booking} />
@@ -668,23 +792,24 @@ function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClos
                       </div>
                     </DetailField>
                     <DetailField label="Name of Transporter">{booking.transporter_company}</DetailField>
-                    <DetailField label="TEP Code">{displayValue(booking.tep_code)}</DetailField>
+                    <DetailField label="Gate Pass / TEP Code">{displayValue(resolveGatePass(booking))}</DetailField>
                     <DetailField label="Port Terminal Destination">
-                      {displayValue(booking.terminal_destination || booking.terminal_name)}
+                      {displayValue(resolveTerminalDestination(booking))}
                     </DetailField>
                     <DetailField label="Current Truck Status">
                       <TruckStatusDot status={currentTruckStatus} />
                     </DetailField>
-                    <DetailField label="Booking Category">
-                      {CATEGORY_DISPLAY[booking.booking_category] ?? formatLabel(booking.booking_category)}
-                    </DetailField>
+                    <DetailField label="Booking Category">{resolveBookingCategoryLabel(booking)}</DetailField>
+                    <DetailField label="Booking Type">{displayValue(resolveBookingTypeLabel(booking))}</DetailField>
                     <DetailField label="Facility">{displayValue(facilityDisplay)}</DetailField>
-                    <DetailField label="Transit Park (Pregate)">{displayValue(transitParkDisplay)}</DetailField>
+                    <DetailField label="Transit Park / EPT">{displayValue(transitParkDisplay)}</DetailField>
                     <DetailField label="Booking Fee">
                       {booking.booking_fee != null ? formatNaira(booking.booking_fee) : "N/A"}
                     </DetailField>
-                    <DetailField label="Arrival Date">
-                      {booking.arrival_date ? formatDateShort(booking.arrival_date) : formatDateShort(booking.created_at)}
+                    <DetailField label="Expected Arrival Date">
+                      {resolveArrivalDate(booking)
+                        ? formatDateShort(resolveArrivalDate(booking)!)
+                        : "N/A"}
                     </DetailField>
                     <DetailField label="Driver">
                       <span>{booking.driver_name}</span>
@@ -692,11 +817,63 @@ function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClos
                         <p className="mt-0.5 text-xs font-normal text-gray-500">{booking.driver_phone}</p>
                       )}
                     </DetailField>
-                    <DetailField label="Time Slot">{displayValue(booking.time_slot)}</DetailField>
+                    <DetailField label="Expected Arrival Time">{displayValue(resolveTimeSlotDisplay(booking))}</DetailField>
                     <DetailField label="Booked By">{booking.truck_booked_by}</DetailField>
                     <DetailField label="Transfer Type">{TRANSFER_LABELS[booking.transfer_type]}</DetailField>
+                    <DetailField label="Priority Level">
+                      {booking.priority_level ? (
+                        <span className="inline-flex items-center gap-2">
+                          <PriorityBadge level={booking.priority_level} />
+                          {booking.priority_rank != null && (
+                            <span className="text-xs font-normal text-gray-500">
+                              Rank #{booking.priority_rank}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        "N/A"
+                      )}
+                    </DetailField>
+                    <DetailField label="Payment Status">
+                      {booking.payment_status ? (
+                        <PaymentStatusBadge status={booking.payment_status} />
+                      ) : (
+                        "N/A"
+                      )}
+                    </DetailField>
+                    <DetailField label="Payment Method">
+                      {booking.payment_method ? formatLabel(booking.payment_method) : "N/A"}
+                    </DetailField>
+                    {booking.export_type && (
+                      <DetailField label="Export Type">{formatLabel(booking.export_type)}</DetailField>
+                    )}
+                    {booking.ept_operation_type && (
+                      <DetailField label="EPT Operation Type">
+                        {formatLabel(booking.ept_operation_type)}
+                      </DetailField>
+                    )}
+                    {booking.paid_at && (
+                      <DetailField label="Paid At">{formatTimestamp(booking.paid_at)}</DetailField>
+                    )}
+                    {booking.confirmed_at && (
+                      <DetailField label="Confirmed At">{formatTimestamp(booking.confirmed_at)}</DetailField>
+                    )}
+                    {booking.terms_accepted_at && (
+                      <DetailField label="Terms Accepted At">
+                        {formatTimestamp(booking.terms_accepted_at)}
+                      </DetailField>
+                    )}
                   </div>
                 </div>
+
+                <BookingOpsLifecyclePanel
+                  booking={booking}
+                  facilityQueuePosition={facilityQueuePosition}
+                  pregateQueuePosition={pregateQueuePosition}
+                  onRunAction={handleOpsAction}
+                  isPending={isOpsPending}
+                  pendingAction={pendingAction}
+                />
 
                 {(booking.exceptions?.length ?? 0) > 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
@@ -820,6 +997,10 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
   });
 
   const { data: summary, isLoading: summaryLoading, dataUpdatedAt: summaryUpdatedAt } = useBookingsSummary(isSuperAdmin);
+  const { data: transporterCompanies, isLoading: transportersLoading } = useCompanies(
+    { user_type_slug: "transporter" },
+    isSuperAdmin,
+  );
   const { data: bookingsData, isLoading, isError, dataUpdatedAt } = useBookings(listParams, isSuperAdmin && mainSection === "all");
   const { data: manifestData, isLoading: manifestLoading, isError: manifestError } = useBookingsManifest(
     manifestParams,
@@ -850,6 +1031,11 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
   const manifestTotalCount = manifestMeta?.total ?? 0;
 
   const lastRefresh = formatTimestamp(new Date(summaryUpdatedAt || dataUpdatedAt || Date.now()).toISOString());
+
+  const transporterOptions = (transporterCompanies ?? [])
+    .map((company) => company.name.trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
 
   const statusTabCounts = {
     all: summary?.total ?? 0,
@@ -1008,6 +1194,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
           <div className="flex gap-0.5 overflow-x-auto">
             {([
               { id: "all" as MainSection, label: "All Bookings" },
+              { id: "queue" as MainSection, label: "Priority Queue" },
               { id: "manifest" as MainSection, label: "Today's Manifest" },
             ]).map((tab) => (
               <button
@@ -1083,8 +1270,16 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">Transporter</label>
-                  <select value={transporterFilter} onChange={(e) => { setTransporterFilter(e.target.value); setPage(1); }} className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300">
-                    {TRANSPORTER_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                  <select
+                    value={transporterFilter}
+                    onChange={(e) => { setTransporterFilter(e.target.value); setPage(1); }}
+                    disabled={transportersLoading}
+                    className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300 disabled:opacity-60"
+                  >
+                    <option value="All">All Transporters</option>
+                    {transporterOptions.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1124,7 +1319,10 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                     {staticTH("Transporter")}
                     {staticTH("Terminal")}
                     {staticTH("Transfer Type")}
+                    {staticTH("Type")}
                     {staticTH("Status")}
+                    {staticTH("Priority")}
+                    {staticTH("Payment")}
                     {staticTH("Created")}
                     {staticTH("Last Updated")}
                     <th className="px-3 py-3 text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actions</th>
@@ -1133,7 +1331,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                 <tbody className="divide-y divide-gray-100">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={13} className="px-4 py-12 text-center">
+                      <td colSpan={16} className="px-4 py-12 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
                           <p className="text-sm font-medium text-gray-400">Loading bookings...</p>
@@ -1142,7 +1340,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                     </tr>
                   ) : isError ? (
                     <tr>
-                      <td colSpan={13} className="px-4 py-12 text-center">
+                      <td colSpan={16} className="px-4 py-12 text-center">
                         <div className="flex flex-col items-center gap-2">
                           <AlertCircle className="h-8 w-8 text-red-300" />
                           <p className="text-sm font-medium text-gray-400">Failed to load bookings</p>
@@ -1151,7 +1349,7 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                     </tr>
                   ) : bookings.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-400">
+                      <td colSpan={16} className="px-4 py-12 text-center text-sm text-gray-400">
                         No bookings match your filters
                         {hasActiveFilters && (
                           <button onClick={clearFilters} className="mt-2 block w-full text-xs font-medium text-emerald-600 hover:underline">Clear all filters</button>
@@ -1176,7 +1374,28 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
                         <td className="px-3 py-3 text-xs text-gray-700">{b.transporter_company}</td>
                         <td className="px-3 py-3 text-xs text-gray-700">{b.terminal_name}</td>
                         <td className="px-3 py-3"><span className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-700">{TRANSFER_LABELS[b.transfer_type]}</span></td>
+                        <td className="px-3 py-3">
+                          {b.booking_type ? (
+                            <BookingTypeBadge type={b.booking_type} />
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3"><StatusBadge status={b.status} /></td>
+                        <td className="px-3 py-3">
+                          {b.priority_level ? (
+                            <PriorityBadge level={b.priority_level} />
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          {b.payment_status ? (
+                            <PaymentStatusBadge status={b.payment_status} />
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3 text-[11px] text-gray-500">{formatTimestamp(b.created_at)}</td>
                         <td className="px-3 py-3 text-[11px] text-gray-500">{formatTimestamp(b.last_updated_at)}</td>
                         <td className="px-3 py-3 text-center">
@@ -1208,6 +1427,8 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
             </div>
           </div>
         </>
+      ) : mainSection === "queue" ? (
+        <BookingQueueSection onViewBooking={setDetailBookingId} />
       ) : (
         <>
           <div className="flex gap-0.5 rounded-xl border border-gray-200 bg-white p-1">
