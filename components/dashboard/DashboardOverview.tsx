@@ -53,31 +53,37 @@ const corridorLive = {
   congestionIndex: 78,
 };
 
-// ─── Mock: Manifest Lifecycle ───
+// ─── Mock: Booking lifecycle (truck status pipeline) ───
 const manifestLifecycleGroups = [
   {
-    label: "Facility",
+    label: "Booking & Transit",
     items: [
-      { stage: "Enroute Facility", count: 11, description: "Transporter books a bay at facility" },
-      { stage: "In-Facility", count: 293, description: "Trucks gated into facilities" },
-      { stage: "GTG-Facility", count: 52, description: "Scheduled & ready to exit facilities" },
-      { stage: "Left-Facility", count: 73, description: "Trucks gated out of facilities" },
+      { stage: "Available", count: 48, description: "Verified truck ready for booking" },
+      { stage: "On Trip", count: 11, description: "Booked and en route to facility" },
     ],
   },
   {
-    label: "Transit & Matching",
+    label: "Facility",
     items: [
-      { stage: "Matched", count: 199, description: "TEPs matched to trucks" },
-      { stage: "In-Pregate", count: 281, description: "Gated into transit parks" },
-      { stage: "GTG-Pregate", count: 11, description: "Ready to exit transit parks" },
-      { stage: "Left-Pregate", count: 31, description: "Gated out of transit parks" },
+      { stage: "In Facility", count: 293, description: "Gated into bonded facility or truck park" },
+      { stage: "Matched", count: 199, description: "TEP matched to truck at facility" },
+      { stage: "GTG Facility", count: 52, description: "Scheduled and ready to exit facility" },
+      { stage: "Left Facility", count: 73, description: "Gated out of facility" },
+    ],
+  },
+  {
+    label: "Pregate",
+    items: [
+      { stage: "In Pregate", count: 281, description: "Gated into transit pregate park" },
+      { stage: "GTG Pregate", count: 11, description: "Ready to exit pregate" },
+      { stage: "Left Pregate", count: 31, description: "Gated out of pregate" },
     ],
   },
   {
     label: "Terminal",
     items: [
-      { stage: "In-Terminal", count: 96, description: "Trucks gated into terminals" },
-      { stage: "Left-Terminal", count: 14, description: "Gated out of terminals" },
+      { stage: "In Terminal", count: 96, description: "Gated into destination terminal" },
+      { stage: "Left Terminal", count: 14, description: "Gated out of terminal — journey complete" },
     ],
   },
 ];

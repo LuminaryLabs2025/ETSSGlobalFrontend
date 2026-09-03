@@ -1,6 +1,7 @@
 import apiClient from "@/api/client";
 import { TRUCKS } from "@/api/endpoints";
 import type { ApiResponse } from "@/types/api.types";
+import type { BookingOptionsParams, BookingOptionsResponse } from "@/types/booking-creation.types";
 import type {
   TrucksListParams,
   TrucksListResponse,
@@ -63,6 +64,14 @@ export const trucksService = {
   requestVerification: async (id: string): Promise<TruckActionResponse> => {
     const { data } = await apiClient.patch<ApiResponse<TruckActionResponse>>(TRUCKS.REQUEST_VERIFICATION(id));
     return { message: data.message };
+  },
+
+  bookingOptions: async (params?: BookingOptionsParams): Promise<BookingOptionsResponse> => {
+    const { data } = await apiClient.get<ApiResponse<BookingOptionsResponse>>(
+      TRUCKS.BOOKING_OPTIONS,
+      { params },
+    );
+    return data.data;
   },
 
   exportCsv: async (params?: TrucksListParams): Promise<void> => {

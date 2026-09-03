@@ -13,10 +13,8 @@ import {
   Loader2,
 } from "lucide-react";
 import {
-  BOOK_ASSIST_FEES,
-  MOCK_WALLET_BALANCE,
   formatAssistNaira,
-} from "@/lib/book-assist-mock-data";
+} from "@/lib/booking-form-utils";
 
 export type BookAssistStep = 1 | 2;
 export type PaymentMethod = "wallet" | "paystack";
@@ -375,6 +373,12 @@ export function TerminalZoneToggle({
   );
 }
 
+export type PaymentSummaryFee = {
+  feeConfigured: boolean;
+  total: number;
+  lines: { name: string; amount: number }[];
+};
+
 export function PaymentSummaryPanel({
   detailsConfirmed,
   termsAccepted,
@@ -383,6 +387,7 @@ export function PaymentSummaryPanel({
   onPaymentMethodChange,
   onProceedToPay,
   isPaying,
+  fee,
 }: {
   detailsConfirmed: boolean;
   termsAccepted: boolean;
@@ -391,9 +396,11 @@ export function PaymentSummaryPanel({
   onPaymentMethodChange: (m: PaymentMethod) => void;
   onProceedToPay: () => void;
   isPaying: boolean;
+  fee?: PaymentSummaryFee | null;
 }) {
-  const totalFee =
-    BOOK_ASSIST_FEES.booking_fee + BOOK_ASSIST_FEES.taxes + BOOK_ASSIST_FEES.stamp_denotation;
+  const feeConfigured = fee?.feeConfigured ?? false;
+  const totalFee = fee?.total ?? 0;
+  const feeLines = fee?.lines ?? [];
 
   return (
     <div
@@ -424,9 +431,7 @@ export function PaymentSummaryPanel({
               <Wallet className="h-5 w-5 text-emerald-600" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-gray-900">Your wallet balance</p>
-                <p className="text-xs font-bold text-emerald-600">
-                  {formatAssistNaira(MOCK_WALLET_BALANCE)}
-                </p>
+                <p className="text-xs text-gray-500">Wallet ledger not yet integrated</p>
               </div>
               {paymentMethod === "wallet" && (
                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -454,21 +459,24 @@ export function PaymentSummaryPanel({
         </div>
 
         <div className="space-y-2 border-t border-gray-100 pt-4 text-sm">
-          <div className="flex justify-between text-gray-600">
-            <span>Booking Fee</span>
-            <span>{formatAssistNaira(BOOK_ASSIST_FEES.booking_fee)}</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Taxes</span>
-            <span>{formatAssistNaira(BOOK_ASSIST_FEES.taxes)}</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Stamp Denotation</span>
-            <span>{formatAssistNaira(BOOK_ASSIST_FEES.stamp_denotation)}</span>
-          </div>
+          {!feeConfigured ? (
+            <p className="text-sm text-amber-600">Fee not yet configured</p>
+          ) : feeLines.length > 0 ? (
+            feeLines.map((line) => (
+              <div key={line.name} className="flex justify-between text-gray-600">
+                <span>{line.name}</span>
+                <span>{formatAssistNaira(line.amount)}</span>
+              </div>
+            ))
+          ) : (
+            <div className="flex justify-between text-gray-600">
+              <span>Booking Fee</span>
+              <span>{formatAssistNaira(totalFee)}</span>
+            </div>
+          )}
           <div className="flex justify-between border-t border-gray-100 pt-2 text-base font-bold text-gray-900">
             <span>Total</span>
-            <span>{formatAssistNaira(totalFee)}</span>
+            <span>{feeConfigured ? formatAssistNaira(totalFee) : "—"}</span>
           </div>
         </div>
 
@@ -512,5 +520,51 @@ export function PaymentSummaryPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+export function BookingPaymentSuccessModal({
+  bookingId,
+  journeyCode,
+  message,
+  onContinue,
+}: {
+  bookingId: string;
+  journeyCode?: string;
+  message: string;
+  onContinue: () => void;
+}) {
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-black/40" />
+      <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl">
+        <div className="flex flex-col items-center text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+            <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+          </div>
+          <h3 className="mt-4 text-lg font-bold text-gray-900">Payment Successful</h3>
+          <p className="mt-2 text-sm text-gray-600">{message}</p>
+          <div className="mt-4 w-full rounded-lg bg-gray-50 px-4 py-3 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Booking ID</p>
+            <p className="mt-0.5 font-mono text-sm font-bold text-gray-900">{bookingId}</p>
+            {journeyCode && (
+              <>
+                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                  Journey Code
+                </p>
+                <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700">{journeyCode}</p>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onContinue}
+            className="mt-6 w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
+            View All Bookings
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

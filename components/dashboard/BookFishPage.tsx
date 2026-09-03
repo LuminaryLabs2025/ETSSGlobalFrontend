@@ -2,37 +2,46 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Fish,
-  Shield,
   ChevronRight,
   Search,
   ChevronDown,
   Truck,
   Calendar,
   CheckCircle2,
-  Wallet,
-  CreditCard,
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
 import {
-  BOOK_FISH_FEES,
-  BOOK_FISH_TRANSPORTERS,
-  FISH_VAN_PARKS,
-  MOCK_WALLET_BALANCE,
-  PORT_TERMINALS_BY_ZONE,
-  formatBookFishDateLong,
-  formatBookFishDateShort,
-  formatBookFishNaira,
-  getBookFishDrivers,
-  getBookFishTrucks,
-  type TerminalZone,
-} from "@/lib/book-fish-mock-data";
+  flattenBookingOptions,
+  formatAssistDateLong,
+  formatAssistDateShort,
+  mapPreviewFee,
+  stripGroupedLabel,
+} from "@/lib/booking-form-utils";
+import { useCompanies } from "@/hooks/companies/useCompanies";
+import { useFacilities } from "@/hooks/facilities/useFacilities";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
+import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBookingOptions";
+import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
+import {
+  useConfirmBookingPayment,
+  useCreateBooking,
+  usePreviewBooking,
+} from "@/hooks/booking-creation/useBookingCreationMutations";
+import type { BookingPreview, CreateFishBookingRequest } from "@/types/booking-creation.types";
+import {
+  PaymentSummaryPanel,
+  BookingPaymentSuccessModal,
+  SuperAdminGate,
+  type PaymentMethod,
+} from "@/components/dashboard/book-assist/BookAssistUi";
 
 type Step = 1 | 2;
-type PaymentMethod = "wallet" | "paystack";
+type TerminalZone = "APAPA" | "TINCAN";
 
 interface SelectOption {
   value: string;
@@ -326,6 +335,7 @@ function PreviewDataCell({ label, value }: { label: string; value: string }) {
 }
 
 export function BookFishPage() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -334,76 +344,94 @@ export function BookFishPage() {
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
   const [terminalZone, setTerminalZone] = useState<TerminalZone | "">("");
-  const [portTerminal, setPortTerminal] = useState("");
-  const [facility, setFacility] = useState("");
+  const [terminalId, setTerminalId] = useState("");
+  const [facilityId, setFacilityId] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [gatePass, setGatePass] = useState("");
+
+  const [preview, setPreview] = useState<BookingPreview | null>(null);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+
+  const [paymentSuccess, setPaymentSuccess] = useState<{
+    booking_id: string;
+    journey_code: string;
+  } | null>(null);
 
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
-  const [isPaying, setIsPaying] = useState(false);
 
-  const transporter = BOOK_FISH_TRANSPORTERS.find((t) => t.id === transporterId);
-  const transporterName = transporter?.name ?? "";
+  const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
+  const { data: facilitiesData } = useFacilities({ park_type: "FISH_VAN_PARK", limit: 100 });
+  const terminalParams = useMemo(
+    () =>
+      terminalZone
+        ? { type: "PORT_TERMINAL" as const, location: terminalZone, limit: 100 }
+        : undefined,
+    [terminalZone],
+  );
+  const { data: terminalsData } = useTerminals(terminalParams);
+  const { data: truckOptionsData } = useTruckBookingOptions({ transporter_company_id: transporterId });
+  const { data: driverOptionsData } = useDriverBookingOptions({ transporter_company_id: transporterId });
 
-  const truckOptions = useMemo((): GroupedSelectOption[] => {
-    if (!transporterName) return [];
-    const trucks = getBookFishTrucks(transporterName);
-    const mine = trucks.filter((t) => t.is_mine);
-    const pub = trucks.filter((t) => !t.is_mine && t.visibility === "PUBLIC");
-    return [
-      ...mine.map((t) => ({
-        value: t.id,
-        label: t.plate_number,
-        group: "mine" as const,
-      })),
-      ...pub.map((t) => ({
-        value: t.id,
-        label: `${t.plate_number} (${t.company_name})`,
-        group: "public" as const,
-      })),
-    ];
-  }, [transporterName]);
+  const previewMutation = usePreviewBooking("fish");
+  const createMutation = useCreateBooking("fish");
+  const confirmPaymentMutation = useConfirmBookingPayment();
 
-  const driverOptions = useMemo((): GroupedSelectOption[] => {
-    if (!transporterName) return [];
-    const drivers = getBookFishDrivers(transporterName);
-    const mine = drivers.filter((d) => d.is_mine);
-    const pub = drivers.filter((d) => !d.is_mine && d.visibility === "PUBLIC");
-    return [
-      ...mine.map((d) => ({
-        value: d.id,
-        label: d.name,
-        group: "mine" as const,
-      })),
-      ...pub.map((d) => ({
-        value: d.id,
-        label: `${d.name} (${d.company_name})`,
-        group: "public" as const,
-      })),
-    ];
-  }, [transporterName]);
+  const transporterName =
+    transporters.find((t) => t.id === transporterId)?.name ??
+    preview?.transporter_company.name ??
+    "";
+
+  const truckOptions = useMemo(
+    () => flattenBookingOptions(truckOptionsData) as GroupedSelectOption[],
+    [truckOptionsData],
+  );
+  const driverOptions = useMemo(
+    () => flattenBookingOptions(driverOptionsData) as GroupedSelectOption[],
+    [driverOptionsData],
+  );
 
   const selectedTruck = truckOptions.find((t) => t.value === truckId);
   const selectedDriver = driverOptions.find((d) => d.value === driverId);
 
-  const portTerminalOptions = terminalZone
-    ? PORT_TERMINALS_BY_ZONE[terminalZone].map((name) => ({ value: name, label: name }))
-    : [];
+  const portTerminalOptions = useMemo(
+    () => (terminalsData?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    [terminalsData],
+  );
 
-  const facilityOptions = FISH_VAN_PARKS.map((name) => ({ value: name, label: name }));
+  const portTerminalName =
+    terminalsData?.data.find((t) => t.id === terminalId)?.name ?? preview?.terminal.name ?? "";
 
-  const transporterOptions = BOOK_FISH_TRANSPORTERS.map((t) => ({
-    value: t.id,
-    label: t.name,
-  }));
+  const facilityOptions = useMemo(
+    () => (facilitiesData?.data ?? []).map((f) => ({ value: f.id, label: f.name })),
+    [facilitiesData],
+  );
 
-  const totalFee =
-    BOOK_FISH_FEES.booking_fee + BOOK_FISH_FEES.taxes + BOOK_FISH_FEES.stamp_denotation;
+  const facilityName =
+    facilitiesData?.data.find((f) => f.id === facilityId)?.name ?? preview?.facility?.name ?? "";
+
+  const transporterOptions = transporters.map((t) => ({ value: t.id, label: t.name }));
+
+  const paymentFee = mapPreviewFee(preview?.fee);
 
   const bookedByName = user ? `${user.first_name} ${user.last_name}` : "SuperAdmin";
-  const createdLabel = formatBookFishDateShort(new Date().toISOString());
+  const createdLabel = formatAssistDateShort(new Date().toISOString());
+
+  function buildPayload(): CreateFishBookingRequest {
+    const payload: CreateFishBookingRequest = {
+      facility_id: facilityId,
+      transporter_company_id: transporterId,
+      truck_id: truckId,
+      driver_id: driverId,
+      terminal_id: terminalId,
+      expected_arrival_date: arrivalDate,
+    };
+    if (gatePass.trim()) {
+      payload.gate_pass_number = gatePass.trim();
+    }
+    return payload;
+  }
 
   function handleTransporterChange(id: string) {
     setTransporterId(id);
@@ -413,7 +441,7 @@ export function BookFishPage() {
 
   function handleTerminalZoneChange(zone: TerminalZone) {
     setTerminalZone(zone);
-    setPortTerminal("");
+    setTerminalId("");
   }
 
   function validateStep1(): boolean {
@@ -433,11 +461,11 @@ export function BookFishPage() {
       toast.error("Please select a terminal location.");
       return false;
     }
-    if (!portTerminal) {
+    if (!terminalId) {
       toast.error("Please select a port terminal destination.");
       return false;
     }
-    if (!facility) {
+    if (!facilityId) {
       toast.error("Please select a fish-van park facility.");
       return false;
     }
@@ -452,22 +480,37 @@ export function BookFishPage() {
     return true;
   }
 
-  function handleProceedToPreview() {
+  async function handleProceedToPreview() {
     if (!validateStep1()) return;
     setDetailsConfirmed(false);
     setTermsAccepted(false);
-    setStep(2);
+    setCreatedBookingId(null);
+
+    try {
+      const result = await previewMutation.mutateAsync(buildPayload());
+      setPreview(result);
+      setStep(2);
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   function handleGoBack() {
     setStep(1);
     setDetailsConfirmed(false);
     setTermsAccepted(false);
+    setCreatedBookingId(null);
   }
 
-  function handleConfirmDetails() {
-    setDetailsConfirmed(true);
-    toast.success("Booking details confirmed. You may now proceed to payment.");
+  async function handleConfirmDetails() {
+    try {
+      const booking = await createMutation.mutateAsync(buildPayload());
+      setCreatedBookingId(booking.id);
+      setDetailsConfirmed(true);
+      toast.success("Booking details confirmed. You may now proceed to payment.");
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   async function handleProceedToPay() {
@@ -479,22 +522,34 @@ export function BookFishPage() {
       toast.error("Please accept the Maritime-ETSS terms and conditions.");
       return;
     }
-    setIsPaying(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsPaying(false);
-    toast.success("Fish booking payment processed successfully.");
+    if (!createdBookingId) {
+      toast.error("Booking not found. Please confirm details again.");
+      return;
+    }
+
+    try {
+      const booking = await confirmPaymentMutation.mutateAsync({
+        id: createdBookingId,
+        payload: {
+          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
+          terms_accepted: true,
+        },
+      });
+      setPaymentSuccess({
+        booking_id: booking.booking_id,
+        journey_code: booking.journey_code,
+      });
+    } catch {
+      // toast handled in mutation
+    }
   }
 
+  const isPreviewLoading = previewMutation.isPending;
+  const isCreating = createMutation.isPending;
+  const isPaying = confirmPaymentMutation.isPending;
+
   if (!isSuperAdmin) {
-    return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center p-6">
-        <Shield className="h-12 w-12 text-amber-400" />
-        <h1 className="mt-4 text-lg font-bold text-gray-900">SuperAdmin Access Required</h1>
-        <p className="mt-2 max-w-md text-center text-sm text-gray-500">
-          Book Fish is restricted to SuperAdmin users assisting transporters with booking difficulties.
-        </p>
-      </div>
-    );
+    return <SuperAdminGate featureLabel="Book Fish" />;
   }
 
   return (
@@ -597,8 +652,8 @@ export function BookFishPage() {
             <SearchableSelect
               label="Port Terminal Destination"
               placeholder={terminalZone ? "Choose port terminal…" : "Select terminal location first"}
-              value={portTerminal}
-              onChange={setPortTerminal}
+              value={terminalId}
+              onChange={setTerminalId}
               options={portTerminalOptions}
               searchPlaceholder="Search terminals…"
               required
@@ -608,8 +663,8 @@ export function BookFishPage() {
             <SearchableSelect
               label="Facility"
               placeholder="Choose fish-van park…"
-              value={facility}
-              onChange={setFacility}
+              value={facilityId}
+              onChange={setFacilityId}
               options={facilityOptions}
               searchPlaceholder="Search fish-van parks…"
               required
@@ -649,8 +704,10 @@ export function BookFishPage() {
             <button
               type="button"
               onClick={handleProceedToPreview}
-              className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              disabled={isPreviewLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
+              {isPreviewLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               Proceed To Preview Data
             </button>
           </div>
@@ -676,12 +733,13 @@ export function BookFishPage() {
                 <div>
                   <span className="text-gray-500">Vehicle Plate Number:</span>{" "}
                   <span className="font-semibold text-gray-900">
-                    {selectedTruck?.label.split(" (")[0] ?? "—"}
+                    {preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")}
                   </span>
                 </div>
                 <div>
                   <span className="text-gray-500">Destination:</span>{" "}
-                  <span className="font-semibold text-gray-900">{portTerminal}</span>
+                  <span className="font-semibold text-gray-900">{portTerminalName}</span>
                 </div>
               </div>
 
@@ -690,10 +748,13 @@ export function BookFishPage() {
                   <Fish className="h-16 w-16 text-teal-500" strokeWidth={1.2} />
                 </div>
                 <p className="mt-3 text-sm font-bold text-gray-900">
-                  GatePass #: <span className="text-emerald-700">{gatePass}</span>
+                  GatePass #:{" "}
+                  <span className="text-emerald-700">
+                    {preview?.gate_pass_number ?? gatePass}
+                  </span>
                 </p>
                 <p className="mt-0.5 text-[10px] uppercase tracking-wider text-gray-400">
-                  Fish Booking Category · GatePass
+                  {preview?.booking_category_ref?.name ?? "Fish"} · GatePass
                 </p>
               </div>
 
@@ -701,15 +762,30 @@ export function BookFishPage() {
                 <div className="flex flex-wrap gap-4">
                   <PreviewDataCell
                     label="Truck Plate Number"
-                    value={selectedTruck?.label.split(" (")[0] ?? "—"}
+                    value={
+                      preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")
+                    }
                   />
-                  <PreviewDataCell label="Driver's Name" value={selectedDriver?.label.split(" (")[0] ?? "—"} />
-                  <PreviewDataCell label="Port Terminal Destination" value={portTerminal} />
+                  <PreviewDataCell
+                    label="Driver's Name"
+                    value={
+                      preview?.driver.name ??
+                      (selectedDriver ? stripGroupedLabel(selectedDriver.label) : "—")
+                    }
+                  />
+                  <PreviewDataCell label="Port Terminal Destination" value={portTerminalName} />
                 </div>
                 <div className="flex flex-wrap gap-4">
-                  <PreviewDataCell label="Facility" value={facility} />
-                  <PreviewDataCell label="Booking Category" value="GatePass" />
-                  <PreviewDataCell label="Arrival Date" value={formatBookFishDateLong(arrivalDate)} />
+                  <PreviewDataCell label="Facility" value={facilityName || "—"} />
+                  <PreviewDataCell
+                    label="Booking Category"
+                    value={preview?.booking_category_ref?.name ?? "Fish"}
+                  />
+                  <PreviewDataCell
+                    label="Arrival Date"
+                    value={formatAssistDateLong(preview?.expected_arrival_date ?? arrivalDate)}
+                  />
                 </div>
               </div>
 
@@ -730,9 +806,9 @@ export function BookFishPage() {
                     </div>
                   </div>
                   <div className="text-center">
-                    <p className="text-[10px] font-semibold uppercase text-gray-400">{portTerminal}</p>
+                    <p className="text-[10px] font-semibold uppercase text-gray-400">{portTerminalName}</p>
                     <p className="text-sm font-bold text-gray-900">
-                      {formatBookFishDateShort(arrivalDate)}
+                      {formatAssistDateShort(preview?.expected_arrival_date ?? arrivalDate)}
                     </p>
                   </div>
                 </div>
@@ -749,14 +825,18 @@ export function BookFishPage() {
                 <button
                   type="button"
                   onClick={handleConfirmDetails}
-                  disabled={detailsConfirmed}
+                  disabled={detailsConfirmed || isCreating}
                   className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
                     detailsConfirmed
                       ? "cursor-default bg-emerald-100 text-emerald-700"
-                      : "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                   }`}
                 >
-                  {detailsConfirmed ? (
+                  {isCreating ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Confirming…
+                    </span>
+                  ) : detailsConfirmed ? (
                     <span className="inline-flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4" /> Details Confirmed
                     </span>
@@ -768,128 +848,27 @@ export function BookFishPage() {
             </div>
           </div>
 
-          {/* Payment column */}
           <div className="lg:col-span-2">
-            <div
-              className={`rounded-xl border bg-white p-6 transition-opacity ${
-                detailsConfirmed
-                  ? "border-emerald-200 shadow-sm ring-1 ring-emerald-100"
-                  : "border-gray-200 opacity-60"
-              }`}
-            >
-              <h2 className="text-sm font-bold text-gray-900">Payment Summary</h2>
-              {!detailsConfirmed && (
-                <p className="mt-1 text-xs text-amber-600">
-                  Confirm booking details to enable payment
-                </p>
-              )}
-
-              <div className={`mt-5 space-y-4 ${!detailsConfirmed ? "pointer-events-none" : ""}`}>
-                <div>
-                  <p className="mb-2 text-xs font-semibold text-gray-700">Select Payment Method</p>
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("wallet")}
-                      className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                        paymentMethod === "wallet"
-                          ? "border-emerald-500 bg-emerald-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      <Wallet className="h-5 w-5 text-emerald-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-900">Your wallet balance</p>
-                        <p className="text-xs font-bold text-emerald-600">
-                          {formatBookFishNaira(MOCK_WALLET_BALANCE)}
-                        </p>
-                      </div>
-                      {paymentMethod === "wallet" && (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPaymentMethod("paystack")}
-                      className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                        paymentMethod === "paystack"
-                          ? "border-emerald-500 bg-emerald-50"
-                          : "border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      <CreditCard className="h-5 w-5 text-gray-600" />
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-gray-900">Paystack</p>
-                        <p className="text-xs text-gray-500">Pay via card or bank transfer</p>
-                      </div>
-                      {paymentMethod === "paystack" && (
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-2 border-t border-gray-100 pt-4 text-sm">
-                  <div className="flex justify-between text-gray-600">
-                    <span>Booking Fee</span>
-                    <span>{formatBookFishNaira(BOOK_FISH_FEES.booking_fee)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600">
-                    <span>Taxes</span>
-                    <span>{formatBookFishNaira(BOOK_FISH_FEES.taxes)}</span>
-                  </div>
-                  <div className="flex justify-between text-gray-600">
-                    <span>Stamp Denotation</span>
-                    <span>{formatBookFishNaira(BOOK_FISH_FEES.stamp_denotation)}</span>
-                  </div>
-                  <div className="flex justify-between border-t border-gray-100 pt-2 text-base font-bold text-gray-900">
-                    <span>Total</span>
-                    <span>{formatBookFishNaira(totalFee)}</span>
-                  </div>
-                </div>
-
-                <label className="flex cursor-pointer items-start gap-2.5">
-                  <input
-                    type="checkbox"
-                    checked={termsAccepted}
-                    onChange={(e) => setTermsAccepted(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
-                  />
-                  <span className="text-xs text-gray-600">
-                    I agree to the{" "}
-                    <span className="font-semibold text-emerald-700 underline">
-                      Maritime-ETSS terms and conditions
-                    </span>
-                  </span>
-                </label>
-
-                <p className="text-[11px] text-gray-400">
-                  Please confirm your booking details before proceeding to pay
-                </p>
-
-                <button
-                  type="button"
-                  onClick={handleProceedToPay}
-                  disabled={!detailsConfirmed || !termsAccepted || isPaying}
-                  className={`flex w-full items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors ${
-                    detailsConfirmed && termsAccepted
-                      ? "bg-emerald-600 text-white hover:bg-emerald-700"
-                      : "cursor-not-allowed bg-gray-200 text-gray-400"
-                  }`}
-                >
-                  {isPaying ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Processing…
-                    </>
-                  ) : (
-                    "Proceed To Pay"
-                  )}
-                </button>
-              </div>
-            </div>
+            <PaymentSummaryPanel
+              detailsConfirmed={detailsConfirmed}
+              termsAccepted={termsAccepted}
+              onTermsChange={setTermsAccepted}
+              paymentMethod={paymentMethod}
+              onPaymentMethodChange={setPaymentMethod}
+              onProceedToPay={handleProceedToPay}
+              isPaying={isPaying}
+              fee={paymentFee}
+            />
           </div>
         </div>
+      )}
+      {paymentSuccess && (
+        <BookingPaymentSuccessModal
+          bookingId={paymentSuccess.booking_id}
+          journeyCode={paymentSuccess.journey_code}
+          message="Your fish booking payment has been confirmed."
+          onContinue={() => router.push("/dashboard/bookings/all")}
+        />
       )}
     </div>
   );

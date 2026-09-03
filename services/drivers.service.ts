@@ -1,6 +1,7 @@
 import apiClient from "@/api/client";
 import { DRIVERS } from "@/api/endpoints";
 import type { ApiResponse } from "@/types/api.types";
+import type { BookingOptionsParams, BookingOptionsResponse } from "@/types/booking-creation.types";
 import type {
   DriversListParams,
   DriversListResponse,
@@ -63,6 +64,14 @@ export const driversService = {
   startVerification: async (id: string): Promise<DriverActionResponse> => {
     const { data } = await apiClient.patch<ApiResponse<DriverActionResponse>>(DRIVERS.START_VERIFICATION(id));
     return { message: data.message };
+  },
+
+  bookingOptions: async (params?: BookingOptionsParams): Promise<BookingOptionsResponse> => {
+    const { data } = await apiClient.get<ApiResponse<BookingOptionsResponse>>(
+      DRIVERS.BOOKING_OPTIONS,
+      { params },
+    );
+    return data.data;
   },
 
   exportCsv: async (params?: DriversListParams): Promise<void> => {

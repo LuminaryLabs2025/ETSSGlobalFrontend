@@ -131,6 +131,7 @@ export const sidebarNav: NavItem[] = [
       { label: "Book Truck Park (Assist Transporter)", href: "/dashboard/bookings/book-truck-park" },
       { label: "Today's Manifest (In-Manifest & Left-Manifest)", href: "/dashboard/bookings/manifest" },
       { label: "All Bookings (Live, Completed & Cancelled)", href: "/dashboard/bookings/all" },
+      { label: "Priority Queue (Facility & Pregate)", href: "/dashboard/bookings/queue" },
     ],
   },
   {

@@ -48,7 +48,49 @@ export interface BookingTruckPreview {
   image_url?: string;
 }
 
-export interface Booking {
+export interface BookingEntityRef {
+  id: string;
+  name: string;
+  code?: string;
+  location?: string;
+  type?: string;
+}
+
+export interface BookingTimeslotRef {
+  id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+}
+
+export interface BookingExtras {
+  booking_type?: "BONDED_TERMINAL" | "TRUCK_PARK" | "FISH_VAN_PARK" | "EPT";
+  facility?: BookingEntityRef;
+  transit_park?: BookingEntityRef;
+  terminal?: BookingEntityRef;
+  booking_category_ref?: { id: string; name: string };
+  expected_arrival_time_slot?: BookingTimeslotRef;
+  expected_arrival_date?: string;
+  expected_arrival_time?: string;
+  export_type?: string;
+  ept_operation_type?: string;
+  gate_pass_number?: string;
+  priority_level?: "HIGH" | "MEDIUM" | "LOW";
+  priority_rank?: number;
+  payment_status?: "PENDING" | "PAID" | "FAILED";
+  payment_method?: "WALLET" | "PAYSTACK";
+  paid_at?: string;
+  confirmed_at?: string;
+  terms_accepted_at?: string;
+  pregate_transit_park?: BookingEntityRef;
+  matched_at?: string;
+  in_facility_at?: string;
+  in_pregate_at?: string;
+  gtg_facility_at?: string;
+  gtg_pregate_at?: string;
+}
+
+export interface Booking extends BookingExtras {
   id: string;
   booking_id: string;
   journey_code: string;

@@ -1,23 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Truck, Calendar, CheckCircle2, Container } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Truck, Calendar, CheckCircle2, Container, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
 import {
-  BOOK_ASSIST_TRANSPORTERS,
+  DEFAULT_EPT_ARRIVAL_TIME,
   EPT_OPERATION_TYPES,
-  EPT_OPTIONS,
   EXPORT_TYPES,
-  PORT_TERMINALS_BY_ZONE,
-  buildGroupedDriverOptions,
-  buildGroupedTruckOptions,
+} from "@/lib/booking-form-constants";
+import {
+  flattenBookingOptions,
   formatAssistDateLong,
   formatAssistDateShort,
-  type TerminalZone,
-} from "@/lib/book-assist-mock-data";
+  mapPreviewFee,
+  stripGroupedLabel,
+} from "@/lib/booking-form-utils";
+import { useCompanies } from "@/hooks/companies/useCompanies";
+import { useTerminals } from "@/hooks/terminals/useTerminals";
+import { useTransitParks } from "@/hooks/transit-parks/useTransitParks";
+import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBookingOptions";
+import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
+import {
+  useConfirmBookingPayment,
+  useCreateBooking,
+  usePreviewBooking,
+} from "@/hooks/booking-creation/useBookingCreationMutations";
+import type { BookingPreview, CreateEptBookingRequest } from "@/types/booking-creation.types";
 import {
   BookAssistBreadcrumb,
+  BookingPaymentSuccessModal,
   PaymentSummaryPanel,
   PreviewDataCell,
   SearchableGroupedSelect,
@@ -30,11 +43,8 @@ import {
 
 type Step = 1 | 2;
 
-function stripGroupedLabel(label: string) {
-  return label.split(" (")[0];
-}
-
 export function BookEPTPage() {
+  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -43,57 +53,104 @@ export function BookEPTPage() {
   const [exportType, setExportType] = useState("");
   const [truckId, setTruckId] = useState("");
   const [driverId, setDriverId] = useState("");
-  const [terminalZone, setTerminalZone] = useState<TerminalZone | "">("");
+  const [terminalZone, setTerminalZone] = useState<"" | "APAPA" | "TINCAN">("");
   const [eptId, setEptId] = useState("");
   const [operationType, setOperationType] = useState("");
-  const [portTerminal, setPortTerminal] = useState("");
+  const [terminalId, setTerminalId] = useState("");
   const [arrivalDate, setArrivalDate] = useState("");
   const [gatePass, setGatePass] = useState("");
+
+  const [preview, setPreview] = useState<BookingPreview | null>(null);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+
+  const [paymentSuccess, setPaymentSuccess] = useState<{
+    booking_id: string;
+    journey_code: string;
+  } | null>(null);
 
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
-  const [isPaying, setIsPaying] = useState(false);
 
-  const transporter = BOOK_ASSIST_TRANSPORTERS.find((t) => t.id === transporterId);
-  const transporterName = transporter?.name ?? "";
-  const selectedEpt = EPT_OPTIONS.find((e) => e.id === eptId);
-  const eptFacility = selectedEpt?.facility ?? "";
+  const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
+  const { data: truckOptionsData } = useTruckBookingOptions({ transporter_company_id: transporterId });
+  const { data: driverOptionsData } = useDriverBookingOptions({ transporter_company_id: transporterId });
 
-  const truckOptions = useMemo(
-    () => (transporterName ? buildGroupedTruckOptions(transporterName) : []),
-    [transporterName],
+  const eptParams = useMemo(
+    () =>
+      terminalZone
+        ? { type: "EPT" as const, location: terminalZone, limit: 100 }
+        : undefined,
+    [terminalZone],
   );
-  const driverOptions = useMemo(
-    () => (transporterName ? buildGroupedDriverOptions(transporterName) : []),
-    [transporterName],
+  const terminalParams = useMemo(
+    () =>
+      terminalZone
+        ? { type: "PORT_TERMINAL" as const, location: terminalZone, limit: 100 }
+        : undefined,
+    [terminalZone],
   );
+
+  const { data: eptData } = useTransitParks(eptParams);
+  const { data: terminalsData } = useTerminals(terminalParams);
+
+  const previewMutation = usePreviewBooking("ept");
+  const createMutation = useCreateBooking("ept");
+  const confirmPaymentMutation = useConfirmBookingPayment();
+
+  const transporterName =
+    transporters.find((t) => t.id === transporterId)?.name ??
+    preview?.transporter_company.name ??
+    "";
+
+  const truckOptions = useMemo(() => flattenBookingOptions(truckOptionsData), [truckOptionsData]);
+  const driverOptions = useMemo(() => flattenBookingOptions(driverOptionsData), [driverOptionsData]);
 
   const selectedTruck = truckOptions.find((t) => t.value === truckId);
   const selectedDriver = driverOptions.find((d) => d.value === driverId);
   const selectedExportType = EXPORT_TYPES.find((e) => e.value === exportType);
   const selectedOperation = EPT_OPERATION_TYPES.find((o) => o.value === operationType);
 
-  const eptOptions = useMemo(() => {
-    if (!terminalZone) return [];
-    return EPT_OPTIONS.filter((e) => e.zone === terminalZone).map((e) => ({
-      value: e.id,
-      label: e.name,
-    }));
-  }, [terminalZone]);
+  const eptOptions = useMemo(
+    () => (eptData?.data ?? []).map((e) => ({ value: e.id, label: e.name })),
+    [eptData],
+  );
 
-  const portTerminalOptions = terminalZone
-    ? PORT_TERMINALS_BY_ZONE[terminalZone].map((name) => ({ value: name, label: name }))
-    : [];
+  const selectedEpt = eptData?.data.find((e) => e.id === eptId);
+  const eptName = selectedEpt?.name ?? preview?.transit_park?.name ?? "";
+  const eptFacility = eptName;
 
-  const transporterOptions = BOOK_ASSIST_TRANSPORTERS.map((t) => ({
-    value: t.id,
-    label: t.name,
-  }));
+  const portTerminalOptions = useMemo(
+    () => (terminalsData?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
+    [terminalsData],
+  );
+
+  const portTerminalName =
+    terminalsData?.data.find((t) => t.id === terminalId)?.name ?? preview?.terminal.name ?? "";
+
+  const transporterOptions = transporters.map((t) => ({ value: t.id, label: t.name }));
 
   const bookedByName = user ? `${user.first_name} ${user.last_name}` : "SuperAdmin";
   const createdLabel = formatAssistDateShort(new Date().toISOString());
-  const terminalLocationLabel = terminalZone === "APAPA" ? "Apapa" : terminalZone === "TINCAN" ? "Tincan" : "—";
+  const terminalLocationLabel =
+    terminalZone === "APAPA" ? "Apapa" : terminalZone === "TINCAN" ? "Tincan" : "—";
+
+  const paymentFee = mapPreviewFee(preview?.fee);
+
+  function buildPayload(): CreateEptBookingRequest {
+    return {
+      transporter_company_id: transporterId,
+      export_type: exportType as CreateEptBookingRequest["export_type"],
+      truck_id: truckId,
+      driver_id: driverId,
+      transit_park_id: eptId,
+      ept_operation_type: operationType as CreateEptBookingRequest["ept_operation_type"],
+      terminal_id: terminalId,
+      expected_arrival_date: arrivalDate,
+      expected_arrival_time: DEFAULT_EPT_ARRIVAL_TIME,
+      gate_pass_number: gatePass.trim(),
+    };
+  }
 
   function handleTransporterChange(id: string) {
     setTransporterId(id);
@@ -101,14 +158,10 @@ export function BookEPTPage() {
     setDriverId("");
   }
 
-  function handleTerminalZoneChange(zone: TerminalZone) {
+  function handleTerminalZoneChange(zone: "APAPA" | "TINCAN") {
     setTerminalZone(zone);
     setEptId("");
-    setPortTerminal("");
-  }
-
-  function handleEptChange(id: string) {
-    setEptId(id);
+    setTerminalId("");
   }
 
   function validateStep1(): boolean {
@@ -140,7 +193,7 @@ export function BookEPTPage() {
       toast.error("Please select an operation type.");
       return false;
     }
-    if (!portTerminal) {
+    if (!terminalId) {
       toast.error("Please select a port terminal destination.");
       return false;
     }
@@ -155,22 +208,37 @@ export function BookEPTPage() {
     return true;
   }
 
-  function handleProceedToPreview() {
+  async function handleProceedToPreview() {
     if (!validateStep1()) return;
     setDetailsConfirmed(false);
     setTermsAccepted(false);
-    setStep(2);
+    setCreatedBookingId(null);
+
+    try {
+      const result = await previewMutation.mutateAsync(buildPayload());
+      setPreview(result);
+      setStep(2);
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   function handleGoBack() {
     setStep(1);
     setDetailsConfirmed(false);
     setTermsAccepted(false);
+    setCreatedBookingId(null);
   }
 
-  function handleConfirmDetails() {
-    setDetailsConfirmed(true);
-    toast.success("Booking details confirmed. You may now proceed to payment.");
+  async function handleConfirmDetails() {
+    try {
+      const booking = await createMutation.mutateAsync(buildPayload());
+      setCreatedBookingId(booking.id);
+      setDetailsConfirmed(true);
+      toast.success("Booking details confirmed. You may now proceed to payment.");
+    } catch {
+      // toast handled in mutation
+    }
   }
 
   async function handleProceedToPay() {
@@ -182,11 +250,31 @@ export function BookEPTPage() {
       toast.error("Please accept the Maritime-ETSS terms and conditions.");
       return;
     }
-    setIsPaying(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsPaying(false);
-    toast.success("EPT booking payment processed successfully.");
+    if (!createdBookingId) {
+      toast.error("Booking not found. Please confirm details again.");
+      return;
+    }
+
+    try {
+      const booking = await confirmPaymentMutation.mutateAsync({
+        id: createdBookingId,
+        payload: {
+          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
+          terms_accepted: true,
+        },
+      });
+      setPaymentSuccess({
+        booking_id: booking.booking_id,
+        journey_code: booking.journey_code,
+      });
+    } catch {
+      // toast handled in mutation
+    }
   }
+
+  const isPreviewLoading = previewMutation.isPending;
+  const isCreating = createMutation.isPending;
+  const isPaying = confirmPaymentMutation.isPending;
 
   if (!isSuperAdmin) {
     return <SuperAdminGate featureLabel="Book EPT" />;
@@ -236,7 +324,7 @@ export function BookEPTPage() {
               placeholder="Choose export type…"
               value={exportType}
               onChange={setExportType}
-              options={EXPORT_TYPES}
+              options={[...EXPORT_TYPES]}
               searchPlaceholder="Search export types…"
               required
             />
@@ -273,7 +361,7 @@ export function BookEPTPage() {
               label="Select EPT"
               placeholder={terminalZone ? "Choose EPT…" : "Select terminal location first"}
               value={eptId}
-              onChange={handleEptChange}
+              onChange={setEptId}
               options={eptOptions}
               searchPlaceholder="Search EPTs…"
               required
@@ -296,7 +384,7 @@ export function BookEPTPage() {
               placeholder="Choose operation type…"
               value={operationType}
               onChange={setOperationType}
-              options={EPT_OPERATION_TYPES}
+              options={[...EPT_OPERATION_TYPES]}
               searchPlaceholder="Search operation types…"
               required
             />
@@ -304,8 +392,8 @@ export function BookEPTPage() {
             <SearchableSelect
               label="Port Terminal Destination"
               placeholder={terminalZone ? "Choose port terminal…" : "Select terminal location first"}
-              value={portTerminal}
-              onChange={setPortTerminal}
+              value={terminalId}
+              onChange={setTerminalId}
               options={portTerminalOptions}
               searchPlaceholder="Search terminals…"
               required
@@ -346,8 +434,10 @@ export function BookEPTPage() {
             <button
               type="button"
               onClick={handleProceedToPreview}
-              className="rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+              disabled={isPreviewLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
             >
+              {isPreviewLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               Proceed To Preview Data
             </button>
           </div>
@@ -370,12 +460,13 @@ export function BookEPTPage() {
                 <div>
                   <span className="text-gray-500">Vehicle Plate Number:</span>{" "}
                   <span className="font-semibold text-gray-900">
-                    {selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—"}
+                    {preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")}
                   </span>
                 </div>
                 <div>
                   <span className="text-gray-500">Destination:</span>{" "}
-                  <span className="font-semibold text-gray-900">{portTerminal}</span>
+                  <span className="font-semibold text-gray-900">{portTerminalName}</span>
                 </div>
               </div>
 
@@ -386,39 +477,58 @@ export function BookEPTPage() {
                     EPT
                   </span>
                 </div>
-                <p className="mt-3 text-sm font-bold text-gray-900">Export Container</p>
+                <p className="mt-3 text-sm font-bold text-gray-900">
+                  {selectedExportType?.label ?? preview?.export_type ?? "Export Container"}
+                </p>
                 <p className="mt-1 text-xs text-gray-500">
                   Container / GatePass:{" "}
-                  <span className="font-semibold text-emerald-700">{gatePass || "None"}</span>
+                  <span className="font-semibold text-emerald-700">
+                    {(preview?.gate_pass_number ?? gatePass) || "None"}
+                  </span>
                 </p>
               </div>
 
               <div className="mt-4 space-y-4">
                 <div className="flex flex-wrap gap-4">
-                  <PreviewDataCell label="Export Type" value={selectedExportType?.label ?? "—"} />
+                  <PreviewDataCell
+                    label="Export Type"
+                    value={selectedExportType?.label ?? preview?.export_type ?? "—"}
+                  />
                   <PreviewDataCell
                     label="Truck Plate Number"
-                    value={selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—"}
+                    value={
+                      preview?.truck.plate_number ??
+                      (selectedTruck ? stripGroupedLabel(selectedTruck.label) : "—")
+                    }
                   />
                   <PreviewDataCell
                     label="Driver's Name"
-                    value={selectedDriver ? stripGroupedLabel(selectedDriver.label) : "—"}
+                    value={
+                      preview?.driver.name ??
+                      (selectedDriver ? stripGroupedLabel(selectedDriver.label) : "—")
+                    }
                   />
                 </div>
                 <div className="flex flex-wrap gap-4">
                   <PreviewDataCell label="Terminal Location" value={terminalLocationLabel} />
-                  <PreviewDataCell label="EPT" value={selectedEpt?.name ?? "—"} />
+                  <PreviewDataCell label="EPT" value={eptName || "—"} />
                   <PreviewDataCell label="EPT-Facility" value={eptFacility || "—"} />
                 </div>
                 <div className="flex flex-wrap gap-4">
-                  <PreviewDataCell label="Operation Type" value={selectedOperation?.label ?? "—"} />
-                  <PreviewDataCell label="Port Terminal Destination" value={portTerminal} />
-                  <PreviewDataCell label="GatePass Number" value={gatePass || "None"} />
+                  <PreviewDataCell
+                    label="Operation Type"
+                    value={selectedOperation?.label ?? preview?.ept_operation_type ?? "—"}
+                  />
+                  <PreviewDataCell label="Port Terminal Destination" value={portTerminalName} />
+                  <PreviewDataCell
+                    label="GatePass Number"
+                    value={(preview?.gate_pass_number ?? gatePass) || "None"}
+                  />
                 </div>
                 <div className="flex flex-wrap gap-4">
                   <PreviewDataCell
                     label="Expected Arrival Date (EPT)"
-                    value={formatAssistDateLong(arrivalDate)}
+                    value={formatAssistDateLong(preview?.expected_arrival_date ?? arrivalDate)}
                   />
                 </div>
               </div>
@@ -440,10 +550,10 @@ export function BookEPTPage() {
                   </div>
                   <div className="text-center">
                     <p className="text-[10px] font-semibold uppercase text-gray-400">
-                      {selectedEpt?.name ?? portTerminal}
+                      {eptName || portTerminalName}
                     </p>
                     <p className="text-sm font-bold text-gray-900">
-                      {formatAssistDateShort(arrivalDate)}
+                      {formatAssistDateShort(preview?.expected_arrival_date ?? arrivalDate)}
                     </p>
                   </div>
                 </div>
@@ -460,14 +570,18 @@ export function BookEPTPage() {
                 <button
                   type="button"
                   onClick={handleConfirmDetails}
-                  disabled={detailsConfirmed}
+                  disabled={detailsConfirmed || isCreating}
                   className={`rounded-lg px-5 py-2.5 text-sm font-semibold transition-colors ${
                     detailsConfirmed
                       ? "cursor-default bg-emerald-100 text-emerald-700"
-                      : "bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60"
                   }`}
                 >
-                  {detailsConfirmed ? (
+                  {isCreating ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Confirming…
+                    </span>
+                  ) : detailsConfirmed ? (
                     <span className="inline-flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4" /> Details Confirmed
                     </span>
@@ -488,9 +602,18 @@ export function BookEPTPage() {
               onPaymentMethodChange={setPaymentMethod}
               onProceedToPay={handleProceedToPay}
               isPaying={isPaying}
+              fee={paymentFee}
             />
           </div>
         </div>
+      )}
+      {paymentSuccess && (
+        <BookingPaymentSuccessModal
+          bookingId={paymentSuccess.booking_id}
+          journeyCode={paymentSuccess.journey_code}
+          message="Your EPT booking payment has been confirmed."
+          onContinue={() => router.push("/dashboard/bookings/all")}
+        />
       )}
     </div>
   );

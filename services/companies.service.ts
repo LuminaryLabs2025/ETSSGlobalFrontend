@@ -1,6 +1,7 @@
 import apiClient from "@/api/client";
 import { COMPANIES } from "@/api/endpoints";
 import type {
+  CompaniesListParams,
   Company,
   CompanyActionResponse,
   CompanyDetail,
@@ -8,8 +9,8 @@ import type {
 } from "@/types/companies.types";
 
 export const companiesService = {
-  list: async (): Promise<Company[]> => {
-    const { data } = await apiClient.get<Company[]>(COMPANIES.LIST);
+  list: async (params?: CompaniesListParams): Promise<Company[]> => {
+    const { data } = await apiClient.get<Company[]>(COMPANIES.LIST, { params });
     return data;
   },
 
