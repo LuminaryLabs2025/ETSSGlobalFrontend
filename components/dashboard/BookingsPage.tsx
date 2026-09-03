@@ -686,15 +686,15 @@ function BookingDetailDrawer({ bookingId, onClose }: { bookingId: string; onClos
   const { runAction, isPending: isOpsPending } = useBookingOpsMutations();
 
   const facilityId = booking?.facility?.id;
-  const pregateId = booking?.pregate_transit_park?.id;
+  const terminalId = booking?.terminal?.id;
 
   const { data: facilityQueueData } = useFacilityQueue(
     facilityId ? { facility_id: facilityId, limit: 100 } : undefined,
     Boolean(facilityId && booking?.payment_status === "PAID"),
   );
   const { data: pregateQueueData } = usePregateQueue(
-    pregateId ? { transit_park_id: pregateId, limit: 100 } : undefined,
-    Boolean(pregateId && booking?.payment_status === "PAID"),
+    terminalId ? { terminal_id: terminalId, limit: 100 } : undefined,
+    Boolean(terminalId && booking?.payment_status === "PAID"),
   );
 
   const facilityQueuePosition = findQueuePosition(facilityQueueData?.data, bookingId);
