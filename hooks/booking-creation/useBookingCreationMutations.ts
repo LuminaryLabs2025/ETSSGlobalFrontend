@@ -2,10 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
 import { toast } from "sonner";
 import { bookingsService } from "@/services/bookings.service";
+import { paymentsService } from "@/services/payments.service";
 import type { ApiError } from "@/types/api.types";
 import type {
   BookingCreationType,
-  ConfirmPaymentRequest,
   CreateEptBookingRequest,
   CreateFacilityBookingRequest,
   CreateFishBookingRequest,
@@ -43,17 +43,11 @@ export function useCreateBooking(type: BookingCreationType) {
   });
 }
 
-export function useConfirmBookingPayment() {
-  const queryClient = useQueryClient();
-
+export function useInitializePayment() {
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: ConfirmPaymentRequest }) =>
-      bookingsService.confirmPayment(id, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["bookings"] });
-    },
+    mutationFn: (bookingId: string) => paymentsService.initialize(bookingId),
     onError: (error: AxiosError<ApiError>) => {
-      handleBookingError(error, "Failed to confirm payment");
+      handleBookingError(error, "Failed to start payment");
     },
   });
 }

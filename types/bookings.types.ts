@@ -63,6 +63,14 @@ export interface BookingTimeslotRef {
   end_time: string;
 }
 
+export interface BookingInvoice {
+  id: string;
+  invoice_number: string;
+  status: "PENDING" | "PAID" | "CANCELLED";
+  amount: number;
+  currency: string;
+}
+
 export interface BookingExtras {
   booking_type?: "BONDED_TERMINAL" | "TRUCK_PARK" | "FISH_VAN_PARK" | "EPT";
   facility?: BookingEntityRef;
@@ -78,7 +86,8 @@ export interface BookingExtras {
   priority_level?: "HIGH" | "MEDIUM" | "LOW";
   priority_rank?: number;
   payment_status?: "PENDING" | "PAID" | "FAILED";
-  payment_method?: "WALLET" | "PAYSTACK";
+  payment_method?: "PAYSTACK";
+  invoice?: BookingInvoice;
   paid_at?: string;
   confirmed_at?: string;
   terms_accepted_at?: string;

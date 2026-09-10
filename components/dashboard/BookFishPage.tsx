@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Fish,
   ChevronRight,
@@ -28,16 +27,14 @@ import { useTerminals } from "@/hooks/terminals/useTerminals";
 import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBookingOptions";
 import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
 import {
-  useConfirmBookingPayment,
   useCreateBooking,
+  useInitializePayment,
   usePreviewBooking,
 } from "@/hooks/booking-creation/useBookingCreationMutations";
 import type { BookingPreview, CreateFishBookingRequest } from "@/types/booking-creation.types";
 import {
   PaymentSummaryPanel,
-  BookingPaymentSuccessModal,
   SuperAdminGate,
-  type PaymentMethod,
 } from "@/components/dashboard/book-assist/BookAssistUi";
 
 type Step = 1 | 2;
@@ -335,7 +332,6 @@ function PreviewDataCell({ label, value }: { label: string; value: string }) {
 }
 
 export function BookFishPage() {
-  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -352,14 +348,8 @@ export function BookFishPage() {
   const [preview, setPreview] = useState<BookingPreview | null>(null);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
-  const [paymentSuccess, setPaymentSuccess] = useState<{
-    booking_id: string;
-    journey_code: string;
-  } | null>(null);
-
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
 
   const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
   const { data: facilitiesData } = useFacilities({ park_type: "FISH_VAN_PARK", limit: 100 });
@@ -376,7 +366,7 @@ export function BookFishPage() {
 
   const previewMutation = usePreviewBooking("fish");
   const createMutation = useCreateBooking("fish");
-  const confirmPaymentMutation = useConfirmBookingPayment();
+  const initializePaymentMutation = useInitializePayment();
 
   const transporterName =
     transporters.find((t) => t.id === transporterId)?.name ??
@@ -528,17 +518,8 @@ export function BookFishPage() {
     }
 
     try {
-      const booking = await confirmPaymentMutation.mutateAsync({
-        id: createdBookingId,
-        payload: {
-          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
-          terms_accepted: true,
-        },
-      });
-      setPaymentSuccess({
-        booking_id: booking.booking_id,
-        journey_code: booking.journey_code,
-      });
+      const { authorization_url } = await initializePaymentMutation.mutateAsync(createdBookingId);
+      window.location.href = authorization_url;
     } catch {
       // toast handled in mutation
     }
@@ -546,7 +527,7 @@ export function BookFishPage() {
 
   const isPreviewLoading = previewMutation.isPending;
   const isCreating = createMutation.isPending;
-  const isPaying = confirmPaymentMutation.isPending;
+  const isPaying = initializePaymentMutation.isPending;
 
   if (!isSuperAdmin) {
     return <SuperAdminGate featureLabel="Book Fish" />;
@@ -853,22 +834,12 @@ export function BookFishPage() {
               detailsConfirmed={detailsConfirmed}
               termsAccepted={termsAccepted}
               onTermsChange={setTermsAccepted}
-              paymentMethod={paymentMethod}
-              onPaymentMethodChange={setPaymentMethod}
               onProceedToPay={handleProceedToPay}
               isPaying={isPaying}
               fee={paymentFee}
             />
           </div>
         </div>
-      )}
-      {paymentSuccess && (
-        <BookingPaymentSuccessModal
-          bookingId={paymentSuccess.booking_id}
-          journeyCode={paymentSuccess.journey_code}
-          message="Your fish booking payment has been confirmed."
-          onContinue={() => router.push("/dashboard/bookings/all")}
-        />
       )}
     </div>
   );

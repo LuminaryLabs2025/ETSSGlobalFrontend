@@ -8,7 +8,6 @@ import {
   Search,
   ChevronDown,
   CheckCircle2,
-  Wallet,
   CreditCard,
   Loader2,
 } from "lucide-react";
@@ -17,7 +16,6 @@ import {
 } from "@/lib/booking-form-utils";
 
 export type BookAssistStep = 1 | 2;
-export type PaymentMethod = "wallet" | "paystack";
 
 export interface SelectOption {
   value: string;
@@ -383,8 +381,6 @@ export function PaymentSummaryPanel({
   detailsConfirmed,
   termsAccepted,
   onTermsChange,
-  paymentMethod,
-  onPaymentMethodChange,
   onProceedToPay,
   isPaying,
   fee,
@@ -392,8 +388,6 @@ export function PaymentSummaryPanel({
   detailsConfirmed: boolean;
   termsAccepted: boolean;
   onTermsChange: (v: boolean) => void;
-  paymentMethod: PaymentMethod;
-  onPaymentMethodChange: (m: PaymentMethod) => void;
   onProceedToPay: () => void;
   isPaying: boolean;
   fee?: PaymentSummaryFee | null;
@@ -416,45 +410,11 @@ export function PaymentSummaryPanel({
       )}
 
       <div className={`mt-5 space-y-4 ${!detailsConfirmed ? "pointer-events-none" : ""}`}>
-        <div>
-          <p className="mb-2 text-xs font-semibold text-gray-700">Select Payment Method</p>
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => onPaymentMethodChange("wallet")}
-              className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                paymentMethod === "wallet"
-                  ? "border-emerald-500 bg-emerald-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <Wallet className="h-5 w-5 text-emerald-600" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-900">Your wallet balance</p>
-                <p className="text-xs text-gray-500">Wallet ledger not yet integrated</p>
-              </div>
-              {paymentMethod === "wallet" && (
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => onPaymentMethodChange("paystack")}
-              className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
-                paymentMethod === "paystack"
-                  ? "border-emerald-500 bg-emerald-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <CreditCard className="h-5 w-5 text-gray-600" />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-gray-900">Paystack</p>
-                <p className="text-xs text-gray-500">Pay via card or bank transfer</p>
-              </div>
-              {paymentMethod === "paystack" && (
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              )}
-            </button>
+        <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+          <CreditCard className="h-5 w-5 shrink-0 text-emerald-700" />
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Pay via Paystack</p>
+            <p className="text-xs text-gray-500">Card or bank transfer</p>
           </div>
         </div>
 
@@ -512,7 +472,7 @@ export function PaymentSummaryPanel({
           {isPaying ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Processing…
+              Redirecting to Paystack…
             </>
           ) : (
             "Proceed To Pay"
@@ -526,44 +486,76 @@ export function PaymentSummaryPanel({
 export function BookingPaymentSuccessModal({
   bookingId,
   journeyCode,
+  invoiceNumber,
   message,
   onContinue,
+  continueLabel = "View All Bookings",
+  asPage = false,
 }: {
-  bookingId: string;
+  bookingId?: string;
   journeyCode?: string;
+  invoiceNumber?: string;
   message: string;
   onContinue: () => void;
+  continueLabel?: string;
+  asPage?: boolean;
 }) {
+  const content = (
+    <div className="flex flex-col items-center text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+        <CheckCircle2 className="h-8 w-8 text-emerald-600" />
+      </div>
+      <h3 className="mt-4 text-lg font-bold text-gray-900">Payment Successful</h3>
+      <p className="mt-2 text-sm text-gray-600">{message}</p>
+      {(bookingId || journeyCode || invoiceNumber) && (
+        <div className="mt-4 w-full rounded-lg bg-gray-50 px-4 py-3 text-left">
+          {bookingId && (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Booking ID</p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-gray-900">{bookingId}</p>
+            </>
+          )}
+          {invoiceNumber && (
+            <>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider text-gray-400 ${bookingId ? "mt-2" : ""}`}>
+                Invoice
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-bold text-gray-900">{invoiceNumber}</p>
+            </>
+          )}
+          {journeyCode && (
+            <>
+              <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                Journey Code
+              </p>
+              <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700">{journeyCode}</p>
+            </>
+          )}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={onContinue}
+        className="mt-6 w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+      >
+        {continueLabel}
+      </button>
+    </div>
+  );
+
+  if (asPage) {
+    return (
+      <div className="mx-auto w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        {content}
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="fixed inset-0 z-50 bg-black/40" />
       <div className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl border border-gray-200 bg-white p-6 shadow-2xl">
-        <div className="flex flex-col items-center text-center">
-          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
-            <CheckCircle2 className="h-8 w-8 text-emerald-600" />
-          </div>
-          <h3 className="mt-4 text-lg font-bold text-gray-900">Payment Successful</h3>
-          <p className="mt-2 text-sm text-gray-600">{message}</p>
-          <div className="mt-4 w-full rounded-lg bg-gray-50 px-4 py-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Booking ID</p>
-            <p className="mt-0.5 font-mono text-sm font-bold text-gray-900">{bookingId}</p>
-            {journeyCode && (
-              <>
-                <p className="mt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                  Journey Code
-                </p>
-                <p className="mt-0.5 font-mono text-sm font-semibold text-emerald-700">{journeyCode}</p>
-              </>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onContinue}
-            className="mt-6 w-full rounded-lg bg-emerald-600 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
-          >
-            View All Bookings
-          </button>
-        </div>
+        {content}
       </div>
     </>
   );

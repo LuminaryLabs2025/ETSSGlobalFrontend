@@ -184,14 +184,6 @@ export const EPT_OPTIONS: EptOption[] = [
   { id: "ept-8", name: "Mile 2 EPT", zone: "TINCAN", facility: "Mile 2 EPT" },
 ];
 
-export const BOOK_ASSIST_FEES = {
-  booking_fee: 5000,
-  taxes: 375,
-  stamp_denotation: 50,
-};
-
-export const MOCK_WALLET_BALANCE = 273_180;
-
 export function getAssistTrucks(transporterName: string): BookAssistTruckOption[] {
   return MOCK_TRUCKS.filter(
     (t) =>

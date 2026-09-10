@@ -4,7 +4,6 @@ import type { ApiResponse } from "@/types/api.types";
 import type {
   BookingCreationType,
   BookingPreview,
-  ConfirmPaymentRequest,
   CreateEptBookingRequest,
   CreateFacilityBookingRequest,
   CreateFishBookingRequest,
@@ -83,14 +82,6 @@ export const bookingsService = {
   ): Promise<Booking> => {
     const { data } = await apiClient.post<ApiResponse<Booking>>(
       BOOKINGS.CREATE(type),
-      payload,
-    );
-    return data.data;
-  },
-
-  confirmPayment: async (id: string, payload: ConfirmPaymentRequest): Promise<Booking> => {
-    const { data } = await apiClient.patch<ApiResponse<Booking>>(
-      BOOKINGS.CONFIRM_PAYMENT(id),
       payload,
     );
     return data.data;

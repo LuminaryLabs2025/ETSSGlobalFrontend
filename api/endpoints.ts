@@ -51,7 +51,6 @@ export const BOOKINGS = {
   CANCEL: (id: string) => `/bookings/${id}/cancel`,
   PREVIEW: (type: string) => `/bookings/${type}/preview`,
   CREATE: (type: string) => `/bookings/${type}`,
-  CONFIRM_PAYMENT: (id: string) => `/bookings/${id}/confirm-payment`,
   MARK_IN_FACILITY: (id: string) => `/bookings/${id}/mark-in-facility`,
   MARK_IN_PREGATE: (id: string) => `/bookings/${id}/mark-in-pregate`,
   MARK_MATCHED: (id: string) => `/bookings/${id}/mark-matched`,
@@ -218,6 +217,16 @@ export const DTTR = {
 export const PAYMENT_TYPES = {
   LIST: "/payment-types",
   BY_ID: (id: string) => `/payment-types/${id}`,
+} as const;
+
+// ─── Payments (Paystack) ───
+export const PAYMENTS = {
+  INITIALIZE: (bookingId: string) => `/bookings/${bookingId}/payments/initialize`,
+  VERIFY_BOOKING: (bookingId: string) => `/bookings/${bookingId}/payments/verify`,
+  VERIFY: "/payments/verify",
+  CONFIG: "/payments/config",
+  LIST: "/payments",
+  BY_ID: (id: string) => `/payments/${id}`,
 } as const;
 
 // ─── Facility Timeslots ───
