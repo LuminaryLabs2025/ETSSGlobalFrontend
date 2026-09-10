@@ -36,6 +36,10 @@ import type {
   PaymentTypeDetail,
   PaymentTypePayload,
 } from "@/types/payment-types.types";
+import {
+  formatPaymentLinkedForm,
+  PAYMENT_LINKED_FORM_OPTIONS,
+} from "@/types/payment-types.types";
 
 const PAGE_SIZE = 20;
 const STATUS_FILTERS = ["All", "ACTIVE", "INACTIVE"] as const;
@@ -194,7 +198,7 @@ function PaymentTypeDetailDrawer({
                 { label: "ID", value: item.id, mono: true },
                 { label: "Name", value: item.name },
                 { label: "Service Name", value: displayOrDash(item.service_name) },
-                { label: "Linked Form", value: displayOrDash(item.linked_form) },
+                { label: "Linked Form", value: formatPaymentLinkedForm(item.linked_form) },
                 { label: "Revenue Event Trigger", value: displayOrDash(item.revenue_event_trigger) },
                 {
                   label: "Charged To User Type",
@@ -419,11 +423,23 @@ function PaymentTypeFormModal({
 
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-gray-700">Linked Form</label>
-              <input
+              <select
                 value={linkedForm}
                 onChange={(e) => setLinkedForm(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-              />
+              >
+                <option value="">Select booking form…</option>
+                {PAYMENT_LINKED_FORM_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+                {linkedForm &&
+                  !PAYMENT_LINKED_FORM_OPTIONS.some((opt) => opt.value === linkedForm) && (
+                    <option value={linkedForm}>{linkedForm}</option>
+                  )}
+              </select>
+           
             </div>
 
             <div className="sm:col-span-2">
@@ -872,7 +888,9 @@ export function PaymentTypesPanel() {
                       <tr key={item.id} className="transition-colors hover:bg-gray-50/80">
                         <td className="px-4 py-3">
                           <p className="text-xs font-medium text-gray-900">{item.name}</p>
-                          <p className="truncate text-[11px] text-gray-400">{displayOrDash(item.linked_form)}</p>
+                          <p className="truncate text-[11px] text-gray-400">
+                            {formatPaymentLinkedForm(item.linked_form)}
+                          </p>
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-xs text-gray-600">{displayOrDash(item.service_name)}</p>

@@ -1,6 +1,45 @@
 export type PaymentAmountType = "FIXED" | "PERCENTAGE" | string;
 export type PaymentTypeStatus = "ACTIVE" | "INACTIVE" | string;
 
+export type PaymentLinkedForm =
+  | "BOOK_BONDED_TERMINAL"
+  | "BOOK_TRUCK_PARK"
+  | "BOOK_FISH"
+  | "BOOK_EPT";
+
+export const PAYMENT_LINKED_FORM_OPTIONS: {
+  value: PaymentLinkedForm;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "BOOK_BONDED_TERMINAL",
+    label: "Book Bonded Terminal",
+    description: "Bonded terminal assist booking form",
+  },
+  {
+    value: "BOOK_TRUCK_PARK",
+    label: "Book Truck Park",
+    description: "Truck park assist booking form",
+  },
+  {
+    value: "BOOK_FISH",
+    label: "Book Fish",
+    description: "Fish van park assist booking form",
+  },
+  {
+    value: "BOOK_EPT",
+    label: "Book EPT",
+    description: "Export processing terminal assist booking form",
+  },
+];
+
+export function formatPaymentLinkedForm(value?: string | null): string {
+  if (!value?.trim()) return "—";
+  const match = PAYMENT_LINKED_FORM_OPTIONS.find((opt) => opt.value === value);
+  return match?.label ?? value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export interface PaymentTypeUserType {
   id: string;
   name: string;
