@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Truck, Calendar, CheckCircle2, Container, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
@@ -23,14 +22,13 @@ import { useTransitParks } from "@/hooks/transit-parks/useTransitParks";
 import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBookingOptions";
 import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
 import {
-  useConfirmBookingPayment,
   useCreateBooking,
+  useInitializePayment,
   usePreviewBooking,
 } from "@/hooks/booking-creation/useBookingCreationMutations";
 import type { BookingPreview, CreateEptBookingRequest } from "@/types/booking-creation.types";
 import {
   BookAssistBreadcrumb,
-  BookingPaymentSuccessModal,
   PaymentSummaryPanel,
   PreviewDataCell,
   SearchableGroupedSelect,
@@ -38,13 +36,11 @@ import {
   StepIndicator,
   SuperAdminGate,
   TerminalZoneToggle,
-  type PaymentMethod,
 } from "@/components/dashboard/book-assist/BookAssistUi";
 
 type Step = 1 | 2;
 
 export function BookEPTPage() {
-  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -63,14 +59,8 @@ export function BookEPTPage() {
   const [preview, setPreview] = useState<BookingPreview | null>(null);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
-  const [paymentSuccess, setPaymentSuccess] = useState<{
-    booking_id: string;
-    journey_code: string;
-  } | null>(null);
-
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
 
   const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
   const { data: truckOptionsData } = useTruckBookingOptions({ transporter_company_id: transporterId });
@@ -96,7 +86,7 @@ export function BookEPTPage() {
 
   const previewMutation = usePreviewBooking("ept");
   const createMutation = useCreateBooking("ept");
-  const confirmPaymentMutation = useConfirmBookingPayment();
+  const initializePaymentMutation = useInitializePayment();
 
   const transporterName =
     transporters.find((t) => t.id === transporterId)?.name ??
@@ -256,17 +246,8 @@ export function BookEPTPage() {
     }
 
     try {
-      const booking = await confirmPaymentMutation.mutateAsync({
-        id: createdBookingId,
-        payload: {
-          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
-          terms_accepted: true,
-        },
-      });
-      setPaymentSuccess({
-        booking_id: booking.booking_id,
-        journey_code: booking.journey_code,
-      });
+      const { authorization_url } = await initializePaymentMutation.mutateAsync(createdBookingId);
+      window.location.href = authorization_url;
     } catch {
       // toast handled in mutation
     }
@@ -274,7 +255,7 @@ export function BookEPTPage() {
 
   const isPreviewLoading = previewMutation.isPending;
   const isCreating = createMutation.isPending;
-  const isPaying = confirmPaymentMutation.isPending;
+  const isPaying = initializePaymentMutation.isPending;
 
   if (!isSuperAdmin) {
     return <SuperAdminGate featureLabel="Book EPT" />;
@@ -598,22 +579,12 @@ export function BookEPTPage() {
               detailsConfirmed={detailsConfirmed}
               termsAccepted={termsAccepted}
               onTermsChange={setTermsAccepted}
-              paymentMethod={paymentMethod}
-              onPaymentMethodChange={setPaymentMethod}
               onProceedToPay={handleProceedToPay}
               isPaying={isPaying}
               fee={paymentFee}
             />
           </div>
         </div>
-      )}
-      {paymentSuccess && (
-        <BookingPaymentSuccessModal
-          bookingId={paymentSuccess.booking_id}
-          journeyCode={paymentSuccess.journey_code}
-          message="Your EPT booking payment has been confirmed."
-          onContinue={() => router.push("/dashboard/bookings/all")}
-        />
       )}
     </div>
   );

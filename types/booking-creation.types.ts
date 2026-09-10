@@ -6,8 +6,6 @@ export type BookingPriorityLevel = "HIGH" | "MEDIUM" | "LOW";
 
 export type BookingPaymentStatus = "PENDING" | "PAID" | "FAILED";
 
-export type BookingPaymentMethod = "WALLET" | "PAYSTACK";
-
 export interface BookingPreviewEntity {
   id: string;
   name: string;
@@ -96,11 +94,6 @@ export interface CreateEptBookingRequest {
   expected_arrival_date: string;
   expected_arrival_time: string;
   gate_pass_number: string;
-}
-
-export interface ConfirmPaymentRequest {
-  payment_method: BookingPaymentMethod;
-  terms_accepted: true;
 }
 
 export interface BookingOption {

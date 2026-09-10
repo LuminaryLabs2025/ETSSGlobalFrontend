@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
@@ -1005,6 +1005,14 @@ export function BookingsPage({ initialSection = "all" }: { initialSection?: Main
     title: string; message: string; confirmLabel: string; danger?: boolean;
     onConfirm: () => void;
   } | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const openId = params.get("open");
+    if (!openId) return;
+    setDetailBookingId(openId);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
 
   const listParams: BookingsListParams = {
     page,

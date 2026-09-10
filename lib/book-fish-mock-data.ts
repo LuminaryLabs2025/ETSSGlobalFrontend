@@ -1,8 +1,6 @@
 export {
   BOOK_ASSIST_TRANSPORTERS as BOOK_FISH_TRANSPORTERS,
-  BOOK_ASSIST_FEES as BOOK_FISH_FEES,
   FISH_VAN_PARKS,
-  MOCK_WALLET_BALANCE,
   PORT_TERMINALS_BY_ZONE,
   formatAssistNaira as formatBookFishNaira,
   formatAssistDateLong as formatBookFishDateLong,

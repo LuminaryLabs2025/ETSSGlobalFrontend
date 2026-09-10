@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Truck, Calendar, CheckCircle2, ParkingCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/auth.store";
@@ -28,29 +27,26 @@ import { useTruckBookingOptions } from "@/hooks/booking-creation/useTruckBooking
 import { useDriverBookingOptions } from "@/hooks/booking-creation/useDriverBookingOptions";
 import { useFacilityTimeslots } from "@/hooks/booking-creation/useFacilityTimeslots";
 import {
-  useConfirmBookingPayment,
   useCreateBooking,
+  useInitializePayment,
   usePreviewBooking,
 } from "@/hooks/booking-creation/useBookingCreationMutations";
 import type { BookingPreview } from "@/types/booking-creation.types";
 import type { CreateFacilityBookingRequest } from "@/types/booking-creation.types";
 import {
   BookAssistBreadcrumb,
-  BookingPaymentSuccessModal,
   PaymentSummaryPanel,
   PreviewDataCell,
   SearchableGroupedSelect,
   SearchableSelect,
   StepIndicator,
   SuperAdminGate,
-  type PaymentMethod,
 } from "@/components/dashboard/book-assist/BookAssistUi";
 import { BookingCategoryBadge } from "@/components/dashboard/book-assist/BookingCategoryBadge";
 
 type Step = 1 | 2;
 
 export function BookTruckParkPage() {
-  const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
@@ -69,14 +65,8 @@ export function BookTruckParkPage() {
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
   const [bookingReference, setBookingReference] = useState(PREVIEW_REFERENCE_PLACEHOLDER);
 
-  const [paymentSuccess, setPaymentSuccess] = useState<{
-    booking_id: string;
-    journey_code: string;
-  } | null>(null);
-
   const [detailsConfirmed, setDetailsConfirmed] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("wallet");
 
   const { data: transporters = [] } = useCompanies({ user_type_slug: "transporter" });
   const { data: facilitiesData } = useFacilities({ park_type: "TRUCK_PARK", limit: 100 });
@@ -95,7 +85,7 @@ export function BookTruckParkPage() {
 
   const previewMutation = usePreviewBooking("truck-park");
   const createMutation = useCreateBooking("truck-park");
-  const confirmPaymentMutation = useConfirmBookingPayment();
+  const initializePaymentMutation = useInitializePayment();
 
   const transporterName =
     transporters.find((t) => t.id === transporterId)?.name ??
@@ -290,17 +280,8 @@ export function BookTruckParkPage() {
     }
 
     try {
-      const booking = await confirmPaymentMutation.mutateAsync({
-        id: createdBookingId,
-        payload: {
-          payment_method: paymentMethod === "wallet" ? "WALLET" : "PAYSTACK",
-          terms_accepted: true,
-        },
-      });
-      setPaymentSuccess({
-        booking_id: booking.booking_id,
-        journey_code: booking.journey_code,
-      });
+      const { authorization_url } = await initializePaymentMutation.mutateAsync(createdBookingId);
+      window.location.href = authorization_url;
     } catch {
       // toast handled in mutation
     }
@@ -308,7 +289,7 @@ export function BookTruckParkPage() {
 
   const isPreviewLoading = previewMutation.isPending;
   const isCreating = createMutation.isPending;
-  const isPaying = confirmPaymentMutation.isPending;
+  const isPaying = initializePaymentMutation.isPending;
 
   if (!isSuperAdmin) {
     return <SuperAdminGate featureLabel="Book Truck Park" />;
@@ -608,22 +589,12 @@ export function BookTruckParkPage() {
               detailsConfirmed={detailsConfirmed}
               termsAccepted={termsAccepted}
               onTermsChange={setTermsAccepted}
-              paymentMethod={paymentMethod}
-              onPaymentMethodChange={setPaymentMethod}
               onProceedToPay={handleProceedToPay}
               isPaying={isPaying}
               fee={paymentFee}
             />
           </div>
         </div>
-      )}
-      {paymentSuccess && (
-        <BookingPaymentSuccessModal
-          bookingId={paymentSuccess.booking_id}
-          journeyCode={paymentSuccess.journey_code}
-          message="Your truck park booking payment has been confirmed."
-          onContinue={() => router.push("/dashboard/bookings/all")}
-        />
       )}
     </div>
   );
