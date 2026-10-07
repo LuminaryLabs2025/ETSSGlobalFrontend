@@ -21,6 +21,7 @@ import {
   FileCheck,
   Gavel,
   Bell,
+  AlertTriangle,
   Ship,
   ChevronLeft,
   ChevronRight,
@@ -41,11 +42,18 @@ import { useAuthStore } from "@/store/auth.store";
 // ─── Sidebar Navigation with icons ───
 const navGroups = [
   {
+    items: [{ label: "Overview", icon: LayoutDashboard, href: "/dashboard" }],
+  },
+  {
+    title: "Traffic Command",
     items: [
-      { label: "Overview", icon: LayoutDashboard, href: "/dashboard" },
-      { label: "Traffic Command", icon: Radio, href: "/dashboard/traffic/live-trucks" },
-      { label: "e-Revenue", icon: Wallet, href: "/dashboard/revenue/etss" },
+      { label: "Live Truck Updates", icon: Truck, href: "/dashboard/traffic/live-trucks" },
+      { label: "Live Location Updates", icon: MapPin, href: "/dashboard/traffic/locations" },
+      { label: "OCC Dashboard", icon: Radio, href: "/dashboard/traffic/occ" },
     ],
+  },
+  {
+    items: [{ label: "e-Revenue", icon: Wallet, href: "/dashboard/revenue/etss" }],
   },
   {
     title: "Operations",
@@ -70,6 +78,7 @@ const navGroups = [
   {
     title: "Administration",
     items: [
+      { label: "Incident Reports", icon: AlertTriangle, href: "/dashboard/incidents" },
       { label: "Utility Tickets", icon: Ticket, href: "/dashboard/utility-tickets" },
       { label: "TEPs", icon: FileCheck, href: "/dashboard/teps" },
       { label: "Penalties & Fines", icon: Gavel, href: "/dashboard/penalties" },
@@ -154,7 +163,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   const active =
                     item.href === "/dashboard/bookings/all"
                       ? pathname === item.href || pathname.startsWith("/dashboard/bookings/")
-                      : pathname === item.href;
+                      : item.href.startsWith("/dashboard/traffic/")
+                        ? pathname === item.href
+                        : pathname === item.href;
                   return (
                     <Link
                       key={item.href}
