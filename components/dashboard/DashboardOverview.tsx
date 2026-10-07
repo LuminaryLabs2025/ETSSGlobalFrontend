@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   Clock,
@@ -246,9 +247,12 @@ function CorridorLiveBanner() {
           <span className="text-xs text-gray-500">Maritime-ETSS</span>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button className="rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700">
+          <Link
+            href="/dashboard/traffic/live-trucks"
+            className="rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700"
+          >
             Traffic Command
-          </button>
+          </Link>
           <button className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/10">
             <AlertTriangle className={`h-3.5 w-3.5 ${congestionHigh ? "text-red-400" : "text-amber-400"}`} />
             Red-Zone
@@ -475,9 +479,12 @@ function IncidentNotificationBoard() {
     <div className="flex h-full flex-col rounded-xl border border-gray-200 bg-white p-5">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="text-sm font-bold text-gray-900">Incident notification board</h3>
-        <button className="flex items-center gap-0.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700">
+        <Link
+          href="/dashboard/incidents"
+          className="flex items-center gap-0.5 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+        >
           View all <ChevronRight className="h-3.5 w-3.5" />
-        </button>
+        </Link>
       </div>
       <div className="flex min-h-0 flex-1 flex-col space-y-2.5">
         {incidentNotifications.map((inc, i) => (
