@@ -1,15 +1,49 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Truck, Route, ListFilter } from "lucide-react";
+import {
+  DoorOpen,
+  Landmark,
+  Route,
+  ListFilter,
+  Truck,
+  Warehouse,
+} from "lucide-react";
 import { TrafficCommandShell } from "@/components/dashboard/traffic/TrafficCommandShell";
+import {
+  TrafficSummaryPanel,
+  type TrafficSummaryKpi,
+} from "@/components/dashboard/traffic/TrafficSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import {
   jitterCount,
   LIVE_TRUCK_MOVEMENTS,
   TRAFFIC_STATUS_CARDS,
+  type TrafficStatusCardKey,
   type TruckMovementRoute,
 } from "@/lib/traffic-command-mock-data";
+
+const STATUS_KPI_META: Record<
+  TrafficStatusCardKey,
+  Pick<TrafficSummaryKpi, "color" | "bg" | "Icon">
+> = {
+  ON_TRIP: { color: "text-blue-400", bg: "bg-blue-400/10", Icon: Truck },
+  LEFT_FACILITY: {
+    color: "text-emerald-400",
+    bg: "bg-emerald-400/10",
+    Icon: Warehouse,
+  },
+  LEFT_PREGATE: {
+    color: "text-orange-400",
+    bg: "bg-orange-400/10",
+    Icon: DoorOpen,
+  },
+  IN_TERMINAL: {
+    color: "text-gray-400",
+    bg: "bg-gray-400/10",
+    Icon: Landmark,
+  },
+};
 
 type ListView = "route" | "status";
 
@@ -57,28 +91,42 @@ export function LiveTruckUpdatesPage() {
 
   const listGroups = listView === "route" ? groupedByRoute : groupedByStatus;
 
+  const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
+    const onTripList = statusCounts.map((card) => {
+      const meta = STATUS_KPI_META[card.key];
+      return {
+        label: card.label,
+        value: card.count,
+        ...meta,
+      };
+    });
+    const listedTrucks = LIVE_TRUCK_MOVEMENTS.length;
+    return [
+      ...onTripList,
+      {
+        label: "Trucks on live listing",
+        value: listedTrucks,
+        color: "text-cyan-400",
+        bg: "bg-cyan-400/10",
+        Icon: Route,
+      },
+    ];
+  }, [statusCounts]);
+
   return (
     <TrafficCommandShell
-      title="Traffic Command Management"
-      subtitle="Real-time truck movement and operational flow across the logistics network — status counts refresh automatically from the live movement database."
-      lastUpdated={lastUpdated}
+      title="Live Truck Updates"
+      subtitle="Real-time truck movement and operational flow across the logistics network."
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {statusCounts.map((card) => (
-          <div
-            key={card.key}
-            className={`rounded-xl border p-5 shadow-sm ${card.bg} ${card.border}`}
-          >
-            <p className={`text-xs font-semibold uppercase tracking-wider ${card.color}`}>
-              {card.shortLabel}
-            </p>
-            <p className={`mt-2 text-3xl font-bold tabular-nums ${card.color}`}>{card.count}</p>
-            <p className="mt-1 text-[11px] text-gray-600">{card.label}</p>
-          </div>
-        ))}
-      </div>
+      <TrafficSummaryPanel
+        title="Live truck updates — at a glance"
+        subtitle="Status counts refresh automatically from the live movement database"
+        lastUpdated={lastUpdated}
+        cards={summaryCards}
+        gridClassName="grid-cols-2 sm:grid-cols-3 xl:grid-cols-5"
+      />
 
-      <div className="rounded-xl border border-gray-200 bg-white">
+      <div className="min-w-0 rounded-xl border border-gray-200 bg-white">
         <div className="flex flex-col gap-3 border-b border-gray-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-2">
             <Truck className="h-4 w-4 text-emerald-600" />

@@ -1,8 +1,21 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, MapPin, Minus, Plus, Warehouse } from "lucide-react";
+import {
+  AlertTriangle,
+  Clock,
+  DoorOpen,
+  MapPin,
+  Minus,
+  Plus,
+  Radio,
+  Warehouse,
+} from "lucide-react";
 import { TrafficCommandShell } from "@/components/dashboard/traffic/TrafficCommandShell";
+import {
+  TrafficSummaryPanel,
+  type TrafficSummaryKpi,
+} from "@/components/dashboard/traffic/TrafficSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import {
   TRAFFIC_MAP_LOCATIONS,
@@ -101,12 +114,89 @@ export function LiveLocationUpdatesPage() {
 
   const selected = filtered.find((l) => l.id === selectedId) ?? filtered[0];
 
+  const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
+    const all = TRAFFIC_MAP_LOCATIONS;
+    const online = all.filter((l) => l.online).length;
+    const offline = all.length - online;
+    const facilities = all.filter((l) => l.facilityKind === "FACILITY").length;
+    const pregates = all.filter((l) => l.facilityKind === "FACILITY_PREGATE").length;
+    const parks = all.filter((l) => l.facilityKind === "TRANSIT_PARK").length;
+    const avgTat = Math.round(
+      all.reduce((s, l) => s + l.hourlyTatMinutes, 0) / Math.max(all.length, 1),
+    );
+    return [
+      {
+        label: "Locations on map",
+        value: all.length,
+        color: "text-blue-400",
+        bg: "bg-blue-400/10",
+        Icon: MapPin,
+      },
+      {
+        label: "Visible (filtered)",
+        value: filtered.length,
+        color: "text-emerald-400",
+        bg: "bg-emerald-400/10",
+        Icon: Radio,
+      },
+      {
+        label: "Online",
+        value: online,
+        color: "text-cyan-400",
+        bg: "bg-cyan-400/10",
+        Icon: Warehouse,
+      },
+      {
+        label: "Offline / inactive",
+        value: offline,
+        color: "text-amber-400",
+        bg: "bg-amber-400/10",
+        Icon: AlertTriangle,
+      },
+      {
+        label: "Facilities",
+        value: facilities,
+        color: "text-violet-400",
+        bg: "bg-violet-400/10",
+        Icon: Warehouse,
+      },
+      {
+        label: "Facility pregates",
+        value: pregates,
+        color: "text-orange-400",
+        bg: "bg-orange-400/10",
+        Icon: DoorOpen,
+      },
+      {
+        label: "Transit parks",
+        value: parks,
+        color: "text-teal-400",
+        bg: "bg-teal-400/10",
+        Icon: MapPin,
+      },
+      {
+        label: "Avg hourly TAT",
+        value: `${avgTat} min`,
+        color: "text-gray-400",
+        bg: "bg-gray-400/10",
+        Icon: Clock,
+      },
+    ];
+  }, [filtered.length]);
+
   return (
     <TrafficCommandShell
       title="Live Location Updates"
       subtitle="Interactive map of facilities, facility-pregates, and transit parks — gate barriers, hourly TAT, and truck tagging metrics."
-      lastUpdated={lastUpdated}
     >
+      <TrafficSummaryPanel
+        title="Live location updates — at a glance"
+        subtitle="Map metrics reflect network-wide locations; visible count follows your filters"
+        lastUpdated={lastUpdated}
+        cards={summaryCards}
+        gridClassName="grid-cols-2 sm:grid-cols-4 xl:grid-cols-4"
+      />
+
       <div className="flex flex-wrap gap-3 rounded-xl border border-gray-200 bg-white p-4">
         <div>
           <label className="mb-1 block text-[10px] font-semibold uppercase text-gray-400">

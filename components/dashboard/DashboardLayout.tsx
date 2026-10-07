@@ -9,6 +9,7 @@ import {
   Radio,
   Wallet,
   BookOpen,
+  BookMarked,
   Truck,
   Users,
   Building2,
@@ -42,7 +43,14 @@ import { useAuthStore } from "@/store/auth.store";
 // ─── Sidebar Navigation with icons ───
 const navGroups = [
   {
-    items: [{ label: "Overview", icon: LayoutDashboard, href: "/dashboard" }],
+    items: [
+      { label: "Overview", icon: LayoutDashboard, href: "/dashboard" },
+      {
+        label: "Smart-Ops Guide",
+        icon: BookMarked,
+        href: "/dashboard/smart-ops-guide",
+      },
+    ],
   },
   {
     title: "Traffic Command",
@@ -53,7 +61,14 @@ const navGroups = [
     ],
   },
   {
-    items: [{ label: "e-Revenue", icon: Wallet, href: "/dashboard/revenue/etss" }],
+    title: "e-Revenue",
+    items: [
+      { label: "Maritime-ETSS", icon: Wallet, href: "/dashboard/revenue/etss" },
+      { label: "NPA", icon: Wallet, href: "/dashboard/revenue/npa" },
+      { label: "Facilities", icon: Wallet, href: "/dashboard/revenue/facilities" },
+      { label: "Transit Parks", icon: Wallet, href: "/dashboard/revenue/transit" },
+      { label: "Tow Truck Companies", icon: Wallet, href: "/dashboard/revenue/tow" },
+    ],
   },
   {
     title: "Operations",
@@ -191,11 +206,15 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <div className="border-t border-white/10 p-3">
           {expanded ? (
             <>
-              <div className="mb-3 rounded-lg bg-emerald-600/10 p-3">
-                <p className="text-xs font-semibold text-emerald-400">Help Center</p>
-                <p className="mt-1 text-[11px] text-gray-400">Need assistance with bookings?</p>
-                <p className="text-[11px] text-gray-400">Contact Support 24/7</p>
-              </div>
+              <Link
+                href="/dashboard/smart-ops-guide"
+                className="mb-3 block rounded-lg bg-emerald-600/10 p-3 transition-colors hover:bg-emerald-600/15"
+              >
+                <p className="text-xs font-semibold text-emerald-400">Smart-Ops Guide</p>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  Official ETSS-Nigeria operations documentation
+                </p>
+              </Link>
               <button
                 onClick={() => { clearAuth(); router.push("/"); }}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-white/5"
@@ -206,9 +225,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </>
           ) : (
             <div className="flex flex-col items-center gap-2">
-              <button title="Help Center" className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white">
+              <Link
+                href="/dashboard/smart-ops-guide"
+                title="Smart-Ops Guide"
+                className="rounded-lg p-2 text-gray-400 hover:bg-white/5 hover:text-white"
+              >
                 <HelpCircle className="h-4 w-4" />
-              </button>
+              </Link>
               <button
                 title="Logout"
                 onClick={() => { clearAuth(); router.push("/"); }}

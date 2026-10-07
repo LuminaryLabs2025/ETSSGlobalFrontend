@@ -4,10 +4,13 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   Ban,
+  Building2,
   Download,
+  ParkingCircle,
   Search,
   Send,
   Sparkles,
+  Siren,
   Truck,
 } from "lucide-react";
 import {
@@ -27,6 +30,10 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { TrafficCommandShell } from "@/components/dashboard/traffic/TrafficCommandShell";
+import {
+  TrafficSummaryPanel,
+  type TrafficSummaryKpi,
+} from "@/components/dashboard/traffic/TrafficSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import {
   formatEmergencyType,
@@ -102,6 +109,78 @@ export function OccDashboardPage() {
     });
   }, [cancelSearch]);
 
+  const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
+    const activeEmergencies = OCC_EMERGENCY_REQUESTS.filter((e) => e.active).length;
+    const facilityCap = OCC_FACILITY_CAPACITY.reduce((s, d) => s + d.capacity, 0);
+    const facilityOcc = OCC_FACILITY_CAPACITY.reduce((s, d) => s + d.occupied, 0);
+    const parkCap = OCC_TRANSIT_PARK_CAPACITY.reduce((s, d) => s + d.capacity, 0);
+    const parkOcc = OCC_TRANSIT_PARK_CAPACITY.reduce((s, d) => s + d.occupied, 0);
+    const downtimeMinutes = OCC_TERMINAL_DOWNTIME.reduce((s, d) => s + d.minutes, 0);
+    const evacuated = OCC_TERMINAL_EVACUATION.reduce((s, d) => s + d.evacuated, 0);
+    const delivered = OCC_TERMINAL_EVACUATION.reduce((s, d) => s + d.delivered, 0);
+
+    return [
+      {
+        label: "Active emergencies",
+        value: activeEmergencies,
+        color: "text-red-400",
+        bg: "bg-red-400/10",
+        Icon: Siren,
+      },
+      {
+        label: "Emergency requests",
+        value: OCC_EMERGENCY_REQUESTS.length,
+        color: "text-orange-400",
+        bg: "bg-orange-400/10",
+        Icon: AlertTriangle,
+      },
+      {
+        label: "Cancelled bookings",
+        value: OCC_CANCELLED_BOOKINGS.length,
+        color: "text-gray-400",
+        bg: "bg-gray-400/10",
+        Icon: Ban,
+      },
+      {
+        label: "Facility occupancy",
+        value: facilityCap
+          ? `${Math.round((facilityOcc / facilityCap) * 100)}%`
+          : "—",
+        color: "text-emerald-400",
+        bg: "bg-emerald-400/10",
+        Icon: Building2,
+      },
+      {
+        label: "Transit park occupancy",
+        value: parkCap ? `${Math.round((parkOcc / parkCap) * 100)}%` : "—",
+        color: "text-amber-400",
+        bg: "bg-amber-400/10",
+        Icon: ParkingCircle,
+      },
+      {
+        label: "Terminal downtime",
+        value: `${downtimeMinutes}m`,
+        color: "text-violet-400",
+        bg: "bg-violet-400/10",
+        Icon: Truck,
+      },
+      {
+        label: "Evacuated / delivered (hr)",
+        value: `${evacuated} / ${delivered}`,
+        color: "text-cyan-400",
+        bg: "bg-cyan-400/10",
+        Icon: Send,
+      },
+      {
+        label: "AI command actions",
+        value: OCC_AI_COMMAND_ACTIONS.length,
+        color: "text-violet-400",
+        bg: "bg-violet-400/10",
+        Icon: Sparkles,
+      },
+    ];
+  }, []);
+
   function exportCancelledCsv() {
     const header = "Booking ID,Plate,Driver,Category,Reason,Cancelled At\n";
     const rows = cancelled
@@ -122,10 +201,18 @@ export function OccDashboardPage() {
 
   return (
     <TrafficCommandShell
-      title="Operations Command & Coordination (OCC)"
+      title="OCC Dashboard"
       subtitle="Monitor facilities, transit parks, terminals, emergencies, and cancelled bookings — AI-assisted command actions for corridor oversight."
-      lastUpdated={lastUpdated}
     >
+      <TrafficSummaryPanel
+        title="Operations command & coordination — at a glance"
+        subtitle="Corridor KPIs refresh with the live traffic feed"
+        lastUpdated={lastUpdated}
+        cards={summaryCards}
+        gridClassName="grid-cols-2 sm:grid-cols-4 xl:grid-cols-4"
+        aiPowered
+      />
+
       <div className="rounded-xl border border-gray-200 bg-white p-5">
         <div className="mb-4 flex items-start gap-2">
           <Send className="mt-0.5 h-4 w-4 text-emerald-600" />

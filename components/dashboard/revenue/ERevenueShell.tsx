@@ -1,10 +1,10 @@
 "use client";
 
-import { Radio } from "lucide-react";
+import { Wallet } from "lucide-react";
 import { useAuthStore } from "@/store/auth.store";
 import { SuperAdminGate } from "@/components/dashboard/book-assist/BookAssistUi";
 
-export function TrafficCommandShell({
+export function ERevenueShell({
   title,
   subtitle,
   children,
@@ -16,15 +16,15 @@ export function TrafficCommandShell({
   const isSuperAdmin = useAuthStore((s) => s.user?.is_super_admin ?? false);
 
   if (!isSuperAdmin) {
-    return <SuperAdminGate featureLabel="Traffic Command & Coordination Management" />;
+    return <SuperAdminGate featureLabel="e-Revenue" />;
   }
 
   return (
     <div className="space-y-5 p-5 lg:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0f1e2e]">
-            <Radio className="h-5 w-5 text-emerald-400" />
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
+            <Wallet className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-xl font-bold text-gray-900">{title}</h1>
