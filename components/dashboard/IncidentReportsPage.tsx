@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import {
+  AlertCircle,
   AlertTriangle,
   CheckCircle2,
   Eye,
   FileText,
   Filter,
+  Loader2,
   MessageSquare,
   Search,
   Shield,
@@ -27,8 +29,16 @@ import {
   INCIDENT_SEVERITY_OPTIONS,
   INCIDENT_STATUS_OPTIONS,
   INCIDENT_TYPE_OPTIONS,
-  MOCK_INCIDENT_REPORTS,
 } from "@/lib/incidents-mock-data";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useIncidents } from "@/hooks/incidents/useIncidents";
+import { useIncidentsSummary } from "@/hooks/incidents/useIncidentsSummary";
+import {
+  useApproveCloseIncident,
+  useEscalateIncident,
+  useRejectIncidentResolution,
+  useUpdateIncident,
+} from "@/hooks/incidents/useIncidentActions";
 import type {
   IncidentReport,
   IncidentSeverity,
@@ -82,12 +92,17 @@ function StatusBadge({ status }: { status: IncidentStatus }) {
 function IncidentDetailDrawer({
   incident,
   onClose,
-  onUpdate,
+  onRefresh,
 }: {
   incident: IncidentReport;
   onClose: () => void;
-  onUpdate: (next: IncidentReport) => void;
+  onRefresh: () => void;
 }) {
+  const updateIncident = useUpdateIncident();
+  const approveClose = useApproveCloseIncident();
+  const rejectResolution = useRejectIncidentResolution();
+  const escalateIncident = useEscalateIncident();
+
   const [severity, setSeverity] = useState(incident.severity);
   const [assignTeam, setAssignTeam] = useState(incident.assignedTeam);
   const [comment, setComment] = useState("");
@@ -103,41 +118,41 @@ function IncidentDetailDrawer({
 
   const showFinalDecision = incident.status === "PENDING_SUPERADMIN_APPROVAL";
 
+  function persistFields(title: string, detail?: string) {
+    updateIncident.mutate(
+      {
+        id: incident.id,
+        payload: {
+          severity,
+          assigned_team: assignTeam,
+          priority_deadline: deadline
+            ? new Date(deadline).toISOString()
+            : incident.priorityDeadline,
+          timeline_title: title,
+          timeline_detail: detail,
+        },
+      },
+      {
+        onSuccess: () => {
+          toast.success("Incident updated.");
+          onRefresh();
+        },
+      },
+    );
+  }
+
   function addTimeline(title: string, detail?: string) {
-    const entry = {
-      id: `tl-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      title,
-      detail,
-      actor: "SuperAdmin",
-    };
-    onUpdate({
-      ...incident,
-      severity,
-      assignedTeam: assignTeam,
-      priorityDeadline: deadline ? new Date(deadline).toISOString() : incident.priorityDeadline,
-      timeline: [entry, ...incident.timeline],
-    });
+    persistFields(title, detail);
   }
 
   function handleApproveClose() {
-    onUpdate({
-      ...incident,
-      status: "CLOSED",
-      severity,
-      assignedTeam: assignTeam,
-      timeline: [
-        {
-          id: `tl-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          title: "SuperAdmin approved resolution — Closed",
-          actor: "SuperAdmin",
-        },
-        ...incident.timeline,
-      ],
+    approveClose.mutate(incident.id, {
+      onSuccess: () => {
+        toast.success("Resolution approved. Incident closed.");
+        onRefresh();
+        onClose();
+      },
     });
-    toast.success("Resolution approved. Incident closed.");
-    onClose();
   }
 
   function handleReject() {
@@ -145,32 +160,16 @@ function IncidentDetailDrawer({
       toast.error("Add rejection comments before reopening.");
       return;
     }
-    onUpdate({
-      ...incident,
-      status: "REOPENED",
-      notes: [
-        {
-          id: `n-${Date.now()}`,
-          author: "SuperAdmin",
-          team: "MARITIME-ETSS",
-          timestamp: new Date().toISOString(),
-          body: rejectComment.trim(),
+    rejectResolution.mutate(
+      { id: incident.id, payload: { comment: rejectComment.trim() } },
+      {
+        onSuccess: () => {
+          toast.success("Resolution rejected. Incident reopened.");
+          onRefresh();
+          onClose();
         },
-        ...incident.notes,
-      ],
-      timeline: [
-        {
-          id: `tl-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          title: "Resolution rejected — Reopened",
-          detail: rejectComment.trim(),
-          actor: "SuperAdmin",
-        },
-        ...incident.timeline,
-      ],
-    });
-    toast.success("Resolution rejected. Incident reopened.");
-    onClose();
+      },
+    );
   }
 
   return (
@@ -404,8 +403,12 @@ function IncidentDetailDrawer({
                 <button
                   type="button"
                   onClick={() => {
-                    addTimeline("Escalated to NPA / management");
-                    toast.success("Escalated to regulatory agency (NPA).");
+                    escalateIncident.mutate(incident.id, {
+                      onSuccess: () => {
+                        toast.success("Escalated to regulatory agency (NPA).");
+                        onRefresh();
+                      },
+                    });
                   }}
                   className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                 >
@@ -474,8 +477,7 @@ function IncidentDetailDrawer({
 
 export function IncidentReportsPage() {
   const isSuperAdmin = useAuthStore((s) => s.user?.is_super_admin ?? false);
-  const [incidents, setIncidents] = useState(MOCK_INCIDENT_REPORTS);
-  const [search, setSearch] = useState("");
+  const { search, debouncedSearch, setSearch } = useDebouncedSearch("");
   const [typeFilter, setTypeFilter] = useState<IncidentType | "All">("All");
   const [severityFilter, setSeverityFilter] = useState<IncidentSeverity | "All">("All");
   const [statusFilter, setStatusFilter] = useState<IncidentStatus | "All">("All");
@@ -483,27 +485,39 @@ export function IncidentReportsPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return incidents.filter((inc) => {
-      if (q && !inc.referenceId.toLowerCase().includes(q)) return false;
-      if (typeFilter !== "All" && inc.type !== typeFilter) return false;
-      if (severityFilter !== "All" && inc.severity !== severityFilter) return false;
-      if (statusFilter !== "All" && inc.status !== statusFilter) return false;
-      if (locationFilter !== "All" && inc.locationKind !== locationFilter) return false;
-      return true;
-    });
-  }, [incidents, search, typeFilter, severityFilter, statusFilter, locationFilter]);
+  const listParams = useMemo(
+    () => ({
+      search: debouncedSearch.trim() || undefined,
+      type: typeFilter,
+      severity: severityFilter,
+      status: statusFilter,
+      location_kind:
+        locationFilter === "All"
+          ? ("All" as const)
+          : (locationFilter as IncidentReport["locationKind"]),
+      limit: 100,
+    }),
+    [debouncedSearch, typeFilter, severityFilter, statusFilter, locationFilter],
+  );
 
-  const stats = useMemo(() => {
-    const openLike = incidents.filter((i) =>
-      ["OPEN", "ASSIGNED", "IN_PROGRESS", "REOPENED"].includes(i.status),
-    ).length;
-    const pending = incidents.filter((i) => i.status === "PENDING_SUPERADMIN_APPROVAL").length;
-    const resolved = incidents.filter((i) => i.status === "RESOLVED").length;
-    const closed = incidents.filter((i) => i.status === "CLOSED").length;
-    return { openLike, pending, resolved, closed, total: incidents.length };
-  }, [incidents]);
+  const {
+    data: listData,
+    isLoading,
+    isError,
+    refetch,
+  } = useIncidents(listParams, isSuperAdmin);
+  const { data: summaryData } = useIncidentsSummary(isSuperAdmin);
+
+  const incidents = listData?.data ?? [];
+  const filtered = incidents;
+
+  const stats = summaryData ?? {
+    openLike: 0,
+    pending: 0,
+    resolved: 0,
+    closed: 0,
+    total: listData?.meta.total ?? 0,
+  };
 
   const detail = incidents.find((i) => i.id === detailId);
 
@@ -532,6 +546,22 @@ export function IncidentReportsPage() {
           </span>
         </div>
       </div>
+
+      {isError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Failed to load incident reports.
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
@@ -639,7 +669,14 @@ export function IncidentReportsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filtered.length === 0 ? (
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-500" />
+                    <p className="mt-2 text-sm text-gray-400">Loading incident reports…</p>
+                  </td>
+                </tr>
+              ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-sm text-gray-400">
                     No incidents match your filters
@@ -680,7 +717,7 @@ export function IncidentReportsPage() {
         </div>
         <p className="flex items-center gap-1.5 border-t border-gray-100 px-4 py-3 text-[11px] text-gray-400">
           <MessageSquare className="h-3 w-3" />
-          Showing {filtered.length} of {stats.total} reported incidents (sample database)
+          Showing {filtered.length} of {stats.total} reported incidents
         </p>
       </div>
 
@@ -688,8 +725,8 @@ export function IncidentReportsPage() {
         <IncidentDetailDrawer
           incident={detail}
           onClose={() => setDetailId(null)}
-          onUpdate={(next) => {
-            setIncidents((list) => list.map((i) => (i.id === next.id ? next : i)));
+          onRefresh={() => {
+            refetch();
           }}
         />
       )}

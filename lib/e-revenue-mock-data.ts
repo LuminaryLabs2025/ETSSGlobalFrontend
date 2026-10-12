@@ -431,7 +431,7 @@ export function getModuleDisplayAmount(
 ): number {
   switch (module) {
     case "etss":
-      return txn.amountNgn;
+      return txn.etssShareNgn ?? txn.amountNgn;
     case "npa":
       return txn.npaShareNgn ?? 0;
     case "facilities":

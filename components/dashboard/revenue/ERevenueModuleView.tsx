@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertCircle,
   Anchor,
@@ -14,6 +14,7 @@ import {
   Eye,
   Filter,
   Gavel,
+  Loader2,
   ParkingCircle,
   Receipt,
   RefreshCw,
@@ -33,31 +34,34 @@ import {
   Tooltip,
 } from "recharts";
 import type {
-  DateRangePreset,
   ERevenueModule,
   PaymentMethod,
   PaymentSource,
   PaymentStatus,
+  RevenueSortField,
   RevenueTransaction,
+  RevenueTransactionsListParams,
 } from "@/types/e-revenue.types";
 import {
   breakdownBySourceEtss,
   buildPieSlices,
-  createSimulatedLiveTransaction,
   EREVENUE_MODULE_META,
-  filterTransactionsForModule,
   formatPaymentMethod,
   formatPaymentSource,
   formatPaymentStatus,
   getModuleDisplayAmount,
-  MOCK_REVENUE_TRANSACTIONS,
   PAYMENT_METHOD_OPTIONS,
   PAYMENT_SOURCE_OPTIONS,
   PAYMENT_STATUS_OPTIONS,
   serviceReferenceLabel,
 } from "@/lib/e-revenue-mock-data";
 import { ERevenueShell } from "@/components/dashboard/revenue/ERevenueShell";
+import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useRevenueExport } from "@/hooks/revenue/useRevenueExport";
 import { useRevenueLiveTick } from "@/hooks/revenue/useRevenueLiveTick";
+import { useRevenueBreakdown } from "@/hooks/revenue/useRevenueBreakdown";
+import { useRevenueSummary } from "@/hooks/revenue/useRevenueSummary";
+import { useRevenueTransactions } from "@/hooks/revenue/useRevenueTransactions";
 
 const ngn = new Intl.NumberFormat("en-NG", {
   style: "currency",
@@ -200,46 +204,6 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
   );
 }
 
-function startOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d);
-  x.setHours(23, 59, 59, 999);
-  return x;
-}
-
-function resolveDateRange(
-  preset: DateRangePreset,
-  customFrom: string,
-  customTo: string,
-): { from: Date; to: Date } | null {
-  const now = new Date();
-  if (preset === "DAILY") {
-    return { from: startOfDay(now), to: endOfDay(now) };
-  }
-  if (preset === "WEEKLY") {
-    const from = new Date(now);
-    from.setDate(from.getDate() - 7);
-    return { from: startOfDay(from), to: endOfDay(now) };
-  }
-  if (preset === "MONTHLY") {
-    const from = new Date(now);
-    from.setDate(from.getDate() - 30);
-    return { from: startOfDay(from), to: endOfDay(now) };
-  }
-  if (preset === "CUSTOM" && customFrom && customTo) {
-    return {
-      from: startOfDay(new Date(customFrom)),
-      to: endOfDay(new Date(customTo)),
-    };
-  }
-  return null;
-}
-
 function PaymentDetailDrawer({
   txn,
   module,
@@ -278,7 +242,13 @@ function PaymentDetailDrawer({
             label="Payment source"
             value={formatPaymentSource(txn.paymentSource)}
           />
-          <DetailRow label="Payer name / account" value={`${txn.payerName}${txn.payerAccount ? ` · ${txn.payerAccount}` : ""}`} />
+          <DetailRow
+            label="Payer"
+            value={
+              txn.payerDisplay
+              ?? `${txn.payerName}${txn.payerAccount ? ` · ${txn.payerAccount}` : ""}`
+            }
+          />
           <DetailRow label={meta.amountLabel} value={ngn.format(displayAmount)} />
           <DetailRow label="Gross amount (₦)" value={ngn.format(txn.amountNgn)} />
           <DetailRow label="Payment date & time" value={formatTimestamp(txn.paidAt)} />
@@ -336,6 +306,23 @@ type SortKey =
   | "status"
   | "payer";
 
+function sortKeyToApi(key: SortKey): RevenueSortField {
+  switch (key) {
+    case "paidAt":
+      return "transacted_at";
+    case "amount":
+      return "amount";
+    case "source":
+      return "source";
+    case "status":
+      return "status";
+    case "payer":
+      return "payer";
+    default:
+      return "transacted_at";
+  }
+}
+
 function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
   const headers = [
     "Transaction ID",
@@ -377,15 +364,12 @@ function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
 
 export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
   const meta = EREVENUE_MODULE_META[module];
-  const { tick, lastUpdated } = useRevenueLiveTick();
-  const [transactions, setTransactions] = useState(MOCK_REVENUE_TRANSACTIONS);
-  const [search, setSearch] = useState("");
+  const { lastUpdated } = useRevenueLiveTick();
+  const { search, debouncedSearch, setSearch } = useDebouncedSearch("");
+  const exportRevenue = useRevenueExport();
   const [sourceFilter, setSourceFilter] = useState<PaymentSource | "ALL">("ALL");
   const [methodFilter, setMethodFilter] = useState<PaymentMethod | "ALL">("ALL");
   const [statusFilter, setStatusFilter] = useState<PaymentStatus | "ALL">("ALL");
-  const [datePreset, setDatePreset] = useState<DateRangePreset>("MONTHLY");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
   const [amountMin, setAmountMin] = useState("");
   const [amountMax, setAmountMax] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("paidAt");
@@ -393,113 +377,84 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
   const [selected, setSelected] = useState<RevenueTransaction | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
-  useEffect(() => {
-    if (tick > 0 && tick % 2 === 0) {
-      setTransactions((prev) => {
-        const pendingIdx = prev.findIndex((t) => t.status === "PENDING");
-        if (pendingIdx >= 0) {
-          const next = [...prev];
-          next[pendingIdx] = {
-            ...next[pendingIdx],
-            status: "SUCCESSFUL",
-            paidAt: new Date().toISOString(),
-            npaShareNgn: Math.round(next[pendingIdx].amountNgn * 0.1),
-            towCompanyShareNgn: Math.round(next[pendingIdx].amountNgn * 0.72),
-            towCompanyName: "Apapa Recovery Services",
-          };
-          return next;
-        }
-        return [createSimulatedLiveTransaction(tick), ...prev];
-      });
-    }
-  }, [tick]);
-
-  const moduleBase = useMemo(
-    () => filterTransactionsForModule(module, transactions),
-    [module, transactions],
-  );
-
-  const filtered = useMemo(() => {
-    const range = resolveDateRange(datePreset, customFrom, customTo);
-    const q = search.trim().toLowerCase();
-    const min = amountMin ? Number(amountMin) : null;
-    const max = amountMax ? Number(amountMax) : null;
-
-    let list = moduleBase.filter((t) => {
-      if (sourceFilter !== "ALL" && t.paymentSource !== sourceFilter) return false;
-      if (methodFilter !== "ALL" && t.paymentMethod !== methodFilter) return false;
-      if (statusFilter !== "ALL" && t.status !== statusFilter) return false;
-      if (range) {
-        const paid = new Date(t.paidAt).getTime();
-        if (paid < range.from.getTime() || paid > range.to.getTime()) return false;
-      }
-      const displayAmt = getModuleDisplayAmount(module, t);
-      if (min != null && displayAmt < min) return false;
-      if (max != null && displayAmt > max) return false;
-      if (q) {
-        const hay = `${t.transactionId} ${t.serviceReference} ${t.payerName}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-
-    list = [...list].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "paidAt") {
-        cmp = new Date(a.paidAt).getTime() - new Date(b.paidAt).getTime();
-      } else if (sortKey === "amount") {
-        cmp = getModuleDisplayAmount(module, a) - getModuleDisplayAmount(module, b);
-      } else if (sortKey === "source") {
-        cmp = a.paymentSource.localeCompare(b.paymentSource);
-      } else if (sortKey === "status") {
-        cmp = a.status.localeCompare(b.status);
-      } else if (sortKey === "payer") {
-        cmp = a.payerName.localeCompare(b.payerName);
-      }
-      return sortDesc ? -cmp : cmp;
-    });
-
-    return list;
+  const listParams = useMemo((): RevenueTransactionsListParams => {
+    const params: RevenueTransactionsListParams = {
+      module,
+      page: 1,
+      limit: 20,
+      search: debouncedSearch.trim() || undefined,
+      payment_source: sourceFilter,
+      payment_method: methodFilter,
+      status: statusFilter,
+      sort_by: sortKeyToApi(sortKey),
+      sort_dir: sortDesc ? "desc" : "asc",
+    };
+    if (amountMin) params.amount_min = Number(amountMin);
+    if (amountMax) params.amount_max = Number(amountMax);
+    return params;
   }, [
-    moduleBase,
     module,
-    search,
+    debouncedSearch,
     sourceFilter,
     methodFilter,
     statusFilter,
-    datePreset,
-    customFrom,
-    customTo,
     amountMin,
     amountMax,
     sortKey,
     sortDesc,
   ]);
 
-  const pieData = useMemo(
-    () => buildPieSlices(module, filtered),
-    [module, filtered],
-  );
+  const summaryParams = useMemo(() => {
+    const { page: _p, limit: _l, ...rest } = listParams;
+    return rest;
+  }, [listParams]);
+
+  const {
+    data: listData,
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useRevenueTransactions(listParams);
+  const { data: apiSummary } = useRevenueSummary(summaryParams);
+  const { data: apiBreakdown } = useRevenueBreakdown(summaryParams);
+
+  const filtered = listData?.data ?? [];
+  const moduleTotal = listData?.meta.module_total ?? listData?.meta.total ?? 0;
+
+  const pieData = useMemo(() => {
+    if (apiBreakdown?.pieSlices?.length) return apiBreakdown.pieSlices;
+    if (apiSummary?.pieSlices?.length) return apiSummary.pieSlices;
+    return buildPieSlices(module, filtered);
+  }, [apiBreakdown?.pieSlices, apiSummary?.pieSlices, module, filtered]);
   const pieTotal = pieData.reduce((s, d) => s + d.value, 0);
 
   const successfulFiltered = filtered.filter((t) => t.status === "SUCCESSFUL");
-  const totalRevenue = successfulFiltered.reduce(
-    (s, t) => s + getModuleDisplayAmount(module, t),
-    0,
-  );
+  const totalRevenue =
+    apiSummary?.totalRevenue
+    ?? successfulFiltered.reduce(
+      (s, t) => s + getModuleDisplayAmount(module, t),
+      0,
+    );
 
   const summaryCards = useMemo((): SummaryKpi[] => {
-    const pending = filtered.filter((t) => t.status === "PENDING").length;
-    const failed = filtered.filter((t) => t.status === "FAILED").length;
+    const pending =
+      apiSummary?.pendingCount ?? filtered.filter((t) => t.status === "PENDING").length;
+    const failed =
+      apiSummary?.failedCount ?? filtered.filter((t) => t.status === "FAILED").length;
+    const transactionCount = apiSummary?.transactionCount ?? filtered.length;
 
     const sumSuccessful = (
       pick: (t: RevenueTransaction) => number,
     ) => successfulFiltered.reduce((s, t) => s + pick(t), 0);
 
+    const apiSourceAmount = (src: PaymentSource) =>
+      apiSummary?.breakdown?.find((b) => b.source === src)?.total;
+
     if (module === "etss") {
       const bd = breakdownBySourceEtss(filtered);
       const amt = (src: PaymentSource) =>
-        bd.find((b) => b.source === src)?.total ?? 0;
+        apiSourceAmount(src) ?? bd.find((b) => b.source === src)?.total ?? 0;
       return [
         {
           label: "Total revenue",
@@ -510,7 +465,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         },
         {
           label: "Transactions",
-          value: filtered.length,
+          value: transactionCount,
           color: "text-blue-400",
           bg: "bg-blue-400/10",
           Icon: Receipt,
@@ -571,7 +526,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         },
         {
           label: "Transactions",
-          value: filtered.length,
+          value: transactionCount,
           color: "text-blue-400",
           bg: "bg-blue-400/10",
           Icon: Receipt,
@@ -632,7 +587,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         },
         {
           label: "Transactions",
-          value: filtered.length,
+          value: transactionCount,
           color: "text-blue-400",
           bg: "bg-blue-400/10",
           Icon: Receipt,
@@ -680,7 +635,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         },
         {
           label: "Transactions",
-          value: filtered.length,
+          value: transactionCount,
           color: "text-blue-400",
           bg: "bg-blue-400/10",
           Icon: Receipt,
@@ -731,7 +686,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
       },
       {
         label: "Tow transactions",
-        value: filtered.length,
+        value: transactionCount,
         color: "text-blue-400",
         bg: "bg-blue-400/10",
         Icon: Receipt,
@@ -751,7 +706,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         Icon: AlertCircle,
       },
     ];
-  }, [module, filtered, successfulFiltered, totalRevenue]);
+  }, [module, filtered, successfulFiltered, totalRevenue, apiSummary]);
 
   const summaryGridClass =
     module === "etss"
@@ -773,7 +728,6 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     || sourceFilter !== "ALL"
     || methodFilter !== "ALL"
     || statusFilter !== "ALL"
-    || datePreset !== "MONTHLY"
     || amountMin !== ""
     || amountMax !== "";
 
@@ -782,9 +736,6 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     setSourceFilter("ALL");
     setMethodFilter("ALL");
     setStatusFilter("ALL");
-    setDatePreset("MONTHLY");
-    setCustomFrom("");
-    setCustomTo("");
     setAmountMin("");
     setAmountMax("");
   }
@@ -816,13 +767,31 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     );
   }
 
-  const moduleTotal = moduleBase.length;
-
   return (
     <ERevenueShell title={meta.title} subtitle={meta.subtitle}>
+      {isError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Failed to load e-Revenue data.
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       <ERevenueSummaryPanel
         title={`${meta.title} — at a glance`}
-        subtitle="Revenue totals update with your filters and refresh in near real time"
+        subtitle={
+          isFetching && !isLoading
+            ? "Refreshing revenue data…"
+            : "Revenue totals update with your filters and refresh in near real time"
+        }
         lastUpdated={lastUpdated}
         cards={summaryCards}
         gridClassName={summaryGridClass}
@@ -933,7 +902,12 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
             </button>
             <button
               type="button"
-              onClick={() => exportCsv(filtered, module)}
+                onClick={() => {
+                  if (exportRevenue.isPending) return;
+                  exportRevenue.mutate(listParams, {
+                    onError: () => exportCsv(filtered, module),
+                  });
+                }}
               className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
             >
               <Download className="h-4 w-4" />
@@ -999,49 +973,6 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
               </div>
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                  Date range
-                </label>
-                <select
-                  value={datePreset}
-                  onChange={(e) =>
-                    setDatePreset(e.target.value as DateRangePreset)
-                  }
-                  className="rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300"
-                >
-                  <option value="DAILY">Daily</option>
-                  <option value="WEEKLY">Weekly</option>
-                  <option value="MONTHLY">Monthly</option>
-                  <option value="CUSTOM">Custom</option>
-                </select>
-              </div>
-              {datePreset === "CUSTOM" && (
-                <>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                      From
-                    </label>
-                    <input
-                      type="date"
-                      value={customFrom}
-                      onChange={(e) => setCustomFrom(e.target.value)}
-                      className="rounded-lg border border-gray-200 py-1.5 pl-3 text-xs outline-none focus:border-emerald-300"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                      To
-                    </label>
-                    <input
-                      type="date"
-                      value={customTo}
-                      onChange={(e) => setCustomTo(e.target.value)}
-                      className="rounded-lg border border-gray-200 py-1.5 pl-3 text-xs outline-none focus:border-emerald-300"
-                    />
-                  </div>
-                </>
-              )}
-              <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   Amount min (₦)
                 </label>
                 <input
@@ -1103,8 +1034,15 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.length === 0 ? (
+                <tbody className="divide-y divide-gray-100">
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={10} className="px-4 py-12 text-center">
+                        <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-500" />
+                        <p className="mt-2 text-sm text-gray-400">Loading transactions…</p>
+                      </td>
+                    </tr>
+                  ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center">
                     <Wallet className="mx-auto h-8 w-8 text-gray-300" />
@@ -1192,7 +1130,6 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
         <p className="flex items-center gap-1.5 border-t border-gray-100 px-4 py-3 text-[11px] text-gray-400">
           <Receipt className="h-3 w-3" />
           Showing {filtered.length} of {moduleTotal} transactions in this module
-          (sample database)
         </p>
       </div>
 
