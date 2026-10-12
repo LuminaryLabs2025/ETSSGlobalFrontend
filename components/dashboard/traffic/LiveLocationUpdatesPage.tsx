@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react";
 import {
+  AlertCircle,
   AlertTriangle,
   Clock,
   DoorOpen,
+  Loader2,
   MapPin,
   Minus,
   Plus,
@@ -17,37 +19,53 @@ import {
   type TrafficSummaryKpi,
 } from "@/components/dashboard/traffic/TrafficSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
-import {
-  TRAFFIC_MAP_LOCATIONS,
-  type MapFacilityKind,
-  type MapParkType,
-  type TrafficMapLocation,
-} from "@/lib/traffic-command-mock-data";
+import { useTrafficLocations } from "@/hooks/traffic/useTrafficLocations";
+import type {
+  LocationKind,
+  TrafficLocationsParams,
+  TrafficMapLocation,
+} from "@/types/traffic.types";
 
-const KIND_COLORS: Record<MapFacilityKind, { dot: string; label: string }> = {
+const DEFAULT_KIND_STYLE = { dot: "bg-slate-500", label: "Site" };
+
+const KIND_COLORS: Record<LocationKind, { dot: string; label: string }> = {
   FACILITY: { dot: "bg-blue-500", label: "Facility" },
   FACILITY_PREGATE: { dot: "bg-emerald-500", label: "Facility-Pregate" },
-  TRANSIT_PARK: { dot: "bg-orange-500", label: "Transit Park" },
+  PREGATE: { dot: "bg-orange-500", label: "Pregate" },
+  EPT: { dot: "bg-violet-500", label: "EPT" },
+  TERMINAL: { dot: "bg-slate-700", label: "Terminal" },
+  TRANSIT_PARK: { dot: "bg-teal-500", label: "Transit Park" },
 };
 
-const PARK_TYPE_FILTERS: Array<MapParkType | "All"> = [
-  "All",
-  "Bonded Terminal",
-  "Truck Park",
-  "EPT",
-  "Pregate-Empty",
-  "Pregate-Mixed",
+function kindStyle(kind: LocationKind) {
+  return KIND_COLORS[kind] ?? DEFAULT_KIND_STYLE;
+}
+
+const PARK_TYPE_FILTERS: { value: string; label: string }[] = [
+  { value: "All", label: "All park types" },
+  { value: "BONDED_TERMINAL", label: "Bonded Terminal" },
+  { value: "TRUCK_PARK", label: "Truck Park" },
+  { value: "FISH_VAN_PARK", label: "Fish-Van Park" },
+  { value: "PREGATE", label: "Pregate" },
+  { value: "EPT", label: "EPT" },
+  { value: "PORT_TERMINAL", label: "Port Terminal" },
+  { value: "NON_PORT_TERMINAL", label: "Non-Port Terminal" },
 ];
 
-const KIND_FILTERS: Array<MapFacilityKind | "All"> = [
-  "All",
-  "FACILITY",
-  "FACILITY_PREGATE",
-  "TRANSIT_PARK",
+const KIND_FILTERS: { value: LocationKind | "All"; label: string }[] = [
+  { value: "All", label: "All types" },
+  { value: "FACILITY", label: "Facility" },
+  { value: "FACILITY_PREGATE", label: "Facility-Pregate" },
+  { value: "PREGATE", label: "Pregate" },
+  { value: "EPT", label: "EPT" },
+  { value: "TERMINAL", label: "Terminal" },
 ];
 
 function LocationDetailCard({ loc }: { loc: TrafficMapLocation }) {
-  const kind = KIND_COLORS[loc.facilityKind];
+  const kind = kindStyle(loc.facilityKind);
+  const tatDisplay =
+    loc.hourlyTatLabel
+    ?? (loc.hourlyTatMinutes != null ? `${loc.hourlyTatMinutes} min avg` : "—");
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
       <div className="flex items-start justify-between gap-2">
@@ -69,11 +87,20 @@ function LocationDetailCard({ loc }: { loc: TrafficMapLocation }) {
         </div>
         <div className="flex justify-between gap-2">
           <dt className="text-gray-500">Facility Type</dt>
-          <dd className="font-medium text-gray-800">{kind.label}</dd>
+          <dd className="font-medium text-gray-800">{loc.kindLabel || kind.label}</dd>
         </div>
+        {loc.trucksOnSite != null && (
+          <div className="flex justify-between gap-2">
+            <dt className="text-gray-500">Trucks on site</dt>
+            <dd className="font-medium text-gray-800">
+              {loc.trucksOnSite}
+              {loc.capacity != null ? ` / ${loc.capacity}` : ""}
+            </dd>
+          </div>
+        )}
         <div className="flex justify-between gap-2">
-          <dt className="text-gray-500">Hourly TAT</dt>
-          <dd className="font-medium text-gray-800">{loc.hourlyTatMinutes} min avg</dd>
+          <dt className="text-gray-500">ATAT</dt>
+          <dd className="font-medium text-gray-800">{tatDisplay}</dd>
         </div>
       </dl>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -96,93 +123,97 @@ function LocationDetailCard({ loc }: { loc: TrafficMapLocation }) {
 
 export function LiveLocationUpdatesPage() {
   const { lastUpdated } = useTrafficLiveTick();
-  const [kindFilter, setKindFilter] = useState<MapFacilityKind | "All">("All");
-  const [parkFilter, setParkFilter] = useState<MapParkType | "All">("All");
-  const [selectedId, setSelectedId] = useState<string | null>(TRAFFIC_MAP_LOCATIONS[0]?.id ?? null);
+  const [kindFilter, setKindFilter] = useState<LocationKind | "All">("All");
+  const [parkFilter, setParkFilter] = useState<string>("All");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
-  const filtered = useMemo(
-    () =>
-      TRAFFIC_MAP_LOCATIONS.filter((loc) => {
-        if (kindFilter !== "All" && loc.facilityKind !== kindFilter) return false;
-        if (parkFilter !== "All" && loc.parkType !== parkFilter) return false;
-        return true;
-      }),
-    [kindFilter, parkFilter],
-  );
+  const locationParams = useMemo((): TrafficLocationsParams => ({
+    kind: kindFilter === "All" ? "ALL" : kindFilter,
+    park_type: parkFilter === "All" ? "ALL" : parkFilter,
+  }), [kindFilter, parkFilter]);
 
-  const selected = filtered.find((l) => l.id === selectedId) ?? filtered[0];
+  const { data, isLoading, isError, refetch, isFetching } =
+    useTrafficLocations(locationParams);
+
+  const filtered = data?.locations ?? [];
+  const summary = data?.summary;
+
+  const selected =
+    filtered.find((l) => l.id === selectedId) ?? filtered[0] ?? null;
 
   const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
-    const all = TRAFFIC_MAP_LOCATIONS;
-    const online = all.filter((l) => l.online).length;
-    const offline = all.length - online;
-    const facilities = all.filter((l) => l.facilityKind === "FACILITY").length;
-    const pregates = all.filter((l) => l.facilityKind === "FACILITY_PREGATE").length;
-    const parks = all.filter((l) => l.facilityKind === "TRANSIT_PARK").length;
-    const avgTat = Math.round(
-      all.reduce((s, l) => s + l.hourlyTatMinutes, 0) / Math.max(all.length, 1),
-    );
+    if (!summary) return [];
     return [
       {
         label: "Locations on map",
-        value: all.length,
+        value: summary.totalLocations,
         color: "text-blue-400",
         bg: "bg-blue-400/10",
         Icon: MapPin,
       },
       {
         label: "Visible (filtered)",
-        value: filtered.length,
+        value: summary.visibleCount,
         color: "text-emerald-400",
         bg: "bg-emerald-400/10",
         Icon: Radio,
       },
       {
         label: "Online",
-        value: online,
+        value: summary.onlineCount,
         color: "text-cyan-400",
         bg: "bg-cyan-400/10",
         Icon: Warehouse,
       },
       {
         label: "Offline / inactive",
-        value: offline,
+        value: summary.offlineCount,
         color: "text-amber-400",
         bg: "bg-amber-400/10",
         Icon: AlertTriangle,
       },
       {
         label: "Facilities",
-        value: facilities,
+        value: summary.facilitiesCount,
         color: "text-violet-400",
         bg: "bg-violet-400/10",
         Icon: Warehouse,
       },
       {
         label: "Facility pregates",
-        value: pregates,
+        value: summary.facilityPregatesCount,
         color: "text-orange-400",
         bg: "bg-orange-400/10",
         Icon: DoorOpen,
       },
       {
-        label: "Transit parks",
-        value: parks,
+        label: "Pregates / EPT",
+        value: summary.pregatesCount + summary.eptCount,
         color: "text-teal-400",
         bg: "bg-teal-400/10",
         Icon: MapPin,
       },
       {
-        label: "Avg hourly TAT",
-        value: `${avgTat} min`,
+        label: "Terminals",
+        value: summary.terminalsCount,
+        color: "text-slate-400",
+        bg: "bg-slate-400/10",
+        Icon: Warehouse,
+      },
+      {
+        label: "Avg ATAT",
+        value:
+          summary.avgHourlyTatMinutes != null
+            ? `${summary.avgHourlyTatMinutes} min`
+            : "—",
         color: "text-gray-400",
         bg: "bg-gray-400/10",
         Icon: Clock,
       },
     ];
-  }, [filtered.length]);
+  }, [summary]);
 
   return (
     <TrafficCommandShell
@@ -191,11 +222,31 @@ export function LiveLocationUpdatesPage() {
     >
       <TrafficSummaryPanel
         title="Live location updates — at a glance"
-        subtitle="Map metrics reflect network-wide locations; visible count follows your filters"
+        subtitle={
+          isFetching && !isLoading
+            ? "Refreshing location feed…"
+            : "Map metrics from the traffic command API"
+        }
         lastUpdated={lastUpdated}
         cards={summaryCards}
         gridClassName="grid-cols-2 sm:grid-cols-4 xl:grid-cols-4"
       />
+
+      {isError && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" />
+            Failed to load live locations.
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-semibold"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 rounded-xl border border-gray-200 bg-white p-4">
         <div>
@@ -204,12 +255,12 @@ export function LiveLocationUpdatesPage() {
           </label>
           <select
             value={kindFilter}
-            onChange={(e) => setKindFilter(e.target.value as MapFacilityKind | "All")}
+            onChange={(e) => setKindFilter(e.target.value as LocationKind | "All")}
             className="rounded-lg border border-gray-200 px-3 py-2 text-xs"
           >
             {KIND_FILTERS.map((k) => (
-              <option key={k} value={k}>
-                {k === "All" ? "All types" : KIND_COLORS[k as MapFacilityKind].label}
+              <option key={k.value} value={k.value}>
+                {k.label}
               </option>
             ))}
           </select>
@@ -220,12 +271,12 @@ export function LiveLocationUpdatesPage() {
           </label>
           <select
             value={parkFilter}
-            onChange={(e) => setParkFilter(e.target.value as MapParkType | "All")}
+            onChange={(e) => setParkFilter(e.target.value)}
             className="rounded-lg border border-gray-200 px-3 py-2 text-xs"
           >
             {PARK_TYPE_FILTERS.map((p) => (
-              <option key={p} value={p}>
-                {p === "All" ? "All park types" : p}
+              <option key={p.value} value={p.value}>
+                {p.label}
               </option>
             ))}
           </select>
@@ -251,6 +302,13 @@ export function LiveLocationUpdatesPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_320px]">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-gray-200 bg-white py-24">
+            <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
+            <p className="mt-2 text-sm text-gray-400">Loading map locations…</p>
+          </div>
+        ) : (
+          <>
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-[#e8eef4]">
           <div
             className="relative h-[420px] w-full cursor-grab active:cursor-grabbing sm:h-[520px]"
@@ -282,7 +340,7 @@ export function LiveLocationUpdatesPage() {
                 Lagos Maritime Corridor
               </p>
               {filtered.map((loc) => {
-                const kind = KIND_COLORS[loc.facilityKind];
+                const kind = kindStyle(loc.facilityKind);
                 const isSelected = loc.id === selected?.id;
                 return (
                   <button
@@ -350,6 +408,8 @@ export function LiveLocationUpdatesPage() {
             </ul>
           </div>
         </div>
+          </>
+        )}
       </div>
     </TrafficCommandShell>
   );

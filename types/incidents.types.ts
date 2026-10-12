@@ -90,3 +90,50 @@ export interface IncidentReport {
   priorityDeadline?: string;
   paymentReference?: string;
 }
+
+export interface IncidentsListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  type?: IncidentType | "All";
+  severity?: IncidentSeverity | "All";
+  status?: IncidentStatus | "All";
+  location_kind?: IncidentLocationKind | "All";
+}
+
+export interface IncidentsListResponse {
+  data: IncidentReport[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+  };
+}
+
+export interface IncidentsSummaryResponse {
+  openLike: number;
+  pending: number;
+  resolved: number;
+  closed: number;
+  total: number;
+}
+
+export interface UpdateIncidentPayload {
+  severity?: IncidentSeverity;
+  assigned_team?: string;
+  assigned_user?: string;
+  priority_deadline?: string;
+  status?: IncidentStatus;
+  timeline_title?: string;
+  timeline_detail?: string;
+}
+
+export interface IncidentRejectPayload {
+  comment: string;
+}
+
+export interface IncidentActionResponse {
+  message?: string;
+  data: IncidentReport;
+}

@@ -1,14 +1,27 @@
-export type TrafficStatusCardKey = "ON_TRIP" | "LEFT_FACILITY" | "LEFT_PREGATE" | "IN_TERMINAL";
+import type {
+  CancelledBookingRecord,
+  EmergencyTruckRequest,
+  EmergencyType,
+  LiveTruckMovement,
+  MapFacilityKind,
+  MapParkType,
+  TrafficMapLocation,
+  TrafficStatusCardConfig,
+  TrafficStatusCardKey,
+  TruckMovementRoute,
+} from "@/types/traffic.types";
 
-export interface TrafficStatusCardConfig {
-  key: TrafficStatusCardKey;
-  label: string;
-  shortLabel: string;
-  color: string;
-  bg: string;
-  border: string;
-  baseCount: number;
-}
+export type {
+  CancelledBookingRecord,
+  EmergencyTruckRequest,
+  EmergencyType,
+  LiveTruckMovement,
+  MapFacilityKind,
+  MapParkType,
+  TrafficMapLocation,
+  TrafficStatusCardKey,
+  TruckMovementRoute,
+};
 
 export const TRAFFIC_STATUS_CARDS: TrafficStatusCardConfig[] = [
   {
@@ -48,24 +61,6 @@ export const TRAFFIC_STATUS_CARDS: TrafficStatusCardConfig[] = [
     baseCount: 96,
   },
 ];
-
-export type TruckMovementRoute =
-  | "FACILITY_TO_TRANSIT_PARK"
-  | "TRANSIT_PARK_TO_TERMINAL"
-  | "IN_FACILITY"
-  | "IN_TRANSIT"
-  | "IN_TERMINAL";
-
-export interface LiveTruckMovement {
-  id: string;
-  plateNumber: string;
-  driverName: string;
-  currentLocation: string;
-  destination: string;
-  status: string;
-  routeLabel: string;
-  routeGroup: TruckMovementRoute;
-}
 
 export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
   {
@@ -149,35 +144,6 @@ export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
     routeGroup: "IN_TRANSIT",
   },
 ];
-
-export type MapFacilityKind = "FACILITY" | "FACILITY_PREGATE" | "TRANSIT_PARK";
-
-export type MapParkType =
-  | "Bonded Terminal"
-  | "Truck Park"
-  | "EPT"
-  | "Pregate-Empty"
-  | "Pregate-Mixed";
-
-export interface MapBarrierInfo {
-  id: string;
-  status: "OPEN" | "CLOSED" | "INACTIVE";
-  taggedPerHour: number;
-}
-
-export interface TrafficMapLocation {
-  id: string;
-  name: string;
-  parkId: string;
-  parkType: MapParkType;
-  facilityKind: MapFacilityKind;
-  mapX: number;
-  mapY: number;
-  hourlyTatMinutes: number;
-  online: boolean;
-  entryBarrier: MapBarrierInfo;
-  exitBarrier: MapBarrierInfo;
-}
 
 export const TRAFFIC_MAP_LOCATIONS: TrafficMapLocation[] = [
   {
@@ -322,19 +288,6 @@ export const OCC_TERMINAL_DOWNTIME = [
   { terminal: "Lekki Port", minutes: 5, reason: "Gate maintenance" },
 ];
 
-export type EmergencyType = "TOW_TRUCK" | "BREAKDOWN" | "ACCIDENT";
-
-export interface EmergencyTruckRequest {
-  id: string;
-  driverName: string;
-  driverId: string;
-  plateNumber: string;
-  emergencyType: EmergencyType;
-  timestamp: string;
-  currentLocation: string;
-  active: boolean;
-}
-
 export const OCC_EMERGENCY_REQUESTS: EmergencyTruckRequest[] = [
   {
     id: "em-1",
@@ -367,16 +320,6 @@ export const OCC_EMERGENCY_REQUESTS: EmergencyTruckRequest[] = [
     active: false,
   },
 ];
-
-export interface CancelledBookingRecord {
-  id: string;
-  bookingId: string;
-  plateNumber: string;
-  driverName: string;
-  category: string;
-  reason: string;
-  cancelledAt: string;
-}
 
 export const OCC_CANCELLED_BOOKINGS: CancelledBookingRecord[] = [
   {

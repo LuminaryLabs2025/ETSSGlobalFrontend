@@ -311,3 +311,42 @@ export const ACTIVITY_LOG = {
   BY_ID: (id: string) => `/activity-logs/${id}`,
   EXPORT: "/activity-logs/export",
 } as const;
+
+// ─── e-Revenue (SuperAdmin) ───
+// Module path segment: etss | npa | facilities | transit | tow
+export const REVENUE = {
+  /** All-time successful revenue (platform-wide). */
+  TOTAL: "/e-revenue/total",
+  /** Fee schedule: amounts, payer, and recipient split per payment type. */
+  FEE_SCHEDULE: "/e-revenue/fee-schedule",
+  SUMMARY: (module: string) => `/e-revenue/${module}/summary`,
+  BREAKDOWN: (module: string) => `/e-revenue/${module}/breakdown`,
+  TRANSACTIONS: (module: string) => `/e-revenue/${module}/transactions`,
+  TRANSACTION_BY_ID: (module: string, id: string) =>
+    `/e-revenue/${module}/transactions/${id}`,
+  EXPORT: (module: string) => `/e-revenue/${module}/export`,
+} as const;
+
+// ─── Incident Reports (SuperAdmin) ───
+export const INCIDENTS = {
+  LIST: "/incidents",
+  SUMMARY: "/incidents/summary",
+  BY_ID: (id: string) => `/incidents/${id}`,
+  UPDATE: (id: string) => `/incidents/${id}`,
+  APPROVE_CLOSE: (id: string) => `/incidents/${id}/approve-close`,
+  REJECT_RESOLUTION: (id: string) => `/incidents/${id}/reject-resolution`,
+  ESCALATE: (id: string) => `/incidents/${id}/escalate`,
+} as const;
+
+// ─── Traffic Command (SuperAdmin) ───
+// Paths are relative to NEXT_PUBLIC_API_URL (e.g. …/api → …/api/traffic-command/locations)
+export const TRAFFIC = {
+  LIVE_TRUCKS: "/traffic-command/live-trucks",
+  LOCATIONS: "/traffic-command/locations",
+  OCC_OVERVIEW: "/traffic-command/occ/overview",
+  OCC_EMERGENCIES: "/traffic-command/occ/emergencies",
+  OCC_CANCELLED_BOOKINGS: "/traffic-command/occ/cancelled-bookings",
+  OCC_CANCELLED_BOOKINGS_EXPORT: "/traffic-command/occ/cancelled-bookings/export",
+  DISPATCH_COMMAND: (actionSlug: string) =>
+    `/traffic-command/occ/command-actions/${actionSlug}/dispatch`,
+} as const;
