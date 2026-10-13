@@ -7,7 +7,12 @@ export type PaymentSource =
   | "TOW_TRUCK_REQUEST"
   | "DEMURRAGE";
 
-export type PaymentMethod = "CARD" | "BANK_TRANSFER" | "WALLET" | "PAYSTACK";
+export type PaymentMethod =
+  | "CARD"
+  | "BANK_TRANSFER"
+  | "WALLET"
+  | "PAYSTACK"
+  | "USSD";
 
 export type PaymentStatus = "SUCCESSFUL" | "PENDING" | "FAILED";
 

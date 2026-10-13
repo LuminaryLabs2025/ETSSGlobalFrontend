@@ -34,6 +34,7 @@ export const PAYMENT_METHOD_OPTIONS: { value: PaymentMethod | "ALL"; label: stri
   { value: "CARD", label: "Card" },
   { value: "BANK_TRANSFER", label: "Bank transfer" },
   { value: "WALLET", label: "Wallet" },
+  { value: "USSD", label: "USSD" },
 ];
 
 export const PAYMENT_STATUS_OPTIONS: { value: PaymentStatus | "ALL"; label: string }[] = [
@@ -60,6 +61,7 @@ export function formatPaymentMethod(method: PaymentMethod): string {
     CARD: "Card",
     BANK_TRANSFER: "Bank transfer",
     WALLET: "Wallet",
+    USSD: "USSD",
   };
   return map[method];
 }

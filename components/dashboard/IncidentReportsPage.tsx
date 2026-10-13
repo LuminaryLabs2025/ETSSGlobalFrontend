@@ -22,6 +22,7 @@ import { SuperAdminGate } from "@/components/dashboard/book-assist/BookAssistUi"
 import {
   formatIncidentSeverity,
   formatIncidentStatus,
+  formatIncidentStatusBadge,
   formatIncidentType,
   formatLocationKind,
   INCIDENT_ASSIGNTEAMS,
@@ -82,9 +83,19 @@ function StatusBadge({ status }: { status: IncidentStatus }) {
     REJECTED_BY_SUPERADMIN: "bg-orange-50 text-orange-800 border-orange-200",
     REOPENED: "bg-rose-50 text-rose-800 border-rose-200",
   };
+  const showSignOffIcon = status === "PENDING_SUPERADMIN_APPROVAL";
+  const fullLabel = formatIncidentStatus(status);
+  const badgeLabel = formatIncidentStatusBadge(status);
+
   return (
-    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium ${map[status] ?? "bg-gray-50 text-gray-600"}`}>
-      {formatIncidentStatus(status)}
+    <span
+      title={badgeLabel !== fullLabel ? fullLabel : undefined}
+      className={`inline-flex max-w-full items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${map[status] ?? "bg-gray-50 text-gray-600"}`}
+    >
+      {showSignOffIcon && (
+        <Shield className="h-3 w-3 shrink-0 opacity-90" aria-hidden />
+      )}
+      {badgeLabel}
     </span>
   );
 }
