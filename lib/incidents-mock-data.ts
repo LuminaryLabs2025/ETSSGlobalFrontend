@@ -23,14 +23,27 @@ export const INCIDENT_SEVERITY_OPTIONS: IncidentSeverity[] = [
   "CRITICAL",
 ];
 
-export const INCIDENT_STATUS_OPTIONS: { value: IncidentStatus; label: string }[] = [
+export const INCIDENT_STATUS_OPTIONS: {
+  value: IncidentStatus;
+  label: string;
+  /** Shorter copy for table badges and chips */
+  badgeLabel?: string;
+}[] = [
   { value: "OPEN", label: "Open" },
   { value: "ASSIGNED", label: "Assigned" },
   { value: "IN_PROGRESS", label: "In Progress" },
   { value: "RESOLVED", label: "Resolved" },
-  { value: "PENDING_SUPERADMIN_APPROVAL", label: "Pending SuperAdmin Approval" },
+  {
+    value: "PENDING_SUPERADMIN_APPROVAL",
+    label: "Pending super admin approval",
+    badgeLabel: "Awaiting sign-off",
+  },
   { value: "CLOSED", label: "Closed" },
-  { value: "REJECTED_BY_SUPERADMIN", label: "Rejected by SuperAdmin" },
+  {
+    value: "REJECTED_BY_SUPERADMIN",
+    label: "Rejected by super admin",
+    badgeLabel: "Resolution rejected",
+  },
   { value: "REOPENED", label: "Reopened" },
 ];
 
@@ -55,6 +68,11 @@ export function formatIncidentType(type: IncidentType): string {
 
 export function formatIncidentStatus(status: IncidentStatus): string {
   return INCIDENT_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
+}
+
+export function formatIncidentStatusBadge(status: IncidentStatus): string {
+  const option = INCIDENT_STATUS_OPTIONS.find((o) => o.value === status);
+  return option?.badgeLabel ?? option?.label ?? status;
 }
 
 export function formatIncidentSeverity(severity: IncidentSeverity): string {
