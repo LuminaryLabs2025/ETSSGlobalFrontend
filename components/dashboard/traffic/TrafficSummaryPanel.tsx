@@ -2,6 +2,7 @@
 
 import { RefreshCw, Shield, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 export type TrafficSummaryKpi = {
   label: string;
@@ -18,6 +19,7 @@ export function TrafficSummaryPanel({
   cards,
   gridClassName,
   aiPowered,
+  footer,
 }: {
   title: string;
   subtitle: string;
@@ -25,6 +27,7 @@ export function TrafficSummaryPanel({
   cards: TrafficSummaryKpi[];
   gridClassName: string;
   aiPowered?: boolean;
+  footer?: ReactNode;
 }) {
   const lastRefresh = lastUpdated.toLocaleString("en-NG", {
     day: "2-digit",
@@ -92,6 +95,7 @@ export function TrafficSummaryPanel({
           </div>
         ))}
       </div>
+      {footer ? <div className="mt-3">{footer}</div> : null}
     </div>
   );
 }

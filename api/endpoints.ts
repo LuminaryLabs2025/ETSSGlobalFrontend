@@ -332,10 +332,19 @@ export const INCIDENTS = {
   LIST: "/incidents",
   SUMMARY: "/incidents/summary",
   BY_ID: (id: string) => `/incidents/${id}`,
-  UPDATE: (id: string) => `/incidents/${id}`,
-  APPROVE_CLOSE: (id: string) => `/incidents/${id}/approve-close`,
-  REJECT_RESOLUTION: (id: string) => `/incidents/${id}/reject-resolution`,
+  ASSIGNEE_COMPANIES: "/incidents/assignees/companies",
+  ASSIGNEE_USERS: "/incidents/assignees/users",
+  ASSIGN: (id: string) => `/incidents/${id}/assign`,
+  SEVERITY: (id: string) => `/incidents/${id}/severity`,
+  DEADLINE: (id: string) => `/incidents/${id}/deadline`,
+  COMMENTS: (id: string) => `/incidents/${id}/comments`,
   ESCALATE: (id: string) => `/incidents/${id}/escalate`,
+  REQUEST_EVIDENCE: (id: string) => `/incidents/${id}/request-evidence`,
+  EMERGENCY_RESPONSE: (id: string) => `/incidents/${id}/emergency-response`,
+  APPROVE_RESOLUTION: (id: string) => `/incidents/${id}/approve-resolution`,
+  REJECT_RESOLUTION: (id: string) => `/incidents/${id}/reject-resolution`,
+  RESOLVE: (id: string) => `/incidents/${id}/resolve`,
+  REOPEN: (id: string) => `/incidents/${id}/reopen`,
 } as const;
 
 // ─── Traffic Command (SuperAdmin) ───
