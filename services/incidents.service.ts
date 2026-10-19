@@ -1,15 +1,31 @@
 import apiClient from "@/api/client";
 import { INCIDENTS } from "@/api/endpoints";
-import { mapIncidentReport, mapIncidentsSummary } from "@/lib/mappers/incidents.mapper";
+import {
+  mapAssigneeCompany,
+  mapAssigneeUser,
+  mapIncidentReport,
+  mapIncidentsSummary,
+} from "@/lib/mappers/incidents.mapper";
 import type { ApiResponse } from "@/types/api.types";
 import type {
   IncidentActionResponse,
+  IncidentApproveResolutionPayload,
+  IncidentAssignPayload,
+  IncidentAssigneeCompany,
+  IncidentAssigneeUser,
+  IncidentCommentPayload,
+  IncidentDeadlinePayload,
+  IncidentEmergencyResponsePayload,
+  IncidentEscalatePayload,
   IncidentRejectPayload,
+  IncidentReopenPayload,
+  IncidentRequestEvidencePayload,
+  IncidentResolvePayload,
+  IncidentSeverityPayload,
   IncidentReport,
   IncidentsListParams,
   IncidentsListResponse,
   IncidentsSummaryResponse,
-  UpdateIncidentPayload,
 } from "@/types/incidents.types";
 
 function cleanListParams(params?: IncidentsListParams) {
@@ -25,6 +41,13 @@ function cleanListParams(params?: IncidentsListParams) {
     out.location_kind = params.location_kind;
   }
   return out;
+}
+
+function actionResponse(data: ApiResponse<Record<string, unknown>>): IncidentActionResponse {
+  return {
+    message: data.message,
+    data: mapIncidentReport(data.data ?? {}),
+  };
 }
 
 export const incidentsService = {
@@ -60,48 +83,132 @@ export const incidentsService = {
     return mapIncidentReport(data.data ?? {});
   },
 
-  update: async (id: string, payload: UpdateIncidentPayload): Promise<IncidentActionResponse> => {
-    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
-      INCIDENTS.UPDATE(id),
-      payload,
+  listAssigneeCompanies: async (): Promise<IncidentAssigneeCompany[]> => {
+    const { data } = await apiClient.get<ApiResponse<Record<string, unknown>[]>>(
+      INCIDENTS.ASSIGNEE_COMPANIES,
     );
-    return {
-      message: data.message,
-      data: mapIncidentReport(data.data ?? {}),
-    };
+    const rows = Array.isArray(data.data) ? data.data : [];
+    return rows.map((row) => mapAssigneeCompany(row));
   },
 
-  approveClose: async (id: string): Promise<IncidentActionResponse> => {
-    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
-      INCIDENTS.APPROVE_CLOSE(id),
+  listAssigneeUsers: async (companyId: string): Promise<IncidentAssigneeUser[]> => {
+    const { data } = await apiClient.get<ApiResponse<Record<string, unknown>[]>>(
+      INCIDENTS.ASSIGNEE_USERS,
+      { params: { company_id: companyId } },
     );
-    return {
-      message: data.message,
-      data: mapIncidentReport(data.data ?? {}),
-    };
+    const rows = Array.isArray(data.data) ? data.data : [];
+    return rows.map((row) => mapAssigneeUser(row));
+  },
+
+  assign: async (id: string, payload: IncidentAssignPayload): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.ASSIGN(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  setSeverity: async (
+    id: string,
+    payload: IncidentSeverityPayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.SEVERITY(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  setDeadline: async (
+    id: string,
+    payload: IncidentDeadlinePayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.DEADLINE(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  addComment: async (
+    id: string,
+    payload: IncidentCommentPayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.COMMENTS(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  escalate: async (
+    id: string,
+    payload: IncidentEscalatePayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.ESCALATE(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  requestEvidence: async (
+    id: string,
+    payload: IncidentRequestEvidencePayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.REQUEST_EVIDENCE(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  emergencyResponse: async (
+    id: string,
+    payload: IncidentEmergencyResponsePayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.EMERGENCY_RESPONSE(id),
+      payload,
+    );
+    return actionResponse(data);
+  },
+
+  approveResolution: async (
+    id: string,
+    payload?: IncidentApproveResolutionPayload,
+  ): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.APPROVE_RESOLUTION(id),
+      payload ?? {},
+    );
+    return actionResponse(data);
   },
 
   rejectResolution: async (
     id: string,
     payload: IncidentRejectPayload,
   ): Promise<IncidentActionResponse> => {
-    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
       INCIDENTS.REJECT_RESOLUTION(id),
       payload,
     );
-    return {
-      message: data.message,
-      data: mapIncidentReport(data.data ?? {}),
-    };
+    return actionResponse(data);
   },
 
-  escalate: async (id: string): Promise<IncidentActionResponse> => {
-    const { data } = await apiClient.post<ApiResponse<Record<string, unknown>>>(
-      INCIDENTS.ESCALATE(id),
+  resolve: async (id: string, payload: IncidentResolvePayload): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.RESOLVE(id),
+      payload,
     );
-    return {
-      message: data.message,
-      data: mapIncidentReport(data.data ?? {}),
-    };
+    return actionResponse(data);
+  },
+
+  reopen: async (id: string, payload: IncidentReopenPayload): Promise<IncidentActionResponse> => {
+    const { data } = await apiClient.patch<ApiResponse<Record<string, unknown>>>(
+      INCIDENTS.REOPEN(id),
+      payload,
+    );
+    return actionResponse(data);
   },
 };

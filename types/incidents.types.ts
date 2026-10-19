@@ -21,6 +21,12 @@ export type IncidentStatus =
   | "REJECTED_BY_SUPERADMIN"
   | "REOPENED";
 
+export type IncidentCommentKind = "COMMENT" | "INSTRUCTION";
+
+export type IncidentEscalateLevel = "MANAGEMENT" | "NPA";
+
+export type IncidentEmergencyAction = "DISPATCH_TOW_TRUCK";
+
 export interface IncidentReporter {
   id: string;
   name: string;
@@ -80,6 +86,8 @@ export interface IncidentReport {
   status: IncidentStatus;
   assignedTeam: string;
   assignedUser?: string;
+  assignedCompanyId?: string;
+  assignedUserId?: string;
   reporter: IncidentReporter;
   related?: IncidentRelatedEntities;
   evidence: IncidentEvidence[];
@@ -111,26 +119,90 @@ export interface IncidentsListResponse {
   };
 }
 
-export interface IncidentsSummaryResponse {
-  openLike: number;
-  pending: number;
-  resolved: number;
-  closed: number;
-  total: number;
+export interface IncidentSummaryStatusCount {
+  status: IncidentStatus;
+  label: string;
+  count: number;
 }
 
-export interface UpdateIncidentPayload {
-  severity?: IncidentSeverity;
-  assigned_team?: string;
-  assigned_user?: string;
-  priority_deadline?: string;
-  status?: IncidentStatus;
-  timeline_title?: string;
-  timeline_detail?: string;
+export interface IncidentSummarySeverityCount {
+  severity: IncidentSeverity;
+  count: number;
+}
+
+export interface IncidentsSummaryResponse {
+  open: number;
+  pendingApproval: number;
+  resolved: number;
+  total: number;
+  overdue: number;
+  byStatus: IncidentSummaryStatusCount[];
+  openBySeverity: IncidentSummarySeverityCount[];
+}
+
+export interface IncidentAssigneeCompany {
+  id: string;
+  name: string;
+  userType: string | null;
+}
+
+export interface IncidentAssigneeUser {
+  id: string;
+  name: string;
+  email: string;
+  accountType: string;
+}
+
+export interface IncidentAssignPayload {
+  assigned_company_id: string;
+  assigned_user_id: string;
+  note?: string;
+}
+
+export interface IncidentSeverityPayload {
+  severity: IncidentSeverity;
+  reason: string;
+}
+
+export interface IncidentDeadlinePayload {
+  priority_deadline: string;
+}
+
+export interface IncidentCommentPayload {
+  kind: IncidentCommentKind;
+  body: string;
+}
+
+export interface IncidentEscalatePayload {
+  level: IncidentEscalateLevel;
+  notes?: string;
+}
+
+export interface IncidentRequestEvidencePayload {
+  message: string;
+}
+
+export interface IncidentEmergencyResponsePayload {
+  action: IncidentEmergencyAction;
+  notes?: string;
+}
+
+export interface IncidentApproveResolutionPayload {
+  notes?: string;
 }
 
 export interface IncidentRejectPayload {
-  comment: string;
+  reason: string;
+}
+
+export interface IncidentResolvePayload {
+  root_cause: string;
+  corrective_action: string;
+  resolution_notes: string;
+}
+
+export interface IncidentReopenPayload {
+  reason: string;
 }
 
 export interface IncidentActionResponse {

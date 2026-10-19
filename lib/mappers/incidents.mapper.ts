@@ -1,10 +1,14 @@
 import type {
+  IncidentAssigneeCompany,
+  IncidentAssigneeUser,
   IncidentEvidence,
   IncidentNote,
   IncidentReport,
   IncidentRelatedEntities,
   IncidentReporter,
   IncidentResolution,
+  IncidentSummarySeverityCount,
+  IncidentSummaryStatusCount,
   IncidentTimelineEntry,
   IncidentsSummaryResponse,
 } from "@/types/incidents.types";
@@ -102,8 +106,10 @@ export function mapIncidentReport(raw: Raw): IncidentReport {
     locationName: str(raw.location_name ?? raw.locationName),
     reportedAt: str(raw.reported_at ?? raw.reportedAt),
     status: raw.status as IncidentReport["status"],
-    assignedTeam: str(raw.assigned_team ?? raw.assignedTeam),
-    assignedUser: str(raw.assigned_user ?? raw.assignedUser) || undefined,
+    assignedTeam: str(raw.assigned_team ?? raw.assignedTeam ?? raw.assigned_company_name),
+    assignedUser: str(raw.assigned_user ?? raw.assignedUser ?? raw.assigned_user_name) || undefined,
+    assignedCompanyId: str(raw.assigned_company_id ?? raw.assignedCompanyId) || undefined,
+    assignedUserId: str(raw.assigned_user_id ?? raw.assignedUserId) || undefined,
     reporter: mapReporter(raw.reporter),
     related: mapRelated(raw.related),
     evidence: mapEvidence(raw.evidence),
@@ -118,12 +124,56 @@ export function mapIncidentReport(raw: Raw): IncidentReport {
   };
 }
 
+function mapByStatus(raw: unknown): IncidentSummaryStatusCount[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const row = item as Raw;
+    return {
+      status: row.status as IncidentSummaryStatusCount["status"],
+      label: str(row.label),
+      count: Number(row.count ?? 0),
+    };
+  });
+}
+
+function mapOpenBySeverity(raw: unknown): IncidentSummarySeverityCount[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) => {
+    const row = item as Raw;
+    return {
+      severity: row.severity as IncidentSummarySeverityCount["severity"],
+      count: Number(row.count ?? 0),
+    };
+  });
+}
+
 export function mapIncidentsSummary(raw: Raw): IncidentsSummaryResponse {
   return {
-    openLike: Number(raw.open_like ?? raw.openLike ?? 0),
-    pending: Number(raw.pending ?? 0),
+    open: Number(raw.open ?? raw.open_like ?? raw.openLike ?? 0),
+    pendingApproval: Number(
+      raw.pending_approval ?? raw.pendingApproval ?? raw.pending ?? 0,
+    ),
     resolved: Number(raw.resolved ?? 0),
-    closed: Number(raw.closed ?? 0),
     total: Number(raw.total ?? 0),
+    overdue: Number(raw.overdue ?? 0),
+    byStatus: mapByStatus(raw.by_status ?? raw.byStatus),
+    openBySeverity: mapOpenBySeverity(raw.open_by_severity ?? raw.openBySeverity),
+  };
+}
+
+export function mapAssigneeCompany(raw: Raw): IncidentAssigneeCompany {
+  return {
+    id: str(raw.id),
+    name: str(raw.name),
+    userType: raw.user_type != null ? str(raw.user_type) : null,
+  };
+}
+
+export function mapAssigneeUser(raw: Raw): IncidentAssigneeUser {
+  return {
+    id: str(raw.id),
+    name: str(raw.name),
+    email: str(raw.email),
+    accountType: str(raw.account_type ?? raw.accountType),
   };
 }
