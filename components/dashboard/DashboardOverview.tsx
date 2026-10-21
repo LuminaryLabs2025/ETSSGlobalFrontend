@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   Ban,
@@ -132,50 +133,157 @@ function severityClass(severity: string) {
   return "bg-gray-100 text-gray-600";
 }
 
+function redZoneSiteTypeLabel(site: {
+  kind_label?: string;
+  park_type_label?: string;
+  site_type: string;
+}) {
+  return site.kind_label ?? site.park_type_label ?? site.site_type.replace(/_/g, " ");
+}
+
 function RedZoneDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { data, isLoading, isError } = useOverviewRedZone(open);
+  const [mounted, setMounted] = useState(false);
 
-  if (!open) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/30" onClick={onClose} />
-      <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="text-sm font-bold text-gray-900">Red zone sites</h2>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 hover:bg-gray-100">
-            <X className="h-5 w-5" />
-          </button>
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  if (!open || !mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex justify-end">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/40"
+        aria-label="Close red zone panel"
+        onClick={onClose}
+      />
+      <div className="relative flex h-svh w-full max-w-md flex-col bg-white shadow-xl">
+        <div className="shrink-0 border-b border-gray-200 px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-100">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-sm font-bold text-gray-900">Red zone status</h2>
+                <p className="text-[11px] text-gray-500">Corridor sites at or above threshold</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          {isLoading && <Loader2 className="mx-auto h-8 w-8 animate-spin text-emerald-500" />}
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {isLoading && (
+            <div className="flex h-40 items-center justify-center">
+              <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+            </div>
+          )}
           {isError && (
-            <p className="text-sm text-red-600">Failed to load red zone data.</p>
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              Failed to load red zone data.
+            </p>
           )}
           {data && (
             <>
-              <p className="text-xs text-gray-500">
-                Index {data.index}/{100} · threshold {data.threshold} · {data.red_zone_site_count}{" "}
-                site(s) in red zone
-              </p>
-              <div className="mt-4 space-y-2">
-                {data.sites.map((site) => (
-                  <div
-                    key={`${site.site_type}-${site.id}`}
-                    className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs"
+              <div className="rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                      data.in_red_zone
+                        ? "bg-red-100 text-red-800"
+                        : "bg-emerald-100 text-emerald-800"
+                    }`}
                   >
-                    <p className="font-semibold text-gray-900">{site.name}</p>
-                    <p className="text-gray-500">
-                      {site.utilisation_percentage}% · {site.occupied}/{site.capacity}
-                    </p>
-                  </div>
-                ))}
+                    {data.level.replace(/_/g, " ")}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    Index{" "}
+                    <span className="font-semibold tabular-nums text-gray-900">
+                      {data.index}/100
+                    </span>
+                    {" · "}
+                    threshold {data.threshold}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-600">
+                  {data.red_zone_site_count} site{data.red_zone_site_count === 1 ? "" : "s"} in red
+                  zone
+                </p>
+                <p className="mt-2 border-t border-gray-200/80 pt-2 text-xs text-gray-600">
+                  Corridor occupancy{" "}
+                  <span className="font-semibold tabular-nums text-gray-900">
+                    {data.total_occupied.toLocaleString()} / {data.total_capacity.toLocaleString()}
+                  </span>
+                </p>
+              </div>
+
+              <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-gray-400">
+                Sites
+              </p>
+              <div className="space-y-2 pb-2">
+                {data.sites.length === 0 ? (
+                  <p className="rounded-lg border border-gray-200 px-3 py-4 text-center text-xs text-gray-500">
+                    No sites to display.
+                  </p>
+                ) : (
+                  data.sites.map((site) => (
+                    <div
+                      key={`${site.site_type}-${site.id}`}
+                      className={`rounded-xl border px-4 py-3 ${
+                        site.in_red_zone
+                          ? "border-red-200 bg-red-50/30"
+                          : "border-gray-200 bg-white"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{site.name}</p>
+                          <p className="mt-0.5 text-[11px] text-gray-500">
+                            {redZoneSiteTypeLabel(site)}
+                            {site.code ? ` · ${site.code}` : ""}
+                          </p>
+                        </div>
+                        {site.in_red_zone && (
+                          <span className="shrink-0 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">
+                            Red zone
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 text-xs text-gray-600">
+                        <span className="font-semibold tabular-nums text-gray-900">
+                          {site.utilisation_percentage}%
+                        </span>{" "}
+                        utilisation · {site.occupied.toLocaleString()} /{" "}
+                        {site.capacity.toLocaleString()} capacity
+                      </p>
+                    </div>
+                  ))
+                )}
               </div>
             </>
           )}
         </div>
       </div>
-    </>
+    </div>,
+    document.body,
   );
 }
 
