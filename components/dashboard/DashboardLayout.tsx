@@ -37,8 +37,8 @@ import {
   ClipboardList,
   Settings,
 } from "lucide-react";
-import { totalRevenue } from "@/lib/mock-data";
 import { useAuthStore } from "@/store/auth.store";
+import { OverviewRevenueBadge } from "@/components/dashboard/overview/OverviewRevenueBadge";
 
 // ─── Sidebar Navigation with icons ───
 const navGroups = [
@@ -112,8 +112,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const clearAuth = useAuthStore((s) => s.clearAuth);
-  const formatter = new Intl.NumberFormat("en-NG");
-
   const userInitials = user
     ? `${user.first_name[0]}${user.last_name[0]}`
     : "--";
@@ -257,13 +255,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
 
-            {/* e-Revenue Badge */}
-            <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-1.5 sm:flex">
-              <Wallet className="h-3.5 w-3.5 text-emerald-600" />
-              <span className="text-xs font-semibold text-emerald-800">
-                e-Revenue: ₦{formatter.format(totalRevenue)}
-              </span>
-            </div>
+            <OverviewRevenueBadge />
           </div>
 
           <div className="flex items-center gap-3">
@@ -277,12 +269,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
 
-            {/* Notifications */}
-            <button className="relative rounded-lg p-2 text-gray-500 hover:bg-gray-100">
+            <button
+              type="button"
+              title="Notifications (coming soon)"
+              className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
+            >
               <Bell className="h-5 w-5" />
-              <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-                3
-              </span>
             </button>
 
             {/* Profile */}

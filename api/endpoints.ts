@@ -347,6 +347,23 @@ export const INCIDENTS = {
   REOPEN: (id: string) => `/incidents/${id}/reopen`,
 } as const;
 
+// ─── Dashboard Overview ───
+export const DASHBOARD_OVERVIEW = {
+  REVENUE: "/dashboard/overview/revenue",
+  CORRIDOR: "/dashboard/overview/corridor",
+  RED_ZONE: "/dashboard/overview/red-zone",
+  EXECUTIVE: "/dashboard/overview/executive",
+  LIFECYCLE: "/dashboard/overview/lifecycle",
+  BOOKINGS_BY_TERMINAL: "/dashboard/overview/bookings-by-terminal",
+  MATCHINGS_BY_FACILITY: "/dashboard/overview/matchings-by-facility",
+  RECENT_ACTIVITY: "/dashboard/overview/recent-activity",
+  BOOKINGS_BY_CATEGORY: "/dashboard/overview/bookings-by-category",
+  INCIDENT_BOARD: "/dashboard/overview/incident-board",
+  OPS_COMMAND: "/dashboard/overview/ops-command",
+  OPS_ORDERS: "/dashboard/overview/ops-command/orders",
+  OPS_ORDER_LIFT: (id: string) => `/dashboard/overview/ops-command/orders/${id}/lift`,
+} as const;
+
 // ─── Traffic Command (SuperAdmin) ───
 // Paths are relative to NEXT_PUBLIC_API_URL (e.g. …/api → …/api/traffic-command/locations)
 export const TRAFFIC = {
