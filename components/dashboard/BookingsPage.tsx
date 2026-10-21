@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import {
   BookOpen,
@@ -982,12 +982,19 @@ function ConfirmDialog({
 
 export function BookingsPage({ initialSection = "all" }: { initialSection?: MainSection }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.is_super_admin ?? false;
 
   const [mainSection, setMainSection] = useState<MainSection>(initialSection);
   const [statusTab, setStatusTab] = useState<StatusTab>("all");
   const [manifestTab, setManifestTab] = useState<ManifestTab>("in");
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "left") {
+      setManifestTab("left");
+    }
+  }, [searchParams]);
   const [page, setPage] = useState(1);
   const [manifestPage, setManifestPage] = useState(1);
   const { search, setSearch, debouncedSearch, resetSearch } = useDebouncedSearch("", () => setPage(1));
