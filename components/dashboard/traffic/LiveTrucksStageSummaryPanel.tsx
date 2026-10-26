@@ -28,18 +28,18 @@ const STAGE_GROUPS: {
   {
     key: "movement",
     title: "Movement",
-    hint: "On trip & matched",
+    hint: "On trip",
     Icon: Truck,
     accent: "text-blue-400",
-    stages: ["ON_TRIP", "MATCHED"],
+    stages: ["ON_TRIP"],
   },
   {
     key: "facility",
     title: "Facility",
-    hint: "On-site & departures",
+    hint: "Matched, on-site & departures",
     Icon: Warehouse,
     accent: "text-emerald-400",
-    stages: ["IN_FACILITY", "GTG_FACILITY", "LEFT_FACILITY"],
+    stages: ["MATCHED", "IN_FACILITY", "GTG_FACILITY", "LEFT_FACILITY"],
   },
   {
     key: "pregate",
