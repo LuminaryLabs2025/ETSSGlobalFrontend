@@ -368,6 +368,7 @@ export const DASHBOARD_OVERVIEW = {
 // Paths are relative to NEXT_PUBLIC_API_URL (e.g. …/api → …/api/traffic-command/locations)
 export const TRAFFIC = {
   LIVE_TRUCKS: "/traffic-command/live-trucks",
+  LIVE_TRUCKS_SUMMARY: "/traffic-command/live-trucks/summary",
   LOCATIONS: "/traffic-command/locations",
   OCC_OVERVIEW: "/traffic-command/occ/overview",
   OCC_EMERGENCIES: "/traffic-command/occ/emergencies",

@@ -3,6 +3,7 @@ import { TRAFFIC } from "@/api/endpoints";
 import {
   mapCancelledBookingsResponse,
   mapLiveTrucksResponse,
+  mapLiveTrucksSummary,
   mapOccDashboard,
   mapOccEmergenciesResponse,
   mapTrafficLocationsResponse,
@@ -11,6 +12,7 @@ import type { ApiResponse } from "@/types/api.types";
 import type {
   LiveTrucksParams,
   LiveTrucksResponse,
+  LiveTrucksSummaryResponse,
   OccCancelledBookingsParams,
   OccCancelledBookingsResponse,
   OccEmergenciesParams,
@@ -104,6 +106,18 @@ export const trafficService = {
       { params },
     );
     return mapLiveTrucksResponse(unwrapTrafficPayload(data.data));
+  },
+
+  liveTrucksSummary: async (): Promise<LiveTrucksSummaryResponse> => {
+    const { data } = await apiClient.get<ApiResponse<Record<string, unknown>>>(
+      TRAFFIC.LIVE_TRUCKS_SUMMARY,
+    );
+    const payload = data.data;
+    const raw =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {};
+    return mapLiveTrucksSummary(raw);
   },
 
   locations: async (params?: TrafficLocationsParams): Promise<TrafficLocationsResponse> => {

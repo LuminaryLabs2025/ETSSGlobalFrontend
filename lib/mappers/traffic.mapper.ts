@@ -5,6 +5,7 @@ import type {
   EmergencyTruckRequest,
   LiveTruckMovement,
   LiveTrucksResponse,
+  LiveTrucksSummaryResponse,
   OccAiCommandAction,
   OccCancelledBookingsResponse,
   OccEmergenciesResponse,
@@ -83,47 +84,6 @@ function mapLiveTruckRow(raw: Raw): LiveTruckMovement {
     stage,
     stageGroup,
   };
-}
-
-function deriveStatusCounts(movements: LiveTruckMovement[]): TrafficStatusCount[] {
-  const counts: Record<TrafficStatusCardKey, number> = {
-    ON_TRIP: 0,
-    LEFT_FACILITY: 0,
-    LEFT_PREGATE: 0,
-    IN_TERMINAL: 0,
-  };
-
-  for (const m of movements) {
-    const stage = (m.stage ?? "").toUpperCase();
-    const group = (m.stageGroup ?? "").toUpperCase();
-
-    if (stage.includes("TERMINAL") && stage.includes("ENROUTE")) {
-      counts.ON_TRIP += 1;
-    } else if (stage.includes("TERMINAL")) {
-      counts.IN_TERMINAL += 1;
-    } else if (group === "IN_TRANSIT_PARK" || stage.includes("PREGATE")) {
-      counts.LEFT_PREGATE += 1;
-    } else if (group === "IN_FACILITY" && stage !== "IN_FACILITY") {
-      counts.LEFT_FACILITY += 1;
-    } else if (group === "IN_FACILITY" && stage === "IN_FACILITY") {
-      counts.LEFT_FACILITY += 1;
-    } else if (
-      stage.startsWith("ENROUTE")
-      || group === "TO_FACILITY"
-      || group === "TRANSIT_PARK_TO_TERMINAL"
-    ) {
-      counts.ON_TRIP += 1;
-    } else {
-      counts.ON_TRIP += 1;
-    }
-  }
-
-  return TRAFFIC_STATUS_CARDS.map((card) => ({
-    key: card.key,
-    label: card.label,
-    shortLabel: card.shortLabel,
-    count: counts[card.key],
-  }));
 }
 
 function mapStatusCount(raw: Raw): TrafficStatusCount {
@@ -266,6 +226,32 @@ function readByKind(summaryRaw: Raw, key: string): number {
   return num(byKind[key]);
 }
 
+export function mapLiveTrucksSummary(raw: Raw): LiveTrucksSummaryResponse {
+  const countByKey: Record<TrafficStatusCardKey, number> = {
+    ON_TRIP: num(raw.on_trip ?? raw.onTrip),
+    LEFT_FACILITY: num(raw.left_facility ?? raw.leftFacility),
+    LEFT_PREGATE: num(raw.left_pregate ?? raw.leftPregate),
+    IN_TERMINAL: num(raw.in_terminal ?? raw.inTerminal),
+  };
+
+  const statusCounts = TRAFFIC_STATUS_CARDS.map((card) => ({
+    key: card.key,
+    label: card.label,
+    shortLabel: card.shortLabel,
+    count: countByKey[card.key],
+  }));
+
+  return {
+    totalBookings: num(raw.total_bookings ?? raw.totalBookings),
+    onTrip: countByKey.ON_TRIP,
+    leftFacility: countByKey.LEFT_FACILITY,
+    leftPregate: countByKey.LEFT_PREGATE,
+    inTerminal: countByKey.IN_TERMINAL,
+    statusCounts,
+    lastUpdated: str(raw.last_updated ?? raw.lastUpdated) || undefined,
+  };
+}
+
 export function mapLiveTrucksResponse(raw: Raw): LiveTrucksResponse {
   const movementsRaw = raw.data ?? raw.movements ?? raw.truck_movements;
   const movements = asArray(movementsRaw).map((m) => mapLiveTruckRow(m as Raw));
@@ -273,7 +259,7 @@ export function mapLiveTrucksResponse(raw: Raw): LiveTrucksResponse {
   const statusRaw = raw.status_counts ?? raw.statusCounts;
   const statusCounts = Array.isArray(statusRaw)
     ? statusRaw.map((s) => mapStatusCount(s as Raw))
-    : deriveStatusCounts(movements);
+    : [];
 
   const metaRaw = (raw.meta ?? {}) as Raw;
 
