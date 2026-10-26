@@ -71,7 +71,7 @@ export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
     destination: "Tincan Island Terminal",
     status: "On-Trip",
     routeLabel: "Transit Park → Port Terminal",
-    routeGroup: "TRANSIT_PARK_TO_TERMINAL",
+    routeGroup: "TO_TERMINAL",
   },
   {
     id: "lt-2",
@@ -81,7 +81,7 @@ export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
     destination: "APM Terminals Apapa",
     status: "On-Trip",
     routeLabel: "Transit Park → Port Terminal",
-    routeGroup: "TRANSIT_PARK_TO_TERMINAL",
+    routeGroup: "TO_TERMINAL",
   },
   {
     id: "lt-3",
@@ -111,7 +111,7 @@ export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
     destination: "Lekki Deep Sea Port",
     status: "In-Transit",
     routeLabel: "Transit Park → Port Terminal",
-    routeGroup: "IN_TRANSIT",
+    routeGroup: "TO_TERMINAL",
   },
   {
     id: "lt-6",
@@ -141,7 +141,7 @@ export const LIVE_TRUCK_MOVEMENTS: LiveTruckMovement[] = [
     destination: "Tincan Island Terminal",
     status: "In-Transit",
     routeLabel: "Transit Park → Port Terminal",
-    routeGroup: "IN_TRANSIT",
+    routeGroup: "TO_TERMINAL",
   },
 ];
 

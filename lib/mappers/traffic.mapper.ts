@@ -44,31 +44,68 @@ function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
-const STAGE_GROUP_ROUTE_LABELS: Record<string, string> = {
-  TO_FACILITY: "En route to facility",
+const ROUTE_GROUP_LABELS: Record<TruckMovementRoute, string> = {
+  TO_FACILITY: "To Facility",
+  TO_PREGATE: "To Pregate",
+  TO_TERMINAL: "To Terminal",
   IN_FACILITY: "In-Facility",
-  IN_TRANSIT_PARK: "Transit park / pregate",
-  TRANSIT_PARK_TO_TERMINAL: "Transit Park → Port Terminal",
+  FACILITY_TO_TRANSIT_PARK: "Facility → Transit Park",
+  IN_TERMINAL: "In-Terminal",
 };
 
-function mapStageGroupToRouteGroup(stageGroup: string): TruckMovementRoute {
-  switch (stageGroup) {
+function inferEnRouteFromStage(stage: string): TruckMovementRoute {
+  const st = stage.toUpperCase();
+  if (st.includes("TERMINAL") && st !== "IN_TERMINAL" && st !== "LEFT_TERMINAL") {
+    return "TO_TERMINAL";
+  }
+  if (
+    st.includes("PREGATE")
+    && st !== "IN_PREGATE"
+    && st !== "LEFT_PREGATE"
+    && st !== "GTG_PREGATE"
+  ) {
+    return "TO_PREGATE";
+  }
+  if (
+    st.includes("FACILITY")
+    && st !== "IN_FACILITY"
+    && st !== "LEFT_FACILITY"
+    && st !== "GTG_FACILITY"
+  ) {
+    return "TO_FACILITY";
+  }
+  if (st === "ON_TRIP" || st.startsWith("ENROUTE")) {
+    return "TO_FACILITY";
+  }
+  return "TO_FACILITY";
+}
+
+function mapStageGroupToRouteGroup(stageGroup: string, stage: string): TruckMovementRoute {
+  const group = stageGroup.toUpperCase();
+
+  switch (group) {
     case "TO_FACILITY":
-      return "IN_TRANSIT";
+      return "TO_FACILITY";
+    case "TO_PREGATE":
+      return "TO_PREGATE";
+    case "TO_TERMINAL":
+    case "TRANSIT_PARK_TO_TERMINAL":
+      return "TO_TERMINAL";
     case "IN_FACILITY":
       return "IN_FACILITY";
+    case "IN_TERMINAL":
+      return "IN_TERMINAL";
     case "IN_TRANSIT_PARK":
       return "FACILITY_TO_TRANSIT_PARK";
-    case "TRANSIT_PARK_TO_TERMINAL":
-      return "TRANSIT_PARK_TO_TERMINAL";
     default:
-      return "IN_TRANSIT";
+      return inferEnRouteFromStage(stage);
   }
 }
 
 function mapLiveTruckRow(raw: Raw): LiveTruckMovement {
   const stageGroup = str(raw.stage_group ?? raw.stageGroup);
   const stage = str(raw.stage);
+  const routeGroup = mapStageGroupToRouteGroup(stageGroup, stage);
   return {
     id: str(raw.booking_uuid ?? raw.id),
     bookingId: str(raw.booking_id ?? raw.bookingId),
@@ -77,10 +114,10 @@ function mapLiveTruckRow(raw: Raw): LiveTruckMovement {
     currentLocation: str(raw.current_location ?? raw.currentLocation),
     destination: str(raw.destination),
     status: str(raw.stage_label ?? raw.stageLabel ?? raw.status),
+    routeGroup,
     routeLabel:
-      STAGE_GROUP_ROUTE_LABELS[stageGroup]
+      ROUTE_GROUP_LABELS[routeGroup]
       ?? str(raw.stage_label ?? raw.stageLabel, stageGroup || "Movement"),
-    routeGroup: mapStageGroupToRouteGroup(stageGroup),
     stage,
     stageGroup,
   };
@@ -241,6 +278,15 @@ export function mapLiveTrucksSummary(raw: Raw): LiveTrucksSummaryResponse {
     count: countByKey[card.key],
   }));
 
+  const byStage = asArray(raw.by_stage ?? raw.byStage).map((s) => {
+    const row = s as Raw;
+    return {
+      stage: str(row.stage),
+      label: str(row.label),
+      count: num(row.count),
+    };
+  });
+
   return {
     totalBookings: num(raw.total_bookings ?? raw.totalBookings),
     onTrip: countByKey.ON_TRIP,
@@ -248,6 +294,7 @@ export function mapLiveTrucksSummary(raw: Raw): LiveTrucksSummaryResponse {
     leftPregate: countByKey.LEFT_PREGATE,
     inTerminal: countByKey.IN_TERMINAL,
     statusCounts,
+    byStage,
     lastUpdated: str(raw.last_updated ?? raw.lastUpdated) || undefined,
   };
 }

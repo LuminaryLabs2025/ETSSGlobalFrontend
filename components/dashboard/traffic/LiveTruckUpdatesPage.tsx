@@ -3,19 +3,13 @@
 import { useMemo, useState } from "react";
 import {
   AlertCircle,
-  DoorOpen,
-  Landmark,
   Loader2,
   Route,
   ListFilter,
   Truck,
-  Warehouse,
 } from "lucide-react";
 import { TrafficCommandShell } from "@/components/dashboard/traffic/TrafficCommandShell";
-import {
-  TrafficSummaryPanel,
-  type TrafficSummaryKpi,
-} from "@/components/dashboard/traffic/TrafficSummaryPanel";
+import { LiveTrucksStageSummaryPanel } from "@/components/dashboard/traffic/LiveTrucksStageSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import { useLiveTrucks } from "@/hooks/traffic/useLiveTrucks";
 import { useLiveTrucksSummary } from "@/hooks/traffic/useLiveTrucksSummary";
@@ -24,33 +18,12 @@ import type { TruckMovementRoute } from "@/types/traffic.types";
 type ListView = "route" | "status";
 
 const ROUTE_GROUP_LABELS: Record<TruckMovementRoute, string> = {
+  TO_FACILITY: "To Facility",
+  TO_PREGATE: "To Pregate",
+  TO_TERMINAL: "To Terminal",
   FACILITY_TO_TRANSIT_PARK: "Facility → Transit Park",
-  TRANSIT_PARK_TO_TERMINAL: "Transit Park → Port Terminal",
   IN_FACILITY: "In-Facility",
-  IN_TRANSIT: "In-Transit",
   IN_TERMINAL: "In-Terminal",
-};
-
-const STATUS_KPI_META: Record<
-  string,
-  Pick<TrafficSummaryKpi, "color" | "bg" | "Icon">
-> = {
-  ON_TRIP: { color: "text-blue-400", bg: "bg-blue-400/10", Icon: Truck },
-  LEFT_FACILITY: {
-    color: "text-emerald-400",
-    bg: "bg-emerald-400/10",
-    Icon: Warehouse,
-  },
-  LEFT_PREGATE: {
-    color: "text-orange-400",
-    bg: "bg-orange-400/10",
-    Icon: DoorOpen,
-  },
-  IN_TERMINAL: {
-    color: "text-gray-400",
-    bg: "bg-gray-400/10",
-    Icon: Landmark,
-  },
 };
 
 export function LiveTruckUpdatesPage() {
@@ -74,29 +47,6 @@ export function LiveTruckUpdatesPage() {
     }
     return tickUpdated;
   }, [summary?.lastUpdated, tickUpdated]);
-
-  const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
-    const statusCounts = summary?.statusCounts ?? [];
-    const cards = statusCounts.map((card) => ({
-      label: card.label,
-      value: summaryLoading ? "—" : card.count,
-      ...(STATUS_KPI_META[card.key] ?? {
-        color: "text-blue-400",
-        bg: "bg-blue-400/10",
-        Icon: Truck,
-      }),
-    }));
-    return [
-      ...cards,
-      {
-        label: "Trucks on live listing",
-        value: summaryLoading ? "—" : (summary?.totalBookings ?? 0),
-        color: "text-cyan-400",
-        bg: "bg-cyan-400/10",
-        Icon: Route,
-      },
-    ];
-  }, [summary, summaryLoading]);
 
   const groupedByRoute = useMemo(() => {
     const groups = new Map<string, typeof movements>();
@@ -126,16 +76,17 @@ export function LiveTruckUpdatesPage() {
       title="Live Truck Updates"
       subtitle="Real-time truck movement and operational flow across the logistics network."
     >
-      <TrafficSummaryPanel
+      <LiveTrucksStageSummaryPanel
         title="Live truck updates — at a glance"
         subtitle={
           (summaryFetching && !summaryLoading) || (isFetching && !isLoading)
             ? "Refreshing live movement data…"
-            : "Status counts from live truck summary"
+            : "Booking counts by operational stage"
         }
         lastUpdated={summaryLastUpdated}
-        cards={summaryCards}
-        gridClassName="grid-cols-2 sm:grid-cols-3 xl:grid-cols-5"
+        totalBookings={summary?.totalBookings ?? 0}
+        byStage={summary?.byStage ?? []}
+        loading={summaryLoading}
       />
 
       {(isError || summaryError) && (
