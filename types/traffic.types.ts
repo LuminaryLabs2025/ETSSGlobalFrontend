@@ -17,13 +17,13 @@ export interface TrafficStatusCount {
   count: number;
 }
 
-export type TruckMovementRoute =
-  | "FACILITY_TO_TRANSIT_PARK"
-  | "IN_FACILITY"
-  | "IN_TERMINAL"
+export type LiveTruckStageGroup =
   | "TO_FACILITY"
-  | "TO_PREGATE"
-  | "TO_TERMINAL";
+  | "IN_FACILITY"
+  | "FACILITY_TO_PREGATE"
+  | "IN_PREGATE"
+  | "PREGATE_TO_TERMINAL"
+  | "IN_TERMINAL";
 
 export interface LiveTruckMovement {
   id: string;
@@ -32,11 +32,12 @@ export interface LiveTruckMovement {
   driverName: string;
   currentLocation: string;
   destination: string;
+  /** Human-readable stage label (`stage_label` from API). */
   status: string;
-  routeLabel: string;
-  routeGroup: TruckMovementRoute;
-  stage?: string;
-  stageGroup?: string;
+  stage: string;
+  stageGroup: LiveTruckStageGroup | string;
+  stageGroupLabel: string;
+  stageGroupOrder: number;
 }
 
 export interface LiveTrucksListMeta {

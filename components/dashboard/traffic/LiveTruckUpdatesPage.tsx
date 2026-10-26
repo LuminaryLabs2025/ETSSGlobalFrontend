@@ -13,18 +13,56 @@ import { LiveTrucksStageSummaryPanel } from "@/components/dashboard/traffic/Live
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import { useLiveTrucks } from "@/hooks/traffic/useLiveTrucks";
 import { useLiveTrucksSummary } from "@/hooks/traffic/useLiveTrucksSummary";
-import type { TruckMovementRoute } from "@/types/traffic.types";
+import type { LiveTruckMovement } from "@/types/traffic.types";
 
 type ListView = "route" | "status";
 
-const ROUTE_GROUP_LABELS: Record<TruckMovementRoute, string> = {
-  TO_FACILITY: "To Facility",
-  TO_PREGATE: "To Pregate",
-  TO_TERMINAL: "To Terminal",
-  FACILITY_TO_TRANSIT_PARK: "Facility → Transit Park",
-  IN_FACILITY: "In-Facility",
-  IN_TERMINAL: "In-Terminal",
+type MovementSection = {
+  key: string;
+  label: string;
+  order: number;
+  trucks: LiveTruckMovement[];
 };
+
+function groupByStageGroup(movements: LiveTruckMovement[]): MovementSection[] {
+  const map = new Map<string, MovementSection>();
+  for (const truck of movements) {
+    const key = truck.stageGroup || "UNKNOWN";
+    let section = map.get(key);
+    if (!section) {
+      section = {
+        key,
+        label: truck.stageGroupLabel || key.replace(/_/g, " "),
+        order: truck.stageGroupOrder,
+        trucks: [],
+      };
+      map.set(key, section);
+    }
+    section.trucks.push(truck);
+  }
+  return [...map.values()].sort((a, b) => a.order - b.order);
+}
+
+function groupByStage(movements: LiveTruckMovement[]): MovementSection[] {
+  const map = new Map<string, MovementSection>();
+  for (const truck of movements) {
+    const key = truck.stage || "UNKNOWN";
+    let section = map.get(key);
+    if (!section) {
+      section = {
+        key,
+        label: truck.status || key.replace(/_/g, " "),
+        order: truck.stageGroupOrder,
+        trucks: [],
+      };
+      map.set(key, section);
+    } else {
+      section.order = Math.min(section.order, truck.stageGroupOrder);
+    }
+    section.trucks.push(truck);
+  }
+  return [...map.values()].sort((a, b) => a.order - b.order);
+}
 
 export function LiveTruckUpdatesPage() {
   const { lastUpdated: tickUpdated } = useTrafficLiveTick();
@@ -48,28 +86,9 @@ export function LiveTruckUpdatesPage() {
     return tickUpdated;
   }, [summary?.lastUpdated, tickUpdated]);
 
-  const groupedByRoute = useMemo(() => {
-    const groups = new Map<string, typeof movements>();
-    for (const truck of movements) {
-      const key = ROUTE_GROUP_LABELS[truck.routeGroup] ?? truck.routeLabel;
-      const list = groups.get(key) ?? [];
-      list.push(truck);
-      groups.set(key, list);
-    }
-    return [...groups.entries()];
-  }, [movements]);
-
-  const groupedByStatus = useMemo(() => {
-    const groups = new Map<string, typeof movements>();
-    for (const truck of movements) {
-      const list = groups.get(truck.status) ?? [];
-      list.push(truck);
-      groups.set(truck.status, list);
-    }
-    return [...groups.entries()];
-  }, [movements]);
-
-  const listGroups = listView === "route" ? groupedByRoute : groupedByStatus;
+  const listSections = useMemo(() => {
+    return listView === "route" ? groupByStageGroup(movements) : groupByStage(movements);
+  }, [movements, listView]);
 
   return (
     <TrafficCommandShell
@@ -152,15 +171,15 @@ export function LiveTruckUpdatesPage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {listGroups.length === 0 ? (
+            {listSections.length === 0 ? (
               <p className="px-5 py-12 text-center text-sm text-gray-400">
                 No truck movements returned for the current feed.
               </p>
             ) : (
-              listGroups.map(([groupLabel, trucks]) => (
-                <div key={groupLabel} className="p-5">
+              listSections.map((section) => (
+                <div key={section.key} className="p-5">
                   <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    {groupLabel}
+                    {section.label}
                   </p>
                   <div className="overflow-x-auto">
                     <table className="min-w-max w-full">
@@ -174,7 +193,7 @@ export function LiveTruckUpdatesPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
-                        {trucks.map((t) => (
+                        {section.trucks.map((t) => (
                           <tr key={t.id} className="hover:bg-gray-50/80">
                             <td className="px-3 py-3 font-mono text-xs font-semibold text-gray-900">
                               {t.plateNumber}
