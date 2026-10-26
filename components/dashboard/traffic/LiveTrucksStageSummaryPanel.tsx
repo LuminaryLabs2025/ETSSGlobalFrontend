@@ -44,7 +44,7 @@ const STAGE_GROUPS: {
   {
     key: "pregate",
     title: "Pregate",
-    hint: "Transit park flow",
+    hint: "Pregate flow",
     Icon: DoorOpen,
     accent: "text-orange-400",
     stages: ["IN_PREGATE", "GTG_PREGATE", "LEFT_PREGATE"],

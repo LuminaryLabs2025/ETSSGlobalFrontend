@@ -25,7 +25,6 @@ import type {
   TrafficMapLocation,
   TrafficStatusCardKey,
   TrafficStatusCount,
-  TruckMovementRoute,
 } from "@/types/traffic.types";
 
 type Raw = Record<string, unknown>;
@@ -44,68 +43,13 @@ function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
-const ROUTE_GROUP_LABELS: Record<TruckMovementRoute, string> = {
-  TO_FACILITY: "To Facility",
-  TO_PREGATE: "To Pregate",
-  TO_TERMINAL: "To Terminal",
-  IN_FACILITY: "In-Facility",
-  FACILITY_TO_TRANSIT_PARK: "Facility → Transit Park",
-  IN_TERMINAL: "In-Terminal",
-};
-
-function inferEnRouteFromStage(stage: string): TruckMovementRoute {
-  const st = stage.toUpperCase();
-  if (st.includes("TERMINAL") && st !== "IN_TERMINAL" && st !== "LEFT_TERMINAL") {
-    return "TO_TERMINAL";
-  }
-  if (
-    st.includes("PREGATE")
-    && st !== "IN_PREGATE"
-    && st !== "LEFT_PREGATE"
-    && st !== "GTG_PREGATE"
-  ) {
-    return "TO_PREGATE";
-  }
-  if (
-    st.includes("FACILITY")
-    && st !== "IN_FACILITY"
-    && st !== "LEFT_FACILITY"
-    && st !== "GTG_FACILITY"
-  ) {
-    return "TO_FACILITY";
-  }
-  if (st === "ON_TRIP" || st.startsWith("ENROUTE")) {
-    return "TO_FACILITY";
-  }
-  return "TO_FACILITY";
-}
-
-function mapStageGroupToRouteGroup(stageGroup: string, stage: string): TruckMovementRoute {
-  const group = stageGroup.toUpperCase();
-
-  switch (group) {
-    case "TO_FACILITY":
-      return "TO_FACILITY";
-    case "TO_PREGATE":
-      return "TO_PREGATE";
-    case "TO_TERMINAL":
-    case "TRANSIT_PARK_TO_TERMINAL":
-      return "TO_TERMINAL";
-    case "IN_FACILITY":
-      return "IN_FACILITY";
-    case "IN_TERMINAL":
-      return "IN_TERMINAL";
-    case "IN_TRANSIT_PARK":
-      return "FACILITY_TO_TRANSIT_PARK";
-    default:
-      return inferEnRouteFromStage(stage);
-  }
-}
-
 function mapLiveTruckRow(raw: Raw): LiveTruckMovement {
   const stageGroup = str(raw.stage_group ?? raw.stageGroup);
   const stage = str(raw.stage);
-  const routeGroup = mapStageGroupToRouteGroup(stageGroup, stage);
+  const stageGroupLabel = str(
+    raw.stage_group_label ?? raw.stageGroupLabel,
+    stageGroup.replace(/_/g, " "),
+  );
   return {
     id: str(raw.booking_uuid ?? raw.id),
     bookingId: str(raw.booking_id ?? raw.bookingId),
@@ -114,12 +58,10 @@ function mapLiveTruckRow(raw: Raw): LiveTruckMovement {
     currentLocation: str(raw.current_location ?? raw.currentLocation),
     destination: str(raw.destination),
     status: str(raw.stage_label ?? raw.stageLabel ?? raw.status),
-    routeGroup,
-    routeLabel:
-      ROUTE_GROUP_LABELS[routeGroup]
-      ?? str(raw.stage_label ?? raw.stageLabel, stageGroup || "Movement"),
     stage,
     stageGroup,
+    stageGroupLabel,
+    stageGroupOrder: num(raw.stage_group_order ?? raw.stageGroupOrder, 99),
   };
 }
 
