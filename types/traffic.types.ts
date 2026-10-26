@@ -19,10 +19,11 @@ export interface TrafficStatusCount {
 
 export type TruckMovementRoute =
   | "FACILITY_TO_TRANSIT_PARK"
-  | "TRANSIT_PARK_TO_TERMINAL"
   | "IN_FACILITY"
-  | "IN_TRANSIT"
-  | "IN_TERMINAL";
+  | "IN_TERMINAL"
+  | "TO_FACILITY"
+  | "TO_PREGATE"
+  | "TO_TERMINAL";
 
 export interface LiveTruckMovement {
   id: string;
@@ -64,6 +65,7 @@ export interface LiveTrucksSummaryResponse {
   leftPregate: number;
   inTerminal: number;
   statusCounts: TrafficStatusCount[];
+  byStage: OccTrucksStageCount[];
   lastUpdated?: string;
 }
 
