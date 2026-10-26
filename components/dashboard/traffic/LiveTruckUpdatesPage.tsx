@@ -18,6 +18,7 @@ import {
 } from "@/components/dashboard/traffic/TrafficSummaryPanel";
 import { useTrafficLiveTick } from "@/hooks/traffic/useTrafficLiveTick";
 import { useLiveTrucks } from "@/hooks/traffic/useLiveTrucks";
+import { useLiveTrucksSummary } from "@/hooks/traffic/useLiveTrucksSummary";
 import type { TruckMovementRoute } from "@/types/traffic.types";
 
 type ListView = "route" | "status";
@@ -53,19 +54,32 @@ const STATUS_KPI_META: Record<
 };
 
 export function LiveTruckUpdatesPage() {
-  const { lastUpdated } = useTrafficLiveTick();
+  const { lastUpdated: tickUpdated } = useTrafficLiveTick();
   const [listView, setListView] = useState<ListView>("route");
   const { data, isLoading, isError, refetch, isFetching } = useLiveTrucks();
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    isFetching: summaryFetching,
+    refetch: refetchSummary,
+  } = useLiveTrucksSummary();
 
   const movements = data?.movements ?? [];
-  const statusCounts = data?.statusCounts ?? [];
-  const listedTruckCount =
-    data?.meta?.total ?? data?.listedTruckCount ?? movements.length;
+
+  const summaryLastUpdated = useMemo(() => {
+    if (summary?.lastUpdated) {
+      const parsed = new Date(summary.lastUpdated);
+      if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return tickUpdated;
+  }, [summary?.lastUpdated, tickUpdated]);
 
   const summaryCards: TrafficSummaryKpi[] = useMemo(() => {
+    const statusCounts = summary?.statusCounts ?? [];
     const cards = statusCounts.map((card) => ({
       label: card.label,
-      value: card.count,
+      value: summaryLoading ? "—" : card.count,
       ...(STATUS_KPI_META[card.key] ?? {
         color: "text-blue-400",
         bg: "bg-blue-400/10",
@@ -76,13 +90,13 @@ export function LiveTruckUpdatesPage() {
       ...cards,
       {
         label: "Trucks on live listing",
-        value: listedTruckCount,
+        value: summaryLoading ? "—" : (summary?.totalBookings ?? 0),
         color: "text-cyan-400",
         bg: "bg-cyan-400/10",
         Icon: Route,
       },
     ];
-  }, [statusCounts, listedTruckCount]);
+  }, [summary, summaryLoading]);
 
   const groupedByRoute = useMemo(() => {
     const groups = new Map<string, typeof movements>();
@@ -115,24 +129,31 @@ export function LiveTruckUpdatesPage() {
       <TrafficSummaryPanel
         title="Live truck updates — at a glance"
         subtitle={
-          isFetching && !isLoading
+          (summaryFetching && !summaryLoading) || (isFetching && !isLoading)
             ? "Refreshing live movement data…"
-            : "Status counts from the traffic command API"
+            : "Status counts from live truck summary"
         }
-        lastUpdated={lastUpdated}
+        lastUpdated={summaryLastUpdated}
         cards={summaryCards}
         gridClassName="grid-cols-2 sm:grid-cols-3 xl:grid-cols-5"
       />
 
-      {isError && (
+      {(isError || summaryError) && (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <div className="flex items-center gap-2">
             <AlertCircle className="h-4 w-4 shrink-0" />
-            Failed to load live truck updates.
+            {summaryError && isError
+              ? "Failed to load live truck summary and movement listing."
+              : summaryError
+                ? "Failed to load live truck summary."
+                : "Failed to load live truck movement listing."}
           </div>
           <button
             type="button"
-            onClick={() => refetch()}
+            onClick={() => {
+              if (summaryError) void refetchSummary();
+              if (isError) void refetch();
+            }}
             className="rounded-lg border border-red-300 bg-white px-3 py-1 text-xs font-semibold"
           >
             Retry

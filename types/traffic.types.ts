@@ -57,6 +57,16 @@ export interface LiveTrucksResponse {
   meta?: LiveTrucksListMeta;
 }
 
+export interface LiveTrucksSummaryResponse {
+  totalBookings: number;
+  onTrip: number;
+  leftFacility: number;
+  leftPregate: number;
+  inTerminal: number;
+  statusCounts: TrafficStatusCount[];
+  lastUpdated?: string;
+}
+
 /** Site `kind` from traffic-command locations API */
 export type LocationKind =
   | "FACILITY"
