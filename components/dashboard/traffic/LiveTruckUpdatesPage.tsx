@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   AlertCircle,
   Loader2,
@@ -169,51 +169,75 @@ export function LiveTruckUpdatesPage() {
             <Loader2 className="h-6 w-6 animate-spin text-emerald-500" />
             <p className="text-sm text-gray-400">Loading live truck movements…</p>
           </div>
+        ) : listSections.length === 0 ? (
+          <p className="px-5 py-12 text-center text-sm text-gray-400">
+            No truck movements returned for the current feed.
+          </p>
         ) : (
-          <div className="divide-y divide-gray-100">
-            {listSections.length === 0 ? (
-              <p className="px-5 py-12 text-center text-sm text-gray-400">
-                No truck movements returned for the current feed.
-              </p>
-            ) : (
-              listSections.map((section) => (
-                <div key={section.key} className="p-5">
-                  <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    {section.label}
-                  </p>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-max w-full">
-                      <thead>
-                        <tr className="border-b border-gray-100 bg-gray-50/60 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                          <th className="px-3 py-3">Plate No.</th>
-                          <th className="px-3 py-3">Driver</th>
-                          <th className="px-3 py-3">Current Location</th>
-                          <th className="px-3 py-3">Destination</th>
-                          <th className="px-3 py-3">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {section.trucks.map((t) => (
-                          <tr key={t.id} className="hover:bg-gray-50/80">
-                            <td className="px-3 py-3 font-mono text-xs font-semibold text-gray-900">
-                              {t.plateNumber}
-                            </td>
-                            <td className="px-3 py-3 text-xs text-gray-700">{t.driverName}</td>
-                            <td className="px-3 py-3 text-xs text-gray-600">{t.currentLocation}</td>
-                            <td className="px-3 py-3 text-xs text-gray-600">{t.destination}</td>
-                            <td className="px-3 py-3">
-                              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
-                                {t.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ))
-            )}
+          <div className="overflow-x-auto px-5 pb-5">
+            <table className="w-full min-w-[720px] table-fixed border-collapse">
+              <colgroup>
+                <col className="w-[13%]" />
+                <col className="w-[17%]" />
+                <col className="w-[30%]" />
+                <col className="w-[25%]" />
+                <col className="w-[15%]" />
+              </colgroup>
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50/80 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  <th className="px-3 py-3">Plate No.</th>
+                  <th className="px-3 py-3">Driver</th>
+                  <th className="px-3 py-3">Current Location</th>
+                  <th className="px-3 py-3">Destination</th>
+                  <th className="px-3 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {listSections.map((section, sectionIndex) => (
+                  <Fragment key={section.key}>
+                    <tr
+                      className={
+                        sectionIndex > 0 ? "border-t border-gray-200" : "border-t border-transparent"
+                      }
+                    >
+                      <td
+                        colSpan={5}
+                        className="bg-gray-50/50 px-3 pb-1 pt-4 text-[10px] font-bold uppercase tracking-wider text-gray-500"
+                      >
+                        {section.label}
+                      </td>
+                    </tr>
+                    {section.trucks.map((t) => (
+                      <tr key={t.id} className="border-b border-gray-100 hover:bg-gray-50/80">
+                        <td
+                          className="px-3 py-3 font-mono text-xs font-semibold text-gray-900"
+                          title={t.plateNumber}
+                        >
+                          <span className="block truncate">{t.plateNumber}</span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-700" title={t.driverName}>
+                          <span className="block truncate">{t.driverName}</span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-600" title={t.currentLocation}>
+                          <span className="block truncate">{t.currentLocation}</span>
+                        </td>
+                        <td className="px-3 py-3 text-xs text-gray-600" title={t.destination}>
+                          <span className="block truncate">{t.destination}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className="inline-block max-w-full truncate rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700"
+                            title={t.status}
+                          >
+                            {t.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

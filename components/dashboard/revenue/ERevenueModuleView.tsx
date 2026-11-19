@@ -326,6 +326,11 @@ function sortKeyToApi(key: SortKey): RevenueSortField {
 function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
   const headers = [
     "Transaction ID",
+    ...(module === "facilities"
+      ? ["Facility"]
+      : module === "transit"
+        ? ["Transit park name"]
+        : []),
     "Payment Reference",
     "Payment Source",
     "Payer Name",
@@ -339,6 +344,11 @@ function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
     const amt = getModuleDisplayAmount(module, t);
     return [
       t.transactionId,
+      ...(module === "facilities"
+        ? [t.facilityName ?? ""]
+        : module === "transit"
+          ? [t.transitParkName ?? ""]
+          : []),
       t.paymentReference,
       formatPaymentSource(t.paymentSource),
       t.payerName,
@@ -723,6 +733,10 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     }
   }
 
+  const isFacilitiesModule = module === "facilities";
+  const isTransitModule = module === "transit";
+  const tableColSpan = isFacilitiesModule || isTransitModule ? 11 : 10;
+
   const hasActiveFilters =
     search.trim() !== ""
     || sourceFilter !== "ALL"
@@ -882,7 +896,13 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="search"
-                placeholder="Transaction ID, booking ID, or payer name…"
+                placeholder={
+                  isFacilitiesModule
+                    ? "Transaction ID, reference, payer, or facility name…"
+                    : isTransitModule
+                      ? "Transaction ID, reference, payer, or transit park name…"
+                      : "Transaction ID, booking ID, or payer name…"
+                }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-100"
@@ -1022,6 +1042,8 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
               <tr className="border-b border-gray-100 bg-gray-50/60">
                 {staticTH("S/No.")}
                 {staticTH("Transaction")}
+                {isFacilitiesModule && staticTH("Facility")}
+                {isTransitModule && staticTH("Transit park name")}
                 <SortableTH column="source">Source</SortableTH>
                 <SortableTH column="payer">Payer</SortableTH>
                 <SortableTH column="amount">{meta.amountLabel}</SortableTH>
@@ -1037,14 +1059,14 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                 <tbody className="divide-y divide-gray-100">
                   {isLoading ? (
                     <tr>
-                      <td colSpan={10} className="px-4 py-12 text-center">
+                      <td colSpan={tableColSpan} className="px-4 py-12 text-center">
                         <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-500" />
                         <p className="mt-2 text-sm text-gray-400">Loading transactions…</p>
                       </td>
                     </tr>
                   ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center">
+                  <td colSpan={tableColSpan} className="px-4 py-12 text-center">
                     <Wallet className="mx-auto h-8 w-8 text-gray-300" />
                     <p className="mt-2 text-sm font-medium text-gray-400">
                       No transactions match your filters
@@ -1078,6 +1100,20 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                         {t.paymentReference}
                       </p>
                     </td>
+                    {isFacilitiesModule && (
+                      <td className="max-w-[200px] px-3 py-3 text-xs font-medium text-gray-800">
+                        <span className="line-clamp-2" title={t.facilityName ?? undefined}>
+                          {t.facilityName ?? "—"}
+                        </span>
+                      </td>
+                    )}
+                    {isTransitModule && (
+                      <td className="max-w-[200px] px-3 py-3 text-xs font-medium text-gray-800">
+                        <span className="line-clamp-2" title={t.transitParkName ?? undefined}>
+                          {t.transitParkName ?? "—"}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-3 py-3">
                       <SourceBadge source={t.paymentSource} />
                     </td>
