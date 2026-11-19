@@ -44,6 +44,7 @@ export interface RevenueTransaction {
   serviceReferenceKind: ServiceReferenceKind;
   etssShareNgn?: number;
   npaShareNgn?: number;
+  facilityId?: string;
   facilityName?: string;
   facilityShareNgn?: number;
   transitParkName?: string;
@@ -76,6 +77,7 @@ export interface RevenueTransactionsListParams {
   page?: number;
   limit?: number;
   search?: string;
+  facility_id?: string;
   payment_source?: PaymentSource | "ALL";
   payment_method?: PaymentMethod | "ALL";
   status?: PaymentStatus | "ALL";

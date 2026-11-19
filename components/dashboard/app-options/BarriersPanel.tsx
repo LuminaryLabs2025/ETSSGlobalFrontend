@@ -22,9 +22,18 @@ import type {
   BarrierRecord,
   BarrierPayload,
 } from "@/types/barriers.types";
+import type { User } from "@/types/auth.types";
 import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { useCreateBarrier } from "@/hooks/barriers/useBarrierActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
+import { useAuthStore } from "@/store/auth.store";
+
+function canViewBarrierManufacturerSerial(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.is_super_admin) return true;
+  const typeName = user.user_type?.name?.toLowerCase() ?? "";
+  return typeName.includes("admin");
+}
 
 const PAGE_SIZE = 20;
 const OPERATIONAL_STATUS_FILTERS = ["All", "ONLINE", "OFFLINE"] as const;
@@ -67,20 +76,28 @@ function AdminStatusBadge({ status }: { status: string }) {
 
 function BarrierCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const createBarrier = useCreateBarrier();
+  const user = useAuthStore((s) => s.user);
+  const showManufacturerSerial = canViewBarrierManufacturerSerial(user);
   const [serviceProviderName, setServiceProviderName] = useState("");
   const [barrierIdNumber, setBarrierIdNumber] = useState("");
+  /** UI-only until API accepts manufacturer_serial_number on create. */
+  const [manufacturerSerialNumber, setManufacturerSerialNumber] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function validate() {
     const nextErrors: Record<string, string> = {};
     if (!serviceProviderName.trim()) nextErrors.service_provider_name = "Service provider name is required.";
     if (!barrierIdNumber.trim()) nextErrors.barrier_id_number = "Barrier ID number is required.";
+    if (showManufacturerSerial && !manufacturerSerialNumber.trim()) {
+      nextErrors.manufacturer_serial_number = "Manufacturer serial number is required.";
+    }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
 
   function handleSave() {
     if (!validate()) return;
+    // manufacturerSerialNumber intentionally omitted — not yet supported by backend.
     const payload: BarrierPayload = {
       service_provider_name: serviceProviderName.trim(),
       barrier_id_number: barrierIdNumber.trim(),
@@ -151,6 +168,26 @@ function BarrierCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved
               <p className="mt-1 text-xs text-red-500">{errors.barrier_id_number}</p>
             )}
           </div>
+
+          {showManufacturerSerial && (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+                Manufacturer&apos;s Serial Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={manufacturerSerialNumber}
+                onChange={(e) => setManufacturerSerialNumber(e.target.value)}
+                placeholder="e.g. 123ab45xy12"
+                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 ${
+                  errors.manufacturer_serial_number ? "border-red-300" : "border-gray-200"
+                }`}
+              />
+              {errors.manufacturer_serial_number && (
+                <p className="mt-1 text-xs text-red-500">{errors.manufacturer_serial_number}</p>
+              )}
+             
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">

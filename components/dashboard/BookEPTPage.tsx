@@ -29,6 +29,7 @@ import {
 import type { BookingPreview, CreateEptBookingRequest } from "@/types/booking-creation.types";
 import {
   BookAssistBreadcrumb,
+  BookingDetailsStepCard,
   PaymentSummaryPanel,
   PreviewDataCell,
   SearchableGroupedSelect,
@@ -283,12 +284,20 @@ export function BookEPTPage() {
       </div>
 
       {step === 1 ? (
-        <div className="rounded-xl border border-gray-200 bg-white p-6">
-          <h2 className="mb-1 text-sm font-bold text-gray-900">Booking Details</h2>
-          <p className="mb-6 text-xs text-gray-500">
-            Select the transporter and export trip details on their behalf
-          </p>
-
+        <BookingDetailsStepCard
+          description="Select the transporter and export trip details on their behalf"
+          actions={
+            <button
+              type="button"
+              onClick={handleProceedToPreview}
+              disabled={isPreviewLoading}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {isPreviewLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              Proceed To Preview Data
+            </button>
+          }
+        >
           <div className="grid gap-5 sm:grid-cols-2">
             <SearchableSelect
               label="Select Transporter"
@@ -410,19 +419,7 @@ export function BookEPTPage() {
               />
             </div>
           </div>
-
-          <div className="mt-8 flex justify-end">
-            <button
-              type="button"
-              onClick={handleProceedToPreview}
-              disabled={isPreviewLoading}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {isPreviewLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Proceed To Preview Data
-            </button>
-          </div>
-        </div>
+        </BookingDetailsStepCard>
       ) : (
         <div className="grid gap-5 lg:grid-cols-5">
           <div className="space-y-4 lg:col-span-3">

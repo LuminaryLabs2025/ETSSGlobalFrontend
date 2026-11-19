@@ -83,7 +83,6 @@ const navGroups = [
   {
     title: "Infrastructure",
     items: [
-      { label: "Ports", icon: MapPin, href: "/dashboard/ports" },
       { label: "Terminals", icon: Landmark, href: "/dashboard/terminals" },
       { label: "Transit Parks", icon: ParkingCircle, href: "/dashboard/transit-parks" },
       { label: "Facilities", icon: Warehouse, href: "/dashboard/facilities" },

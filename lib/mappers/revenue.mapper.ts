@@ -65,10 +65,13 @@ function readShares(raw: RawTransaction) {
   };
 }
 
-function readNamedEntity(raw: unknown): { name: string } | null {
+function readNamedEntity(raw: unknown): { id?: string; name: string } | null {
   if (!raw || typeof raw !== "object") return null;
-  const name = str((raw as RawTransaction).name);
-  return name ? { name } : null;
+  const row = raw as RawTransaction;
+  const name = str(row.name);
+  if (!name) return null;
+  const id = str(row.id) || undefined;
+  return { id, name };
 }
 
 export function mapRevenueTransaction(raw: RawTransaction): RevenueTransaction {
@@ -109,6 +112,8 @@ export function mapRevenueTransaction(raw: RawTransaction): RevenueTransaction {
     ),
     etssShareNgn: shares.etssShareNgn,
     npaShareNgn: shares.npaShareNgn,
+    facilityId:
+      facility?.id ?? (str(raw.facility_id ?? raw.facilityId) || undefined),
     facilityName:
       facility?.name ?? (str(raw.facility_name ?? raw.facilityName) || undefined),
     facilityShareNgn: shares.facilityShareNgn,
