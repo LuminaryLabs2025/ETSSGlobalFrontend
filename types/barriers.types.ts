@@ -30,6 +30,8 @@ export interface BarrierLinkedHandheld {
 export interface BarrierRecord {
   id: string;
   barrier_id_number: string;
+  /** Present on /api/barriers only; null for legacy barriers until backfilled via edit. */
+  serial_number: string | null;
   service_provider_name: string;
   operational_status: BarrierOperationalStatus;
   status: BarrierStatus;
@@ -90,6 +92,7 @@ export interface BarriersSummaryResponse {
 export interface BarrierPayload {
   service_provider_name: string;
   barrier_id_number: string;
+  serial_number: string;
   operational_status?: BarrierOperationalStatus;
 }
 

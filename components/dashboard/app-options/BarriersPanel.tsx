@@ -22,18 +22,16 @@ import type {
   BarrierRecord,
   BarrierPayload,
 } from "@/types/barriers.types";
-import type { User } from "@/types/auth.types";
 import { useBarriers } from "@/hooks/barriers/useBarriers";
 import { useCreateBarrier } from "@/hooks/barriers/useBarrierActions";
 import { useDebouncedSearch } from "@/hooks/useDebouncedSearch";
-import { useAuthStore } from "@/store/auth.store";
-
-function canViewBarrierManufacturerSerial(user: User | null | undefined): boolean {
-  if (!user) return false;
-  if (user.is_super_admin) return true;
-  const typeName = user.user_type?.name?.toLowerCase() ?? "";
-  return typeName.includes("admin");
-}
+import {
+  BARRIER_SERIAL_EXISTS_MESSAGE,
+  formatBarrierSerialNumber,
+  isBarrierSerialNumberConflict,
+} from "@/lib/barrier-serial";
+import type { AxiosError } from "axios";
+import type { ApiError } from "@/types/api.types";
 
 const PAGE_SIZE = 20;
 const OPERATIONAL_STATUS_FILTERS = ["All", "ONLINE", "OFFLINE"] as const;
@@ -76,20 +74,17 @@ function AdminStatusBadge({ status }: { status: string }) {
 
 function BarrierCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const createBarrier = useCreateBarrier();
-  const user = useAuthStore((s) => s.user);
-  const showManufacturerSerial = canViewBarrierManufacturerSerial(user);
   const [serviceProviderName, setServiceProviderName] = useState("");
   const [barrierIdNumber, setBarrierIdNumber] = useState("");
-  /** UI-only until API accepts manufacturer_serial_number on create. */
-  const [manufacturerSerialNumber, setManufacturerSerialNumber] = useState("");
+  const [serialNumber, setSerialNumber] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function validate() {
     const nextErrors: Record<string, string> = {};
     if (!serviceProviderName.trim()) nextErrors.service_provider_name = "Service provider name is required.";
     if (!barrierIdNumber.trim()) nextErrors.barrier_id_number = "Barrier ID number is required.";
-    if (showManufacturerSerial && !manufacturerSerialNumber.trim()) {
-      nextErrors.manufacturer_serial_number = "Manufacturer serial number is required.";
+    if (!serialNumber.trim()) {
+      nextErrors.serial_number = "Manufacturer serial number is required.";
     }
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -97,16 +92,24 @@ function BarrierCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved
 
   function handleSave() {
     if (!validate()) return;
-    // manufacturerSerialNumber intentionally omitted — not yet supported by backend.
     const payload: BarrierPayload = {
       service_provider_name: serviceProviderName.trim(),
       barrier_id_number: barrierIdNumber.trim(),
+      serial_number: serialNumber.trim(),
     };
     createBarrier.mutate(payload, {
       onSuccess: () => {
         toast.success("Barrier created successfully.");
         onSaved();
         onClose();
+      },
+      onError: (error: AxiosError<ApiError>) => {
+        if (isBarrierSerialNumberConflict(error)) {
+          setErrors((prev) => ({
+            ...prev,
+            serial_number: BARRIER_SERIAL_EXISTS_MESSAGE,
+          }));
+        }
       },
     });
   }
@@ -169,25 +172,31 @@ function BarrierCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved
             )}
           </div>
 
-          {showManufacturerSerial && (
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-gray-700">
-                Manufacturer&apos;s Serial Number <span className="text-red-500">*</span>
-              </label>
-              <input
-                value={manufacturerSerialNumber}
-                onChange={(e) => setManufacturerSerialNumber(e.target.value)}
-                placeholder="e.g. 123ab45xy12"
-                className={`w-full rounded-lg border px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 ${
-                  errors.manufacturer_serial_number ? "border-red-300" : "border-gray-200"
-                }`}
-              />
-              {errors.manufacturer_serial_number && (
-                <p className="mt-1 text-xs text-red-500">{errors.manufacturer_serial_number}</p>
-              )}
-             
-            </div>
-          )}
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-gray-700">
+              Manufacturer&apos;s Serial Number <span className="text-red-500">*</span>
+            </label>
+            <input
+              value={serialNumber}
+              onChange={(e) => {
+                setSerialNumber(e.target.value);
+                if (errors.serial_number) {
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.serial_number;
+                    return next;
+                  });
+                }
+              }}
+              placeholder="e.g. 123ab45xy12"
+              className={`w-full rounded-lg border px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 ${
+                errors.serial_number ? "border-red-300" : "border-gray-200"
+              }`}
+            />
+            {errors.serial_number && (
+              <p className="mt-1 text-xs text-red-500">{errors.serial_number}</p>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-6 py-4">
@@ -290,7 +299,7 @@ export function BarriersPanel() {
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search by barrier ID number or service provider..."
+                  placeholder="Search by barrier ID, serial number, or service provider..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-teal-300 focus:bg-white focus:ring-2 focus:ring-teal-100"
@@ -379,6 +388,9 @@ export function BarriersPanel() {
                         Barrier ID Number
                       </th>
                       <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                        Serial Number
+                      </th>
+                      <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                         Service Provider
                       </th>
                       <th className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-500">
@@ -392,7 +404,7 @@ export function BarriersPanel() {
                   <tbody className="divide-y divide-gray-100">
                     {items.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-12 text-center">
+                        <td colSpan={6} className="px-4 py-12 text-center">
                           <DoorOpen className="mx-auto h-8 w-8 text-gray-300" />
                           <p className="mt-2 text-sm font-medium text-gray-400">No barriers found</p>
                           <p className="mt-1 text-xs text-gray-400">
@@ -408,6 +420,9 @@ export function BarriersPanel() {
                           </td>
                           <td className="px-4 py-3 font-mono text-xs font-medium text-gray-900">
                             {item.barrier_id_number}
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-gray-700">
+                            {formatBarrierSerialNumber(item.serial_number)}
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-700">{item.service_provider_name}</td>
                           <td className="px-4 py-3">

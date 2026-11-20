@@ -4,6 +4,9 @@ import type {
   PaymentSource,
   PaymentStatus,
   RevenueBreakdownResponse,
+  RevenueFilterOption,
+  RevenueFilterOptionsResponse,
+  RevenueFilterTypeOption,
   RevenueSortField,
   RevenueSortOrder,
   RevenueSummaryBreakdownItem,
@@ -74,6 +77,42 @@ function readNamedEntity(raw: unknown): { id?: string; name: string } | null {
   return { id, name };
 }
 
+function readNamedEntityWithType(
+  raw: unknown,
+): { id?: string; name: string; type_label?: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as RawTransaction;
+  const base = readNamedEntity(raw);
+  if (!base) return null;
+  const typeLabel = str(row.type_label ?? row.typeLabel) || undefined;
+  return { ...base, type_label: typeLabel };
+}
+
+export function mapRevenueFilterOptions(raw: unknown): RevenueFilterOptionsResponse {
+  const root = (raw && typeof raw === "object" ? raw : {}) as RawTransaction;
+  const optionsRaw = Array.isArray(root.options) ? root.options : [];
+  const typesRaw = Array.isArray(root.types) ? root.types : [];
+
+  return {
+    filter: str(root.filter) || undefined,
+    options: optionsRaw.flatMap((item): RevenueFilterOption[] => {
+      const row = item as RawTransaction;
+      const id = str(row.id);
+      const name = str(row.name);
+      if (!id || !name) return [];
+      const typeLabel = str(row.type_label ?? row.typeLabel) || undefined;
+      return [{ id, name, ...(typeLabel ? { type_label: typeLabel } : {}) }];
+    }),
+    types: typesRaw.flatMap((item): RevenueFilterTypeOption[] => {
+      const row = item as RawTransaction;
+      const value = str(row.value);
+      const label = str(row.label, value);
+      if (!value) return [];
+      return [{ value, label }];
+    }),
+  };
+}
+
 export function mapRevenueTransaction(raw: RawTransaction): RevenueTransaction {
   const transactionId = str(raw.transaction_id ?? raw.transactionId);
   const payer = (raw.payer ?? {}) as RawTransaction;
@@ -81,7 +120,7 @@ export function mapRevenueTransaction(raw: RawTransaction): RevenueTransaction {
   const paymentSource = str(raw.payment_source ?? raw.paymentSource) as PaymentSource;
   const shares = readShares(raw);
   const facility = readNamedEntity(raw.facility);
-  const transitPark = readNamedEntity(raw.transit_park ?? raw.transitPark);
+  const transitPark = readNamedEntityWithType(raw.transit_park ?? raw.transitPark);
   const towCompany = readNamedEntity(raw.tow_company ?? raw.towCompany);
 
   const payerName =
@@ -117,9 +156,16 @@ export function mapRevenueTransaction(raw: RawTransaction): RevenueTransaction {
     facilityName:
       facility?.name ?? (str(raw.facility_name ?? raw.facilityName) || undefined),
     facilityShareNgn: shares.facilityShareNgn,
+    transitParkId:
+      transitPark?.id ?? (str(raw.transit_park_id ?? raw.transitParkId) || undefined),
     transitParkName:
       transitPark?.name ?? (str(raw.transit_park_name ?? raw.transitParkName) || undefined),
+    transitParkTypeLabel:
+      transitPark?.type_label
+      ?? (str(raw.transit_park_type_label ?? raw.transitParkTypeLabel) || undefined),
     transitParkShareNgn: shares.transitParkShareNgn,
+    towCompanyId:
+      towCompany?.id ?? (str(raw.tow_company_id ?? raw.towCompanyId) || undefined),
     towCompanyName:
       towCompany?.name ?? (str(raw.tow_company_name ?? raw.towCompanyName) || undefined),
     towCompanyShareNgn: shares.towCompanyShareNgn,

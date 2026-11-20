@@ -3,6 +3,7 @@ import { REVENUE } from "@/api/endpoints";
 import {
   buildRevenueQueryParams,
   mapRevenueBreakdown,
+  mapRevenueFilterOptions,
   mapRevenueSummary,
   mapRevenueTransaction,
   revenueModuleParam,
@@ -10,20 +11,24 @@ import {
 } from "@/lib/mappers/revenue.mapper";
 import type { ApiResponse } from "@/types/api.types";
 import type {
+  ERevenueModule,
   RevenueBreakdownResponse,
+  RevenueFilterOptionsResponse,
   RevenueTransactionsListParams,
   RevenueTransactionsListResponse,
   RevenueSummaryResponse,
   RevenueTransaction,
 } from "@/types/e-revenue.types";
 
-type RevenueFilterParams = Omit<RevenueTransactionsListParams, "page" | "limit">;
-
-function listParamsToQuery(params: RevenueTransactionsListParams) {
-  return buildRevenueQueryParams({
+function revenueListQueryFields(params: RevenueTransactionsListParams) {
+  return {
     page: params.page,
     limit: params.limit,
     search: params.search,
+    facility_id: params.facility_id,
+    transit_park_id: params.transit_park_id,
+    transit_park_type: params.transit_park_type,
+    tow_company_id: params.tow_company_id,
     payment_source: params.payment_source,
     payment_method: params.payment_method,
     status: params.status,
@@ -33,22 +38,36 @@ function listParamsToQuery(params: RevenueTransactionsListParams) {
     amount_max: params.amount_max,
     sort_by: params.sort_by,
     sort_dir: params.sort_dir,
-  });
+  };
+}
+
+function revenueFilterQueryFields(params: RevenueFilterParams) {
+  return {
+    search: params.search,
+    facility_id: params.facility_id,
+    transit_park_id: params.transit_park_id,
+    transit_park_type: params.transit_park_type,
+    tow_company_id: params.tow_company_id,
+    payment_source: params.payment_source,
+    payment_method: params.payment_method,
+    status: params.status,
+    date_from: params.date_from,
+    date_to: params.date_to,
+    amount_min: params.amount_min,
+    amount_max: params.amount_max,
+    sort_by: params.sort_by,
+    sort_dir: params.sort_dir,
+  };
+}
+
+type RevenueFilterParams = Omit<RevenueTransactionsListParams, "page" | "limit">;
+
+function listParamsToQuery(params: RevenueTransactionsListParams) {
+  return buildRevenueQueryParams(revenueListQueryFields(params));
 }
 
 function filterParamsToQuery(params: RevenueFilterParams) {
-  return buildRevenueQueryParams({
-    search: params.search,
-    payment_source: params.payment_source,
-    payment_method: params.payment_method,
-    status: params.status,
-    date_from: params.date_from,
-    date_to: params.date_to,
-    amount_min: params.amount_min,
-    amount_max: params.amount_max,
-    sort_by: params.sort_by,
-    sort_dir: params.sort_dir,
-  });
+  return buildRevenueQueryParams(revenueFilterQueryFields(params));
 }
 
 function parseTransactionList(
@@ -141,6 +160,13 @@ export const revenueService = {
       REVENUE.TRANSACTION_BY_ID(revenueModuleParam(module), id),
     );
     return mapRevenueTransaction(data.data ?? {});
+  },
+
+  filterOptions: async (module: ERevenueModule): Promise<RevenueFilterOptionsResponse> => {
+    const { data } = await apiClient.get<ApiResponse<unknown>>(
+      REVENUE.FILTER_OPTIONS(revenueModuleParam(module)),
+    );
+    return mapRevenueFilterOptions(data.data ?? {});
   },
 
   exportCsv: async (params: RevenueTransactionsListParams): Promise<void> => {

@@ -47,8 +47,11 @@ export interface RevenueTransaction {
   facilityId?: string;
   facilityName?: string;
   facilityShareNgn?: number;
+  transitParkId?: string;
   transitParkName?: string;
+  transitParkTypeLabel?: string;
   transitParkShareNgn?: number;
+  towCompanyId?: string;
   towCompanyName?: string;
   towCompanyShareNgn?: number;
   truckPlateNumber?: string;
@@ -78,6 +81,9 @@ export interface RevenueTransactionsListParams {
   limit?: number;
   search?: string;
   facility_id?: string;
+  transit_park_id?: string;
+  transit_park_type?: string;
+  tow_company_id?: string;
   payment_source?: PaymentSource | "ALL";
   payment_method?: PaymentMethod | "ALL";
   status?: PaymentStatus | "ALL";
@@ -115,6 +121,23 @@ export interface RevenueSummaryBreakdownItem {
   total: number;
   amountDue?: number;
   entries?: number;
+}
+
+export interface RevenueFilterOption {
+  id: string;
+  name: string;
+  type_label?: string;
+}
+
+export interface RevenueFilterTypeOption {
+  value: string;
+  label: string;
+}
+
+export interface RevenueFilterOptionsResponse {
+  filter?: string;
+  options: RevenueFilterOption[];
+  types?: RevenueFilterTypeOption[];
 }
 
 export interface RevenueSummaryResponse {
