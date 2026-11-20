@@ -238,9 +238,12 @@ function PaymentDetailDrawer({
         <div className="flex-1 space-y-4 overflow-y-auto p-5 text-sm">
           <DetailRow label="Transaction ID" value={txn.transactionId} />
           <DetailRow label="Payment reference" value={txn.paymentReference} />
+          {txn.invoiceNumber && (
+            <DetailRow label="Invoice number" value={txn.invoiceNumber} />
+          )}
           <DetailRow
             label="Payment source"
-            value={formatPaymentSource(txn.paymentSource)}
+            value={txn.paymentSourceLabel ?? formatPaymentSource(txn.paymentSource)}
           />
           <DetailRow
             label="Payer"
@@ -251,7 +254,13 @@ function PaymentDetailDrawer({
           />
           <DetailRow label={meta.amountLabel} value={ngn.format(displayAmount)} />
           <DetailRow label="Gross amount (₦)" value={ngn.format(txn.amountNgn)} />
-          <DetailRow label="Payment date & time" value={formatTimestamp(txn.paidAt)} />
+          {txn.amountDue != null && txn.amountDue > 0 && (
+            <DetailRow label="Amount due (₦)" value={ngn.format(txn.amountDue)} />
+          )}
+          <DetailRow
+            label="Payment date & time"
+            value={txn.paidAt ? formatTimestamp(txn.paidAt) : "—"}
+          />
           <DetailRow
             label="Payment method"
             value={formatPaymentMethod(txn.paymentMethod)}
@@ -276,11 +285,28 @@ function PaymentDetailDrawer({
               value={`${txn.transitParkName}${txn.transitParkShareNgn ? ` · ${ngn.format(txn.transitParkShareNgn)}` : ""}`}
             />
           )}
-          {txn.towCompanyName && (
+          {(module === "tow" || txn.towCompanyName) && (
             <DetailRow
               label="Tow company"
-              value={`${txn.towCompanyName}${txn.towCompanyShareNgn ? ` · ${ngn.format(txn.towCompanyShareNgn)}` : ""}`}
+              value={
+                txn.towCompanyName
+                  ? `${txn.towCompanyName}${
+                      txn.towCompanyShareNgn != null && txn.towCompanyShareNgn > 0
+                        ? ` · ${ngn.format(txn.towCompanyShareNgn)}`
+                        : ""
+                    }`
+                  : "—"
+              }
             />
+          )}
+          {txn.truckPlateNumber && (
+            <DetailRow label="Truck plate" value={txn.truckPlateNumber} />
+          )}
+          {txn.terminalName && (
+            <DetailRow label="Terminal / site" value={txn.terminalName} />
+          )}
+          {module === "tow" && txn.etssShareNgn != null && txn.etssShareNgn > 0 && (
+            <DetailRow label="ETSS share (₦)" value={ngn.format(txn.etssShareNgn)} />
           )}
         </div>
       </div>
@@ -330,7 +356,9 @@ function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
       ? ["Facility"]
       : module === "transit"
         ? ["Transit park name"]
-        : []),
+        : module === "tow"
+          ? ["Tow company", "Truck plate", "Terminal / site"]
+          : []),
     "Payment Reference",
     "Payment Source",
     "Payer Name",
@@ -348,7 +376,9 @@ function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
         ? [t.facilityName ?? ""]
         : module === "transit"
           ? [t.transitParkName ?? ""]
-          : []),
+          : module === "tow"
+            ? [t.towCompanyName ?? "", t.truckPlateNumber ?? "", t.terminalName ?? ""]
+            : []),
       t.paymentReference,
       formatPaymentSource(t.paymentSource),
       t.payerName,
@@ -735,7 +765,8 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
 
   const isFacilitiesModule = module === "facilities";
   const isTransitModule = module === "transit";
-  const tableColSpan = isFacilitiesModule || isTransitModule ? 11 : 10;
+  const isTowModule = module === "tow";
+  const tableColSpan = isFacilitiesModule || isTransitModule || isTowModule ? 11 : 10;
 
   const hasActiveFilters =
     search.trim() !== ""
@@ -901,7 +932,9 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                     ? "Transaction ID, reference, payer, or facility name…"
                     : isTransitModule
                       ? "Transaction ID, reference, payer, or transit park name…"
-                      : "Transaction ID, booking ID, or payer name…"
+                      : isTowModule
+                        ? "Transaction ID, incident ref, payer, or tow company…"
+                        : "Transaction ID, booking ID, or payer name…"
                 }
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -1044,6 +1077,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                 {staticTH("Transaction")}
                 {isFacilitiesModule && staticTH("Facility")}
                 {isTransitModule && staticTH("Transit park name")}
+                {isTowModule && staticTH("Tow company")}
                 <SortableTH column="source">Source</SortableTH>
                 <SortableTH column="payer">Payer</SortableTH>
                 <SortableTH column="amount">{meta.amountLabel}</SortableTH>
@@ -1112,6 +1146,26 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                         <span className="line-clamp-2" title={t.transitParkName ?? undefined}>
                           {t.transitParkName ?? "—"}
                         </span>
+                      </td>
+                    )}
+                    {isTowModule && (
+                      <td className="max-w-[220px] px-3 py-3 text-xs text-gray-800">
+                        <span
+                          className="line-clamp-2 font-medium"
+                          title={t.towCompanyName ?? undefined}
+                        >
+                          {t.towCompanyName ?? "—"}
+                        </span>
+                        {t.truckPlateNumber && (
+                          <p className="mt-0.5 font-mono text-[10px] text-gray-500">
+                            {t.truckPlateNumber}
+                          </p>
+                        )}
+                        {t.terminalName && (
+                          <p className="mt-0.5 line-clamp-1 text-[10px] text-gray-400" title={t.terminalName}>
+                            {t.terminalName}
+                          </p>
+                        )}
                       </td>
                     )}
                     <td className="px-3 py-3">

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { barriersService } from "@/services/barriers.service";
 import type { ApiError } from "@/types/api.types";
 import type { BarrierPayload } from "@/types/barriers.types";
+import { isBarrierSerialNumberConflict } from "@/lib/barrier-serial";
 
 function invalidateBarriers(queryClient: ReturnType<typeof useQueryClient>) {
   queryClient.invalidateQueries({ queryKey: ["barriers"] });
@@ -18,6 +19,7 @@ export function useCreateBarrier() {
       invalidateBarriers(queryClient);
     },
     onError: (error: AxiosError<ApiError>) => {
+      if (isBarrierSerialNumberConflict(error)) return;
       toast.error(error.response?.data?.message ?? "Failed to create barrier");
     },
   });
@@ -34,6 +36,7 @@ export function useUpdateBarrier() {
       queryClient.invalidateQueries({ queryKey: ["barriers", "detail", variables.id] });
     },
     onError: (error: AxiosError<ApiError>) => {
+      if (isBarrierSerialNumberConflict(error)) return;
       toast.error(error.response?.data?.message ?? "Failed to update barrier");
     },
   });

@@ -189,6 +189,7 @@ function HandheldDeviceFormModal({
       options.unshift({
         id: assigned.id,
         barrier_id_number: assigned.barrier_id_number ?? assigned.id,
+        serial_number: null,
         service_provider_name: assigned.service_provider_name ?? assigned.name ?? "",
         operational_status: "OFFLINE",
         status: "ACTIVE",
