@@ -325,6 +325,7 @@ export const REVENUE = {
   TRANSACTION_BY_ID: (module: string, id: string) =>
     `/e-revenue/${module}/transactions/${id}`,
   EXPORT: (module: string) => `/e-revenue/${module}/export`,
+  FILTER_OPTIONS: (module: string) => `/e-revenue/${module}/filter-options`,
 } as const;
 
 // ─── Incident Reports (SuperAdmin) ───

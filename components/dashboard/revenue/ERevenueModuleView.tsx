@@ -62,6 +62,19 @@ import { useRevenueLiveTick } from "@/hooks/revenue/useRevenueLiveTick";
 import { useRevenueBreakdown } from "@/hooks/revenue/useRevenueBreakdown";
 import { useRevenueSummary } from "@/hooks/revenue/useRevenueSummary";
 import { useRevenueTransactions } from "@/hooks/revenue/useRevenueTransactions";
+import { useRevenueFilterOptions } from "@/hooks/revenue/useRevenueFilterOptions";
+import type { RevenueFilterOption } from "@/types/e-revenue.types";
+
+function transitOptionMatchesType(option: RevenueFilterOption, typeValue: string): boolean {
+  if (!typeValue.trim()) return true;
+  const normalizedValue = typeValue.trim().toUpperCase().replace(/\s+/g, "_");
+  const label = (option.type_label ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+  return (
+    label === normalizedValue
+    || label.includes(normalizedValue)
+    || normalizedValue.includes(label)
+  );
+}
 
 const ngn = new Intl.NumberFormat("en-NG", {
   style: "currency",
@@ -282,12 +295,14 @@ function PaymentDetailDrawer({
           {txn.transitParkName && (
             <DetailRow
               label="Transit park"
-              value={`${txn.transitParkName}${txn.transitParkShareNgn ? ` · ${ngn.format(txn.transitParkShareNgn)}` : ""}`}
+              value={`${txn.transitParkName}${
+                txn.transitParkTypeLabel ? ` (${txn.transitParkTypeLabel})` : ""
+              }${txn.transitParkShareNgn ? ` · ${ngn.format(txn.transitParkShareNgn)}` : ""}`}
             />
           )}
           {(module === "tow" || txn.towCompanyName) && (
             <DetailRow
-              label="Tow company"
+              label="Tow truck company"
               value={
                 txn.towCompanyName
                   ? `${txn.towCompanyName}${
@@ -357,7 +372,7 @@ function exportCsv(rows: RevenueTransaction[], module: ERevenueModule) {
       : module === "transit"
         ? ["Transit park name"]
         : module === "tow"
-          ? ["Tow company", "Truck plate", "Terminal / site"]
+          ? ["Tow Truck Company", "Truck plate", "Terminal / site"]
           : []),
     "Payment Reference",
     "Payment Source",
@@ -416,6 +431,24 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
   const [sortDesc, setSortDesc] = useState(true);
   const [selected, setSelected] = useState<RevenueTransaction | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [facilityFilter, setFacilityFilter] = useState("");
+  const [transitParkFilter, setTransitParkFilter] = useState("");
+  const [transitParkTypeFilter, setTransitParkTypeFilter] = useState("");
+  const [towCompanyFilter, setTowCompanyFilter] = useState("");
+
+  const { data: filterOptions, isLoading: filterOptionsLoading } = useRevenueFilterOptions(
+    module,
+    module === "facilities" || module === "transit" || module === "tow",
+  );
+
+  const facilityFilterOptions = filterOptions?.options ?? [];
+  const towCompanyFilterOptions = filterOptions?.options ?? [];
+  const transitParkTypeOptions = filterOptions?.types ?? [];
+  const transitParkFilterOptions = useMemo(() => {
+    const options = filterOptions?.options ?? [];
+    if (!transitParkTypeFilter) return options;
+    return options.filter((o) => transitOptionMatchesType(o, transitParkTypeFilter));
+  }, [filterOptions?.options, transitParkTypeFilter]);
 
   const listParams = useMemo((): RevenueTransactionsListParams => {
     const params: RevenueTransactionsListParams = {
@@ -431,6 +464,16 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     };
     if (amountMin) params.amount_min = Number(amountMin);
     if (amountMax) params.amount_max = Number(amountMax);
+    if (module === "facilities" && facilityFilter) {
+      params.facility_id = facilityFilter;
+    }
+    if (module === "transit") {
+      if (transitParkFilter) params.transit_park_id = transitParkFilter;
+      if (transitParkTypeFilter) params.transit_park_type = transitParkTypeFilter;
+    }
+    if (module === "tow" && towCompanyFilter) {
+      params.tow_company_id = towCompanyFilter;
+    }
     return params;
   }, [
     module,
@@ -440,6 +483,10 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     statusFilter,
     amountMin,
     amountMax,
+    facilityFilter,
+    transitParkFilter,
+    transitParkTypeFilter,
+    towCompanyFilter,
     sortKey,
     sortDesc,
   ]);
@@ -774,13 +821,21 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
     || methodFilter !== "ALL"
     || statusFilter !== "ALL"
     || amountMin !== ""
-    || amountMax !== "";
+    || amountMax !== ""
+    || facilityFilter !== ""
+    || transitParkFilter !== ""
+    || transitParkTypeFilter !== ""
+    || towCompanyFilter !== "";
 
   function clearFilters() {
     setSearch("");
     setSourceFilter("ALL");
     setMethodFilter("ALL");
     setStatusFilter("ALL");
+    setFacilityFilter("");
+    setTransitParkFilter("");
+    setTransitParkTypeFilter("");
+    setTowCompanyFilter("");
     setAmountMin("");
     setAmountMax("");
   }
@@ -970,6 +1025,104 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
 
           {showFilters && (
             <div className="mt-3 flex flex-wrap items-end gap-4 border-t border-gray-100 pt-3">
+              {isFacilitiesModule && (
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Facility
+                  </label>
+                  <select
+                    value={facilityFilter}
+                    onChange={(e) => setFacilityFilter(e.target.value)}
+                    disabled={filterOptionsLoading}
+                    className="min-w-[200px] rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300 disabled:bg-gray-50"
+                  >
+                    <option value="">
+                      {filterOptionsLoading ? "Loading facilities…" : "All facilities"}
+                    </option>
+                    {facilityFilterOptions.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {isTransitModule && (
+                <>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      Transit park type
+                    </label>
+                    <select
+                      value={transitParkTypeFilter}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setTransitParkTypeFilter(next);
+                        if (transitParkFilter && next) {
+                          const opts = (filterOptions?.options ?? []).filter((o) =>
+                            transitOptionMatchesType(o, next),
+                          );
+                          if (!opts.some((o) => o.id === transitParkFilter)) {
+                            setTransitParkFilter("");
+                          }
+                        }
+                      }}
+                      disabled={filterOptionsLoading}
+                      className="min-w-[160px] rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300 disabled:bg-gray-50"
+                    >
+                      <option value="">All types</option>
+                      {transitParkTypeOptions.map((t) => (
+                        <option key={t.value} value={t.value}>
+                          {t.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      Transit park
+                    </label>
+                    <select
+                      value={transitParkFilter}
+                      onChange={(e) => setTransitParkFilter(e.target.value)}
+                      disabled={filterOptionsLoading}
+                      className="min-w-[220px] rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300 disabled:bg-gray-50"
+                    >
+                      <option value="">
+                        {filterOptionsLoading ? "Loading transit parks…" : "All transit parks"}
+                      </option>
+                      {transitParkFilterOptions.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                          {p.type_label ? ` (${p.type_label})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+              {isTowModule && (
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Tow truck company
+                  </label>
+                  <select
+                    value={towCompanyFilter}
+                    onChange={(e) => setTowCompanyFilter(e.target.value)}
+                    disabled={filterOptionsLoading}
+                    className="min-w-[220px] rounded-lg border border-gray-200 py-1.5 pl-3 pr-8 text-xs outline-none focus:border-emerald-300 disabled:bg-gray-50"
+                  >
+                    <option value="">
+                      {filterOptionsLoading ? "Loading companies…" : "All tow truck companies"}
+                    </option>
+                    {towCompanyFilterOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   Payment source
@@ -1077,7 +1230,7 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                 {staticTH("Transaction")}
                 {isFacilitiesModule && staticTH("Facility")}
                 {isTransitModule && staticTH("Transit park name")}
-                {isTowModule && staticTH("Tow company")}
+                {isTowModule && staticTH("Tow Truck Company")}
                 <SortableTH column="source">Source</SortableTH>
                 <SortableTH column="payer">Payer</SortableTH>
                 <SortableTH column="amount">{meta.amountLabel}</SortableTH>
@@ -1146,6 +1299,11 @@ export function ERevenueModuleView({ module }: { module: ERevenueModule }) {
                         <span className="line-clamp-2" title={t.transitParkName ?? undefined}>
                           {t.transitParkName ?? "—"}
                         </span>
+                        {t.transitParkTypeLabel && (
+                          <p className="mt-0.5 text-[10px] font-medium text-gray-500">
+                            {t.transitParkTypeLabel}
+                          </p>
+                        )}
                       </td>
                     )}
                     {isTowModule && (
